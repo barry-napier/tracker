@@ -47,8 +47,29 @@ export interface Ticket {
   repoId: number | null;
   /** Null until promotion; picked per-ticket, defaulted from the Project. */
   provider: Provider | null;
+  /** Optional link to the same work item in an outside tracker (ADR-0002). */
+  externalRef: string | null;
+  /**
+   * Set on first claim and recorded here at creation — the DB row, never
+   * the branch-name string, is the source of identity.
+   */
+  branch: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export type RunState = "running" | "crashed";
+
+/** A single agent attempt at a Ticket: claim = Run creation (ticket 08). */
+export interface Run {
+  id: number;
+  ticketId: number;
+  state: RunState;
+  /** Null between claim and the worktree coming up. */
+  worktreePath: string | null;
+  crashReason: string | null;
+  createdAt: string;
+  endedAt: string | null;
 }
 
 export type AcStatus = "pending" | "verified" | "failed" | "waived";

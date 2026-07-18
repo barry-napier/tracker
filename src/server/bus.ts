@@ -15,12 +15,27 @@ export class EventBus {
   #seq = 0;
   #buffer: BusEvent[] = [];
   #subscribers = new Set<(event: BusEvent) => void>();
+  #dispatching = false;
+  #pending: BusEvent[] = [];
 
   emit(type: string, data: unknown): void {
     const event: BusEvent = { seq: ++this.#seq, type, data };
     this.#buffer.push(event);
     if (this.#buffer.length > BUFFER_LIMIT) this.#buffer.shift();
-    for (const subscriber of this.#subscribers) subscriber(event);
+    // A subscriber may emit while we're dispatching (the worker pool claims
+    // in reaction to promotions). Queue instead of recursing so every
+    // subscriber still sees events in seq order.
+    this.#pending.push(event);
+    if (this.#dispatching) return;
+    this.#dispatching = true;
+    try {
+      let next: BusEvent | undefined;
+      while ((next = this.#pending.shift()) !== undefined) {
+        for (const subscriber of this.#subscribers) subscriber(next);
+      }
+    } finally {
+      this.#dispatching = false;
+    }
   }
 
   eventsSince(seq: number): BusEvent[] {

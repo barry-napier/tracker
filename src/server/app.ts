@@ -103,6 +103,7 @@ export function createApp(store: Store, bus: EventBus): Hono {
       projectId?: number;
       title?: string;
       description?: string;
+      externalRef?: string;
       acceptanceCriteria?: string[];
     }>();
     if (typeof body.projectId !== "number") return c.json({ error: "projectId is required" }, 400);
@@ -117,6 +118,7 @@ export function createApp(store: Store, bus: EventBus): Hono {
       projectId: body.projectId,
       title: body.title,
       description: body.description,
+      externalRef: isNonEmptyString(body.externalRef) ? body.externalRef : undefined,
       acceptanceCriteria: acs,
     });
     return c.json(ticket, 201);
@@ -131,6 +133,12 @@ export function createApp(store: Store, bus: EventBus): Hono {
     const ticket = store.getTicket(Number(c.req.param("id")));
     if (!ticket) return c.json({ error: "not found" }, 404);
     return c.json(ticket);
+  });
+
+  app.get("/api/tickets/:id/runs", (c) => {
+    const ticket = store.getTicket(Number(c.req.param("id")));
+    if (!ticket) return c.json({ error: "not found" }, 404);
+    return c.json(store.listRuns(ticket.id));
   });
 
   app.get("/api/tickets/:id/audit", (c) => {

@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { EventBus } from "./bus.ts";
 import { withTransaction } from "./db.ts";
+import { branchNameFor, type WorktreeResult } from "./worktrees.ts";
 import type {
   AcceptanceCriterion,
   AuditEvent,
@@ -8,6 +9,7 @@ import type {
   Project,
   Provider,
   Repo,
+  Run,
   Ticket,
   TicketWithAcs,
 } from "./types.ts";
@@ -129,6 +131,7 @@ export class Store {
     projectId: number;
     title: string;
     description?: string;
+    externalRef?: string;
     acceptanceCriteria: string[];
   }): TicketWithAcs {
     const project = this.getProject(input.projectId);
@@ -146,9 +149,18 @@ export class Store {
       const displayKey = `${project.ticketPrefix}-${number}`;
       const result = this.db
         .prepare(
-          "INSERT INTO tickets (project_id, number, display_key, title, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO tickets (project_id, number, display_key, title, description, external_ref, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
-        .run(input.projectId, number, displayKey, input.title, input.description ?? "", now, now);
+        .run(
+          input.projectId,
+          number,
+          displayKey,
+          input.title,
+          input.description ?? "",
+          input.externalRef ?? null,
+          now,
+          now,
+        );
       const ticketId = Number(result.lastInsertRowid);
       const insertAc = this.db.prepare(
         "INSERT INTO acceptance_criteria (ticket_id, text, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -253,6 +265,121 @@ export class Store {
     return ticket;
   }
 
+  /**
+   * Claim = Run creation (ticket 08, no leases): atomically move the oldest
+   * Todo ticket to In Progress, fix its branch name (first claim only), and
+   * open the Run. Worktree paths land later via recordWorktree — git is slow
+   * and runs outside the transaction.
+   */
+  claimNextTodoTicket(excludeTicketIds: ReadonlySet<number> = new Set()): {
+    ticket: TicketWithAcs;
+    run: Run;
+    repo: Repo;
+  } | undefined {
+    const claimed = withTransaction(this.db, () => {
+      const candidates = this.db
+        .prepare("SELECT id FROM tickets WHERE state = 'todo' ORDER BY id")
+        .all();
+      const row = candidates.find((c) => !excludeTicketIds.has(Number(c.id)));
+      if (row === undefined) return undefined;
+      const existing = this.getTicket(Number(row.id))!;
+      const repo = this.getRepo(existing.repoId!);
+      if (!repo) throw new StateError(`ticket ${existing.displayKey} is todo without a repo`);
+
+      const branch = existing.branch ?? branchNameFor(existing);
+      const now = nowIso();
+      this.db
+        .prepare("UPDATE tickets SET state = 'in_progress', branch = ?, updated_at = ? WHERE id = ?")
+        .run(branch, now, existing.id);
+      const runResult = this.db
+        .prepare("INSERT INTO runs (ticket_id, state, created_at) VALUES (?, 'running', ?)")
+        .run(existing.id, now);
+      const run = this.getRun(Number(runResult.lastInsertRowid))!;
+      const ticket = this.getTicket(existing.id)!;
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "agent",
+        type: "ticket.claimed",
+        detail: { runId: run.id, branch, repoId: repo.id },
+      });
+      return { ticket, run, repo, audit };
+    });
+    if (!claimed) return undefined;
+    this.bus.emit("audit.appended", claimed.audit);
+    this.bus.emit("ticket.updated", claimed.ticket);
+    this.bus.emit("run.created", claimed.run);
+    return { ticket: claimed.ticket, run: claimed.run, repo: claimed.repo };
+  }
+
+  /** The worktree came up (or was found waiting from a prior run). */
+  recordWorktree(runId: number, input: WorktreeResult): Run {
+    const existing = this.getRun(runId);
+    if (!existing) throw new NotFoundError(`run ${runId} not found`);
+    const { run, ticket, audit } = withTransaction(this.db, () => {
+      this.db
+        .prepare("UPDATE runs SET worktree_path = ? WHERE id = ?")
+        .run(input.worktreePath, runId);
+      const run = this.getRun(runId)!;
+      const ticket = this.getTicket(run.ticketId)!;
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "agent",
+        type: input.created ? "worktree.created" : "worktree.reused",
+        detail: { runId, worktreePath: input.worktreePath, branch: ticket.branch },
+      });
+      return { run, ticket, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    this.bus.emit("run.updated", run);
+    return run;
+  }
+
+  /** Setup died; the attempt is over and the ticket goes back to the queue. */
+  markRunCrashed(runId: number, reason: string): Run {
+    const existing = this.getRun(runId);
+    if (!existing) throw new NotFoundError(`run ${runId} not found`);
+    const { run, ticket, audit } = withTransaction(this.db, () => {
+      const now = nowIso();
+      this.db
+        .prepare(
+          "UPDATE runs SET state = 'crashed', crash_reason = ?, ended_at = ? WHERE id = ?",
+        )
+        .run(reason, now, runId);
+      const run = this.getRun(runId)!;
+      this.db
+        .prepare("UPDATE tickets SET state = 'todo', updated_at = ? WHERE id = ?")
+        .run(now, run.ticketId);
+      const ticket = this.getTicket(run.ticketId)!;
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "agent",
+        type: "run.crashed",
+        detail: { runId, reason },
+      });
+      return { run, ticket, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    this.bus.emit("run.updated", run);
+    this.bus.emit("ticket.updated", ticket);
+    return run;
+  }
+
+  getRun(id: number): Run | undefined {
+    const row = this.db.prepare("SELECT * FROM runs WHERE id = ?").get(id);
+    return row === undefined ? undefined : runFromRow(row);
+  }
+
+  /** Latest first: the newest Run is the one the drawer and wizard read. */
+  listRuns(ticketId: number): Run[] {
+    return this.db
+      .prepare("SELECT * FROM runs WHERE ticket_id = ? ORDER BY id DESC")
+      .all(ticketId)
+      .map(runFromRow);
+  }
+
   listProjectAuditEvents(projectId: number): AuditEvent[] {
     return this.db
       .prepare("SELECT * FROM events WHERE project_id = ? ORDER BY id")
@@ -297,8 +424,22 @@ function ticketFromRow(row: Row): Ticket {
     state: String(row.state) as Ticket["state"],
     repoId: row.repo_id === null ? null : Number(row.repo_id),
     provider: row.provider === null ? null : (String(row.provider) as Ticket["provider"]),
+    externalRef: row.external_ref === null ? null : String(row.external_ref),
+    branch: row.branch === null ? null : String(row.branch),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+  };
+}
+
+function runFromRow(row: Row): Run {
+  return {
+    id: Number(row.id),
+    ticketId: Number(row.ticket_id),
+    state: String(row.state) as Run["state"],
+    worktreePath: row.worktree_path === null ? null : String(row.worktree_path),
+    crashReason: row.crash_reason === null ? null : String(row.crash_reason),
+    createdAt: String(row.created_at),
+    endedAt: row.ended_at === null ? null : String(row.ended_at),
   };
 }
 

@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev:renderer"],
       "port": 5199
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--experimental-transform-types", "scripts/dev-api.ts"],
+      "port": 4400
     }
   ]
 }

@@ -76,6 +76,23 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       ALTER TABLE tickets ADD COLUMN provider TEXT;
     `,
   },
+  {
+    version: 3,
+    sql: `
+      CREATE TABLE runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL REFERENCES tickets(id),
+        state TEXT NOT NULL DEFAULT 'running',
+        worktree_path TEXT,
+        crash_reason TEXT,
+        created_at TEXT NOT NULL,
+        ended_at TEXT
+      );
+
+      ALTER TABLE tickets ADD COLUMN external_ref TEXT;
+      ALTER TABLE tickets ADD COLUMN branch TEXT;
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

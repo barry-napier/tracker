@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.dev-data/
 build/
 out/
 .DS_Store

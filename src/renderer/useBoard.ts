@@ -1,9 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AuditEvent, TicketWithAcs } from "../server/types.ts";
+import type { AuditEvent, Run, TicketWithAcs } from "../server/types.ts";
 import { apiBase, apiGet } from "./api.ts";
-import { applyEvent, emptyBoard, seedAudit, seedTickets, type BoardState } from "./boardState.ts";
+import {
+  applyEvent,
+  emptyBoard,
+  seedAudit,
+  seedRuns,
+  seedTickets,
+  type BoardState,
+} from "./boardState.ts";
 
-const EVENT_TYPES = ["ticket.updated", "ac.updated", "audit.appended"] as const;
+const EVENT_TYPES = [
+  "ticket.updated",
+  "ac.updated",
+  "audit.appended",
+  "run.created",
+  "run.updated",
+] as const;
 
 /**
  * Live board: SSE subscription plus a snapshot fetch. The stream opens first
@@ -14,6 +27,7 @@ export function useBoard(): {
   board: BoardState;
   error: string | null;
   loadAudit: (ticketId: number) => void;
+  loadRuns: (ticketId: number) => void;
 } {
   const [board, setBoard] = useState(emptyBoard);
   const [error, setError] = useState<string | null>(null);
@@ -65,5 +79,15 @@ export function useBoard(): {
       });
   }, []);
 
-  return { board, error, loadAudit };
+  const loadRuns = useCallback((ticketId: number) => {
+    apiGet<Run[]>(`/api/tickets/${ticketId}/runs`)
+      .then((runs) => {
+        setBoard((state) => seedRuns(state, ticketId, runs));
+      })
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : String(e));
+      });
+  }, []);
+
+  return { board, error, loadAudit, loadRuns };
 }

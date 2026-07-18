@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
-import { applyEvent, emptyBoard, seedAudit, seedTickets } from "../src/renderer/boardState.ts";
-import type { AcceptanceCriterion, AuditEvent, TicketWithAcs } from "../src/server/types.ts";
+import {
+  applyEvent,
+  emptyBoard,
+  seedAudit,
+  seedRuns,
+  seedTickets,
+} from "../src/renderer/boardState.ts";
+import type { AcceptanceCriterion, AuditEvent, Run, TicketWithAcs } from "../src/server/types.ts";
 
 function audit(overrides: Partial<AuditEvent> & { id: number }): AuditEvent {
   return {
@@ -36,9 +42,23 @@ function ticket(overrides: Partial<TicketWithAcs> & { id: number }): TicketWithA
     state: "backlog",
     repoId: null,
     provider: null,
+    externalRef: null,
+    branch: null,
     createdAt: "2026-07-18T00:00:00.000Z",
     updatedAt: "2026-07-18T00:00:00.000Z",
     acceptanceCriteria: [],
+    ...overrides,
+  };
+}
+
+function run(overrides: Partial<Run> & { id: number }): Run {
+  return {
+    ticketId: 1,
+    state: "running",
+    worktreePath: null,
+    crashReason: null,
+    createdAt: "2026-07-18T00:00:00.000Z",
+    endedAt: null,
     ...overrides,
   };
 }
@@ -125,5 +145,28 @@ describe("board state", () => {
   test("audit events without a ticket leave board state untouched", () => {
     const state = applyEvent(emptyBoard, "audit.appended", audit({ id: 1, ticketId: null }));
     expect(state).toEqual(emptyBoard);
+  });
+
+  test("run.created starts the ticket's run list; run.updated replaces in place", () => {
+    let state = applyEvent(emptyBoard, "run.created", run({ id: 1 }));
+    expect(state.runsByTicket[1]!.map((r) => r.id)).toEqual([1]);
+
+    state = applyEvent(state, "run.updated", run({ id: 1, worktreePath: "/data/wt/app--trk-1" }));
+    expect(state.runsByTicket[1]).toHaveLength(1);
+    expect(state.runsByTicket[1]![0]!.worktreePath).toBe("/data/wt/app--trk-1");
+  });
+
+  test("a bounced ticket's newest run lists first; older runs are kept", () => {
+    let state = applyEvent(emptyBoard, "run.created", run({ id: 1, state: "crashed" }));
+    state = applyEvent(state, "run.created", run({ id: 2 }));
+    expect(state.runsByTicket[1]!.map((r) => r.id)).toEqual([2, 1]);
+  });
+
+  test("seeding fetched runs merges with live events without duplicates", () => {
+    let state = applyEvent(emptyBoard, "run.updated", run({ id: 2 }));
+    state = seedRuns(state, 1, [run({ id: 2 }), run({ id: 1 })]);
+    state = applyEvent(state, "run.updated", run({ id: 2, worktreePath: "/wt" }));
+    expect(state.runsByTicket[1]!.map((r) => r.id)).toEqual([2, 1]);
+    expect(state.runsByTicket[1]![0]!.worktreePath).toBe("/wt");
   });
 });

@@ -3,6 +3,7 @@ import type {
   AcceptanceCriterion,
   AuditEvent,
   Repo,
+  Run,
   TicketWithAcs,
 } from "../server/types.ts";
 import { PROVIDER_LABELS, repoName } from "./format.ts";
@@ -19,19 +20,25 @@ export function TicketDetail({
   ticket,
   repos,
   audit,
+  runs,
   loadAudit,
+  loadRuns,
   onClose,
 }: {
   ticket: TicketWithAcs;
   repos: Repo[];
   audit: AuditEvent[];
+  runs: Run[];
   loadAudit: (ticketId: number) => void;
+  loadRuns: (ticketId: number) => void;
   onClose: () => void;
 }) {
   const repo = repos.find((r) => r.id === ticket.repoId);
+  const latestRun = runs[0];
   useEffect(() => {
     loadAudit(ticket.id);
-  }, [ticket.id, loadAudit]);
+    loadRuns(ticket.id);
+  }, [ticket.id, loadAudit, loadRuns]);
 
   return (
     <>
@@ -46,12 +53,25 @@ export function TicketDetail({
         <span className={`badge badge-${ticket.state}`}>{STATE_LABELS[ticket.state]}</span>
 
         <h4>Properties</h4>
-        {/* Repo/provider land at promotion; runs at claim (slice 25). */}
         <div className="props dim">
           <span>Repo: {repo ? repoName(repo) : "—"}</span>
           <span>Provider: {ticket.provider ? PROVIDER_LABELS[ticket.provider] : "—"}</span>
-          <span>Run: —</span>
+          <span>Branch: {ticket.branch ?? "—"}</span>
+          {ticket.externalRef && <span>External ref: {ticket.externalRef}</span>}
         </div>
+
+        <h4>Run</h4>
+        {!latestRun && <p className="dim">Not claimed yet.</p>}
+        {latestRun && (
+          <div className="props dim">
+            <span>
+              Run #{latestRun.id} · {latestRun.state}
+              {runs.length > 1 && ` · ${runs.length} attempts`}
+            </span>
+            <span>Worktree: {latestRun.worktreePath ?? "setting up…"}</span>
+            {latestRun.crashReason && <span className="error">{latestRun.crashReason}</span>}
+          </div>
+        )}
 
         <h4>Description</h4>
         {ticket.description ? (

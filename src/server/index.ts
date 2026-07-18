@@ -3,6 +3,8 @@ import { EventBus } from "./bus.ts";
 import { openDatabase } from "./db.ts";
 import { createApp } from "./app.ts";
 import { Store } from "./store.ts";
+import { WorkerPool } from "./workers.ts";
+import { WorktreeManager } from "./worktrees.ts";
 
 export interface TrackerServer {
   url: string;
@@ -13,11 +15,15 @@ export interface TrackerServer {
 export async function startServer(options: {
   dataDir: string;
   port: number;
+  /** Worker-pool size; see WorkerPool for the default's rationale. 0 disables claims. */
+  workers?: number;
 }): Promise<TrackerServer> {
   const db = openDatabase(options.dataDir);
   const bus = new EventBus();
   const store = new Store(db, bus);
   const app = createApp(store, bus);
+  const pool = new WorkerPool(store, new WorktreeManager(options.dataDir), options.workers ?? 3);
+  pool.start(bus);
 
   return new Promise((resolve) => {
     const server = serve(
@@ -26,13 +32,15 @@ export async function startServer(options: {
         resolve({
           url: `http://127.0.0.1:${info.port}`,
           port: info.port,
-          close: () =>
-            new Promise<void>((resolveClose, rejectClose) => {
+          close: async () => {
+            await pool.stop();
+            await new Promise<void>((resolveClose, rejectClose) => {
               server.close((error) => (error ? rejectClose(error) : resolveClose()));
               // SSE clients hold connections open; drop them so close() returns.
               if ("closeAllConnections" in server) server.closeAllConnections();
               db.close();
-            }),
+            });
+          },
         });
       },
     );

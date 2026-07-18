@@ -47,7 +47,7 @@ function useWorkspace() {
 }
 
 export default function App() {
-  const { board, error, loadAudit } = useBoard();
+  const { board, error, loadAudit, loadRuns } = useBoard();
   const { project, repos, loaded, createProject, createRepo } = useWorkspace();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const selected = board.tickets.find((t) => t.id === selectedId) ?? null;
@@ -88,7 +88,9 @@ export default function App() {
           ticket={selected}
           repos={repos}
           audit={board.auditByTicket[selected.id] ?? []}
+          runs={board.runsByTicket[selected.id] ?? []}
           loadAudit={loadAudit}
+          loadRuns={loadRuns}
           onClose={() => setSelectedId(null)}
         />
       )}
