@@ -18,10 +18,13 @@ export function demoProviders(): ProviderRegistry {
   const registry: ProviderRegistry = {};
   for (const name of PROVIDERS) {
     registry[name] = new FakeProvider(async function* ({ prompt, cwd }) {
+      // The phase rides in the prompt's contract instruction, as it will
+      // for real agents; block ids are per-phase so a run's log never collides.
+      const phase = /write kb\/([a-z]+)\.md/.exec(prompt)?.[1] ?? "implement";
       let id = 0;
       const block = (content: Extract<AgentEvent, { type: "block.open" }>["block"]) => {
         id += 1;
-        return { open: { type: "block.open" as const, blockId: `demo-${id}`, block: content } };
+        return { open: { type: "block.open" as const, blockId: `${phase}-demo-${id}`, block: content } };
       };
 
       const p = block({ kind: "prompt", text: prompt });
@@ -36,7 +39,7 @@ export function demoProviders(): ProviderRegistry {
 
       const text = block({ kind: "text", text: "" });
       yield text.open;
-      for (const word of `This is the ${name} demo provider — no real agent is attached yet, so I am narrating a scripted phase instead.`.split(
+      for (const word of `This is the ${name} demo provider — no real agent is attached yet, so I am narrating a scripted ${phase} phase instead.`.split(
         " ",
       )) {
         yield { type: "block.delta", blockId: text.open.blockId, textDelta: `${word} ` };
@@ -44,17 +47,17 @@ export function demoProviders(): ProviderRegistry {
       }
       yield { type: "block.close", blockId: text.open.blockId };
 
-      const call = block({ kind: "tool_call", tool: "write_file", input: '{"path":"kb/implement.md"}' });
+      const call = block({ kind: "tool_call", tool: "write_file", input: `{"path":"kb/${phase}.md"}` });
       yield call.open;
       yield { type: "block.close", blockId: call.open.blockId };
       mkdirSync(path.join(cwd, "kb"), { recursive: true });
       writeFileSync(
-        path.join(cwd, "kb", "implement.md"),
-        "# implement\n\nScripted demo phase — no real work happened.\n",
+        path.join(cwd, "kb", `${phase}.md`),
+        `# ${phase}\n\nScripted demo phase — no real work happened.\n`,
       );
       await sleep(700);
 
-      const result = block({ kind: "tool_result", tool: "write_file", output: "wrote kb/implement.md", isError: false });
+      const result = block({ kind: "tool_result", tool: "write_file", output: `wrote kb/${phase}.md`, isError: false });
       yield result.open;
       yield { type: "block.close", blockId: result.open.blockId };
 

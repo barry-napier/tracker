@@ -6,7 +6,7 @@ import {
   seedRuns,
   seedTickets,
 } from "../src/renderer/boardState.ts";
-import type { AcceptanceCriterion, AuditEvent, Run, TicketWithAcs } from "../src/server/types.ts";
+import type { AcceptanceCriterion, AuditEvent, RunWithPhases, TicketWithAcs } from "../src/server/types.ts";
 
 function audit(overrides: Partial<AuditEvent> & { id: number }): AuditEvent {
   return {
@@ -51,12 +51,14 @@ function ticket(overrides: Partial<TicketWithAcs> & { id: number }): TicketWithA
   };
 }
 
-function run(overrides: Partial<Run> & { id: number }): Run {
+function run(overrides: Partial<RunWithPhases> & { id: number }): RunWithPhases {
   return {
     ticketId: 1,
     state: "running",
     worktreePath: null,
     crashReason: null,
+    phases: [],
+    artifacts: [],
     createdAt: "2026-07-18T00:00:00.000Z",
     endedAt: null,
     ...overrides,

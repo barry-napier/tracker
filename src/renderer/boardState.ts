@@ -1,4 +1,4 @@
-import type { AcceptanceCriterion, AuditEvent, Run, TicketWithAcs } from "../server/types.ts";
+import type { AcceptanceCriterion, AuditEvent, RunWithPhases, TicketWithAcs } from "../server/types.ts";
 
 /**
  * Pure board state derived from the API snapshot plus applied SSE events.
@@ -9,7 +9,7 @@ export interface BoardState {
   tickets: TicketWithAcs[];
   auditByTicket: Record<number, AuditEvent[]>;
   /** Newest run first — the latest Run is the one the drawer reads. */
-  runsByTicket: Record<number, Run[]>;
+  runsByTicket: Record<number, RunWithPhases[]>;
 }
 
 export const emptyBoard: BoardState = { tickets: [], auditByTicket: {}, runsByTicket: {} };
@@ -23,7 +23,7 @@ export function seedAudit(state: BoardState, ticketId: number, events: AuditEven
   return { ...state, auditByTicket: { ...state.auditByTicket, [ticketId]: merged } };
 }
 
-export function seedRuns(state: BoardState, ticketId: number, runs: Run[]): BoardState {
+export function seedRuns(state: BoardState, ticketId: number, runs: RunWithPhases[]): BoardState {
   const merged = mergeRuns(runs, state.runsByTicket[ticketId] ?? []);
   return { ...state, runsByTicket: { ...state.runsByTicket, [ticketId]: merged } };
 }
@@ -49,7 +49,7 @@ export function applyEvent(state: BoardState, type: string, data: unknown): Boar
     };
   }
   if (type === "run.created" || type === "run.updated") {
-    const run = data as Run;
+    const run = data as RunWithPhases;
     const merged = mergeRuns(state.runsByTicket[run.ticketId] ?? [], [run]);
     return { ...state, runsByTicket: { ...state.runsByTicket, [run.ticketId]: merged } };
   }
@@ -68,7 +68,7 @@ function mergeAudit(base: AuditEvent[], incoming: AuditEvent[]): AuditEvent[] {
   return [...byId.values()].sort((a, b) => a.id - b.id);
 }
 
-function mergeRuns(base: Run[], incoming: Run[]): Run[] {
+function mergeRuns(base: RunWithPhases[], incoming: RunWithPhases[]): RunWithPhases[] {
   const byId = new Map(base.map((run) => [run.id, run]));
   for (const run of incoming) byId.set(run.id, run);
   return [...byId.values()].sort((a, b) => b.id - a.id);

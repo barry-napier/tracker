@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AuditEvent, Run, TicketWithAcs } from "../server/types.ts";
+import type { AuditEvent, RunWithPhases, TicketWithAcs } from "../server/types.ts";
 import { apiBase, apiGet } from "./api.ts";
 import {
   applyEvent,
@@ -16,6 +16,7 @@ const EVENT_TYPES = [
   "audit.appended",
   "run.created",
   "run.updated",
+  "run.phase_changed",
 ] as const;
 
 /**
@@ -32,6 +33,16 @@ export function useBoard(): {
   const [board, setBoard] = useState(emptyBoard);
   const [error, setError] = useState<string | null>(null);
 
+  const loadRuns = useCallback((ticketId: number) => {
+    apiGet<RunWithPhases[]>(`/api/tickets/${ticketId}/runs`)
+      .then((runs) => {
+        setBoard((state) => seedRuns(state, ticketId, runs));
+      })
+      .catch((e: unknown) => {
+        setError(e instanceof Error ? e.message : String(e));
+      });
+  }, []);
+
   useEffect(() => {
     let disposed = false;
     let seeded = false;
@@ -41,6 +52,12 @@ export function useBoard(): {
     for (const type of EVENT_TYPES) {
       source.addEventListener(type, (message) => {
         const data: unknown = JSON.parse((message as MessageEvent<string>).data);
+        // Phase transitions carry no row data; refetch the run they touch
+        // so the drawer's phase list moves while the run is mid-flight.
+        if (type === "run.phase_changed") {
+          loadRuns((data as { ticketId: number }).ticketId);
+          return;
+        }
         if (seeded) setBoard((state) => applyEvent(state, type, data));
         else buffered.push({ type, data });
       });
@@ -67,22 +84,12 @@ export function useBoard(): {
       disposed = true;
       source.close();
     };
-  }, []);
+  }, [loadRuns]);
 
   const loadAudit = useCallback((ticketId: number) => {
     apiGet<AuditEvent[]>(`/api/tickets/${ticketId}/audit`)
       .then((events) => {
         setBoard((state) => seedAudit(state, ticketId, events));
-      })
-      .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : String(e));
-      });
-  }, []);
-
-  const loadRuns = useCallback((ticketId: number) => {
-    apiGet<Run[]>(`/api/tickets/${ticketId}/runs`)
-      .then((runs) => {
-        setBoard((state) => seedRuns(state, ticketId, runs));
       })
       .catch((e: unknown) => {
         setError(e instanceof Error ? e.message : String(e));

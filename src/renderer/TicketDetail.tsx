@@ -2,8 +2,9 @@ import { useEffect } from "react";
 import type {
   AcceptanceCriterion,
   AuditEvent,
+  PhaseExecution,
   Repo,
-  Run,
+  RunWithPhases,
   TicketWithAcs,
 } from "../server/types.ts";
 import { AgentLog } from "./AgentLog.tsx";
@@ -14,6 +15,13 @@ const ORIGIN_LABELS: Record<AcceptanceCriterion["origin"], string | null> = {
   original: null,
   "gate-fail": "follow-up · gate",
   "review-fail": "follow-up · review",
+};
+
+const PHASE_MARKS: Record<PhaseExecution["state"], string> = {
+  running: "…",
+  completed: "✓",
+  failed: "✗",
+  crashed: "✗",
 };
 
 /** Ticket detail as a right slide-over over the board (ticket 12, Variant A). */
@@ -29,7 +37,7 @@ export function TicketDetail({
   ticket: TicketWithAcs;
   repos: Repo[];
   audit: AuditEvent[];
-  runs: Run[];
+  runs: RunWithPhases[];
   loadAudit: (ticketId: number) => void;
   loadRuns: (ticketId: number) => void;
   onClose: () => void;
@@ -70,6 +78,15 @@ export function TicketDetail({
               {runs.length > 1 && ` · ${runs.length} attempts`}
             </span>
             <span>Worktree: {latestRun.worktreePath ?? "setting up…"}</span>
+            {latestRun.phases.length > 0 && (
+              <span className="phases">
+                {latestRun.phases.map((phase) => (
+                  <span key={phase.id} className={`phase phase-${phase.state}`} title={phase.state}>
+                    {PHASE_MARKS[phase.state]} {phase.phase}
+                  </span>
+                ))}
+              </span>
+            )}
             {latestRun.crashReason && <span className="error">{latestRun.crashReason}</span>}
           </div>
         )}
@@ -95,6 +112,24 @@ export function TicketDetail({
             </li>
           ))}
         </ul>
+
+        <h4>Artifacts</h4>
+        {(!latestRun || latestRun.artifacts.length === 0) && (
+          <p className="dim">Nothing persisted yet.</p>
+        )}
+        {latestRun && latestRun.artifacts.length > 0 && (
+          <ul className="artifacts">
+            {latestRun.artifacts.map((artifact) => (
+              <li key={artifact.id}>
+                <span className="artifactkind dim">{artifact.kind}</span>
+                <span>{artifact.name}</span>
+                <span className="dim" title={`worktree HEAD ${artifact.worktreeHeadSha}`}>
+                  {artifact.contentHash.slice(0, 7)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
 
         <h4>Agent log</h4>
         {!latestRun && <p className="dim">No run yet — promote the ticket to start one.</p>}

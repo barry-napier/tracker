@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import { ArtifactStore } from "./artifacts.ts";
 import { EventBus } from "./bus.ts";
 import { openDatabase } from "./db.ts";
 import { createApp } from "./app.ts";
@@ -29,7 +30,13 @@ export async function startServer(options: {
   const runLogs = new RunLogRegistry();
   const app = createApp(store, bus, runLogs);
   const engine = new WorkflowEngine(store, options.providers ?? {}, runLogs);
-  const pool = new WorkerPool(store, new WorktreeManager(options.dataDir), engine, options.workers ?? 3);
+  const pool = new WorkerPool(
+    store,
+    new WorktreeManager(options.dataDir),
+    engine,
+    new ArtifactStore(options.dataDir, store),
+    options.workers ?? 3,
+  );
   pool.start(bus);
 
   return new Promise((resolve) => {

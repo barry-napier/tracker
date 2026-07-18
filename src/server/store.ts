@@ -4,6 +4,7 @@ import { withTransaction } from "./db.ts";
 import { branchNameFor, type WorktreeResult } from "./worktrees.ts";
 import type {
   AcceptanceCriterion,
+  Artifact,
   AuditEvent,
   PhaseExecution,
   PreviewKind,
@@ -311,7 +312,7 @@ export class Store {
     if (!claimed) return undefined;
     this.bus.emit("audit.appended", claimed.audit);
     this.bus.emit("ticket.updated", claimed.ticket);
-    this.bus.emit("run.created", claimed.run);
+    this.bus.emit("run.created", this.runDetails(claimed.run));
     return { ticket: claimed.ticket, run: claimed.run, repo: claimed.repo };
   }
 
@@ -335,7 +336,7 @@ export class Store {
       return { run, ticket, audit };
     });
     this.bus.emit("audit.appended", audit);
-    this.bus.emit("run.updated", run);
+    this.bus.emit("run.updated", this.runDetails(run));
     return run;
   }
 
@@ -377,7 +378,7 @@ export class Store {
       return { run, ticket, audit };
     });
     this.bus.emit("audit.appended", audit);
-    this.bus.emit("run.updated", run);
+    this.bus.emit("run.updated", this.runDetails(run));
     this.bus.emit("ticket.updated", ticket);
     return run;
   }
@@ -396,10 +397,59 @@ export class Store {
   }
 
   listRunsWithPhases(ticketId: number): RunWithPhases[] {
-    return this.listRuns(ticketId).map((run) => ({
+    return this.listRuns(ticketId).map((run) => this.runDetails(run));
+  }
+
+  /** The enriched shape every run.* bus event and API read carries. */
+  private runDetails(run: Run): RunWithPhases {
+    return {
       ...run,
       phases: this.listPhaseExecutions(run.id),
-    }));
+      artifacts: this.listArtifacts(run.id),
+    };
+  }
+
+  listArtifacts(runId: number): Artifact[] {
+    return this.db
+      .prepare("SELECT * FROM artifacts WHERE run_id = ? ORDER BY id")
+      .all(runId)
+      .map(artifactFromRow);
+  }
+
+  /**
+   * Point at the blobs just persisted under app data. One transaction, one
+   * audit event: evidence lands atomically, whatever the run's outcome was.
+   */
+  recordArtifacts(
+    runId: number,
+    worktreeHeadSha: string,
+    files: Array<{ kind: string; name: string; path: string; contentHash: string }>,
+  ): Artifact[] {
+    const run = this.getRun(runId);
+    if (!run) throw new NotFoundError(`run ${runId} not found`);
+    if (files.length === 0) return [];
+    const { artifacts, audit } = withTransaction(this.db, () => {
+      const insert = this.db.prepare(
+        "INSERT INTO artifacts (run_id, kind, name, path, content_hash, worktree_head_sha, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      );
+      const now = nowIso();
+      for (const file of files) {
+        insert.run(runId, file.kind, file.name, file.path, file.contentHash, worktreeHeadSha, now);
+      }
+      const artifacts = this.listArtifacts(runId);
+      const ticket = this.getTicket(run.ticketId)!;
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "agent",
+        type: "artifacts.persisted",
+        detail: { runId, count: files.length, worktreeHeadSha },
+      });
+      return { artifacts, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    this.bus.emit("run.updated", this.runDetails(this.getRun(runId)!));
+    return artifacts;
   }
 
   listPhaseExecutions(runId: number): PhaseExecution[] {
@@ -473,16 +523,17 @@ export class Store {
   endPhase(
     executionId: number,
     state: "completed" | "failed" | "crashed",
-    failureReason?: string,
+    detail: { failureReason?: string; providerSessionId?: string } = {},
   ): PhaseExecution {
     const existing = this.getPhaseExecution(executionId);
     if (!existing) throw new NotFoundError(`phase execution ${executionId} not found`);
+    const { failureReason, providerSessionId } = detail;
     const { execution, ticket, audit } = withTransaction(this.db, () => {
       this.db
         .prepare(
-          "UPDATE phase_executions SET state = ?, failure_reason = ?, ended_at = ? WHERE id = ?",
+          "UPDATE phase_executions SET state = ?, failure_reason = ?, provider_session_id = ?, ended_at = ? WHERE id = ?",
         )
-        .run(state, failureReason ?? null, nowIso(), executionId);
+        .run(state, failureReason ?? null, providerSessionId ?? null, nowIso(), executionId);
       const execution = this.getPhaseExecution(executionId)!;
       const run = this.getRun(execution.runId)!;
       const ticket = this.getTicket(run.ticketId)!;
@@ -584,8 +635,22 @@ function phaseFromRow(row: Row): PhaseExecution {
     phase: String(row.phase),
     state: String(row.state) as PhaseExecution["state"],
     failureReason: row.failure_reason === null ? null : String(row.failure_reason),
+    providerSessionId: row.provider_session_id === null ? null : String(row.provider_session_id),
     startedAt: String(row.started_at),
     endedAt: row.ended_at === null ? null : String(row.ended_at),
+  };
+}
+
+function artifactFromRow(row: Row): Artifact {
+  return {
+    id: Number(row.id),
+    runId: Number(row.run_id),
+    kind: String(row.kind),
+    name: String(row.name),
+    path: String(row.path),
+    contentHash: String(row.content_hash),
+    worktreeHeadSha: String(row.worktree_head_sha),
+    createdAt: String(row.created_at),
   };
 }
 

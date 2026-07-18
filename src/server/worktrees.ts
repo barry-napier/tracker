@@ -17,7 +17,7 @@ export interface WorktreeResult {
   created: boolean;
 }
 
-async function git(cwd: string, ...args: string[]): Promise<string> {
+export async function git(cwd: string, ...args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, { cwd });
   return stdout.trim();
 }

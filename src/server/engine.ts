@@ -39,10 +39,14 @@ export class WorkflowEngine {
     if (!provider) throw new Error(`no adapter registered for provider ${ctx.ticket.provider}`);
 
     const workflow = this.store.getDefaultWorkflow();
+    // Context travels between phases as files: each completed phase's
+    // contract doc joins the {{priorKb}} handoff for the ones after it.
+    const priorKb: string[] = [];
     let node: WorkflowNode | undefined = triggerOf(workflow);
     while ((node = nextNode(workflow, node)) !== undefined) {
       if (node.type !== "agent_phase") continue;
-      await this.#runPhase(ctx, provider, node);
+      await this.#runPhase(ctx, provider, node, priorKb);
+      priorKb.push(`kb/${node.name}.md`);
     }
   }
 
@@ -50,18 +54,21 @@ export class WorkflowEngine {
     ctx: RunContext,
     provider: NonNullable<ProviderRegistry[keyof ProviderRegistry]>,
     node: WorkflowNode,
+    priorKb: readonly string[],
   ): Promise<void> {
     const execution = this.store.startPhase(ctx.run.id, node);
+    // The engine's fixed template variable set — the only context injection.
     const prompt = renderTemplate(node.promptTemplate ?? "", {
       displayKey: ctx.ticket.displayKey,
       title: ctx.ticket.title,
       description: ctx.ticket.description,
       acceptanceCriteria: ctx.ticket.acceptanceCriteria
-        .map((criterion) => `- ${criterion.text}`)
+        .map((criterion) => `- [${criterion.status}] ${criterion.text}`)
         .join("\n"),
       branch: ctx.ticket.branch ?? "",
       targetBranch: ctx.repo.targetBranch,
       phase: node.name,
+      priorKb: priorKb.length === 0 ? "none yet" : priorKb.join(", "),
     });
 
     const log = this.logs.for(ctx.run.id);
@@ -77,9 +84,11 @@ export class WorkflowEngine {
     if (result.outcome === "cancelled") {
       throw new PhaseCancelledError(`phase ${node.name} cancelled`);
     }
+    const providerSessionId = result.providerSessionId;
     if (result.outcome === "crashed") {
-      this.store.endPhase(execution.id, "crashed", result.failureReason ?? "provider crashed");
-      throw new Error(result.failureReason ?? "provider crashed");
+      const reason = result.failureReason ?? "provider crashed";
+      this.store.endPhase(execution.id, "crashed", { failureReason: reason, providerSessionId });
+      throw new Error(reason);
     }
     const contract = path.join(ctx.worktreePath, "kb", `${node.name}.md`);
     const failure =
@@ -89,10 +98,10 @@ export class WorkflowEngine {
           ? undefined
           : `contract file kb/${node.name}.md missing — phase is hollow`;
     if (failure !== undefined) {
-      this.store.endPhase(execution.id, "failed", failure);
+      this.store.endPhase(execution.id, "failed", { failureReason: failure, providerSessionId });
       throw new PhaseFailedError(failure);
     }
-    this.store.endPhase(execution.id, "completed");
+    this.store.endPhase(execution.id, "completed", { providerSessionId });
   }
 }
 

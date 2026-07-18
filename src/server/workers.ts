@@ -1,3 +1,4 @@
+import type { ArtifactStore } from "./artifacts.ts";
 import type { EventBus } from "./bus.ts";
 import { PhaseCancelledError, PhaseFailedError, type WorkflowEngine } from "./engine.ts";
 import type { Store } from "./store.ts";
@@ -22,6 +23,7 @@ export class WorkerPool {
     private readonly store: Store,
     private readonly worktrees: WorktreeManager,
     private readonly engine: WorkflowEngine,
+    private readonly artifacts: ArtifactStore,
     private readonly capacity: number,
   ) {}
 
@@ -88,10 +90,16 @@ export class WorkerPool {
     if (this.#stopped) return;
     try {
       await this.engine.execute({ run, ticket, repo, worktreePath, signal: this.#abort.signal });
+      // Verifying implies evidence on disk: failing to persist a completed
+      // run's artifacts crashes it rather than shipping it unevidenced.
+      await this.artifacts.persistRun(run.id, worktreePath);
       this.store.finishRun(run.id, "completed");
       this.#failures.delete(ticket.id);
     } catch (error) {
       if (error instanceof PhaseCancelledError || this.#stopped) return;
+      // Best effort on the failure paths — evidence survives, but a persist
+      // hiccup must not mask the run's real outcome.
+      await this.artifacts.persistRun(run.id, worktreePath).catch(() => {});
       this.#recordFailure(ticket.id);
       this.store.finishRun(
         run.id,

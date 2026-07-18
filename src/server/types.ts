@@ -109,12 +109,32 @@ export interface PhaseExecution {
   phase: string;
   state: PhaseState;
   failureReason: string | null;
+  /** The provider's own session id, when it reports one. */
+  providerSessionId: string | null;
   startedAt: string;
   endedAt: string | null;
 }
 
+/**
+ * A pointer to a blob persisted under app data at run end. The row carries a
+ * content hash and the worktree HEAD SHA at persist time; the blob survives
+ * pass, bounce, and crash alike (spec: evidence survives failed attempts).
+ */
+export interface Artifact {
+  id: number;
+  runId: number;
+  kind: string;
+  name: string;
+  /** Storage path relative to the app-data directory. */
+  path: string;
+  contentHash: string;
+  worktreeHeadSha: string;
+  createdAt: string;
+}
+
 export interface RunWithPhases extends Run {
   phases: PhaseExecution[];
+  artifacts: Artifact[];
 }
 
 export type AcStatus = "pending" | "verified" | "failed" | "waived";

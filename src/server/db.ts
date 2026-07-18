@@ -146,6 +146,76 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         VALUES (1, 1, 2, NULL);
     `,
   },
+  {
+    version: 5,
+    sql: `
+      ALTER TABLE phase_executions ADD COLUMN provider_session_id TEXT;
+
+      -- Blobs live on disk under app data; rows are pointers with a content
+      -- hash and the worktree HEAD SHA at persist time (spec 21, Store).
+      CREATE TABLE artifacts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id INTEGER NOT NULL REFERENCES runs(id),
+        kind TEXT NOT NULL,
+        name TEXT NOT NULL,
+        path TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        worktree_head_sha TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      -- Extend the seed to the full chain (workflows are data, ADR-0001):
+      -- trigger → research → plan → implement → dogfood → document.
+      -- Dogfood behaves as a plain scripted phase until slice 36.
+      INSERT INTO workflow_nodes (id, workflow_id, type, name, prompt_template) VALUES
+        (3, 1, 'agent_phase', 'research',
+          'You are researching ticket {{displayKey}}: {{title}}.' || char(10) || char(10) ||
+          '{{description}}' || char(10) || char(10) ||
+          'Acceptance criteria:' || char(10) || '{{acceptanceCriteria}}' || char(10) || char(10) ||
+          'Knowledge from earlier phases: {{priorKb}}' || char(10) || char(10) ||
+          'Explore the repository in the current directory (branch {{branch}}, target {{targetBranch}}) and understand everything this ticket touches. ' ||
+          'Do not change product code. Before finishing, write kb/{{phase}}.md: what you learned, where the work will land, and the risks.'),
+        (4, 1, 'agent_phase', 'plan',
+          'You are planning ticket {{displayKey}}: {{title}}.' || char(10) || char(10) ||
+          '{{description}}' || char(10) || char(10) ||
+          'Acceptance criteria:' || char(10) || '{{acceptanceCriteria}}' || char(10) || char(10) ||
+          'Knowledge from earlier phases: {{priorKb}}' || char(10) || char(10) ||
+          'Decide how the work gets done and verified. Do not change product code. ' ||
+          'Before finishing, write kb/{{phase}}.md: the implementation plan, step by step, with the seams you will test at.'),
+        (5, 1, 'agent_phase', 'dogfood',
+          'You are dogfooding ticket {{displayKey}}: {{title}}.' || char(10) || char(10) ||
+          '{{description}}' || char(10) || char(10) ||
+          'Acceptance criteria:' || char(10) || '{{acceptanceCriteria}}' || char(10) || char(10) ||
+          'Knowledge from earlier phases: {{priorKb}}' || char(10) || char(10) ||
+          'Actually use what was built on branch {{branch}} and judge it as a user would. ' ||
+          'Before finishing, write kb/{{phase}}.md: what you tried, what held up, what felt wrong.'),
+        (6, 1, 'agent_phase', 'document',
+          'You are documenting ticket {{displayKey}}: {{title}}.' || char(10) || char(10) ||
+          '{{description}}' || char(10) || char(10) ||
+          'Acceptance criteria:' || char(10) || '{{acceptanceCriteria}}' || char(10) || char(10) ||
+          'Knowledge from earlier phases: {{priorKb}}' || char(10) || char(10) ||
+          'Write up the change so a reviewer can judge it quickly. ' ||
+          'Before finishing, write kb/{{phase}}.md: what changed, why, and what to review.');
+
+      -- The v4 implement template predates the handoff variable; align it.
+      UPDATE workflow_nodes SET prompt_template =
+        'You are implementing ticket {{displayKey}}: {{title}}.' || char(10) || char(10) ||
+        '{{description}}' || char(10) || char(10) ||
+        'Acceptance criteria:' || char(10) || '{{acceptanceCriteria}}' || char(10) || char(10) ||
+        'Knowledge from earlier phases: {{priorKb}}' || char(10) || char(10) ||
+        'Work in the current directory on branch {{branch}} (target: {{targetBranch}}). ' ||
+        'Commit as you go. Before finishing, write kb/{{phase}}.md summarizing what you did and why.'
+      WHERE id = 2;
+
+      DELETE FROM workflow_edges WHERE workflow_id = 1;
+      INSERT INTO workflow_edges (workflow_id, from_node_id, to_node_id, condition_label) VALUES
+        (1, 1, 3, NULL),
+        (1, 3, 4, NULL),
+        (1, 4, 2, NULL),
+        (1, 2, 5, NULL),
+        (1, 5, 6, NULL);
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {
