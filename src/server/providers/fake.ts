@@ -56,6 +56,9 @@ export class FakeProvider implements Provider {
       try {
         for (;;) {
           const next = await generator.next();
+          // A cancelled phase stops here, like a SIGTERMed child: whatever
+          // side effects ran before this yield happened; nothing more does.
+          if (settled) return;
           if (next.done) return finish(next.value);
           queue.push(next.value);
           notify?.();

@@ -107,7 +107,9 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         workflow_id INTEGER NOT NULL REFERENCES workflows(id),
         type TEXT NOT NULL,
         name TEXT NOT NULL,
-        prompt_template TEXT
+        prompt_template TEXT,
+        -- Reserved for future per-node gating; unused in v1 (ADR-0003).
+        gate_requirements TEXT
       );
 
       CREATE TABLE workflow_edges (

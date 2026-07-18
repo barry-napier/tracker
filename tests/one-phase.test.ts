@@ -1,30 +1,14 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import type { TrackerServer } from "../src/server/index.ts";
 import type { AgentEvent, PhaseContext } from "../src/server/provider.ts";
 import { FakeProvider } from "../src/server/providers/fake.ts";
 import { commit } from "./git-helpers.ts";
-import { api, bootServer, cleanups, runCleanups } from "./server-helpers.ts";
-import { initScratchRepo } from "./git-helpers.ts";
+import { api, bootServer, cleanups, runCleanups, seedWorkspace } from "./server-helpers.ts";
 import { SseClient } from "./sse-client.ts";
 
 afterEach(runCleanups);
-
-async function seedWorkspace(server: TrackerServer) {
-  const source = initScratchRepo("fixture-app");
-  cleanups.push(() => rm(path.dirname(source), { recursive: true, force: true }));
-  const project = (await api(server, "POST", "/api/projects", { name: "Fixture App" })).json;
-  const repo = (
-    await api(server, "POST", "/api/repos", {
-      projectId: project.id,
-      path: source,
-      githubRemote: "git@github.com:barry/fixture-app.git",
-    })
-  ).json;
-  return { source, project, repo };
-}
 
 async function promoteTicket(
   server: TrackerServer,
@@ -237,6 +221,8 @@ describe("one phase runs through the FakeProvider", () => {
     expect(runs[0]).toMatchObject({ state: "completed" });
     expect(runs[1]).toMatchObject({ state: "crashed" });
     expect(runs[1].crashReason).toContain("provider fell over");
+    // Infrastructure death is recorded as crashed, not blamed on the work.
+    expect(runs[1].phases[0]).toMatchObject({ phase: "implement", state: "crashed" });
 
     const audit = (await api(server, "GET", `/api/tickets/${ticket.id}/audit`)).json;
     expect(audit.map((event: { type: string }) => event.type)).toContain("run.crashed");

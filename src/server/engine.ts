@@ -11,6 +11,15 @@ export class PhaseFailedError extends Error {}
 /** The orchestrator cancelled the phase (app quit); nothing gets recorded. */
 export class PhaseCancelledError extends Error {}
 
+/** Everything a Run's phases execute against. */
+export interface RunContext {
+  run: Run;
+  ticket: TicketWithAcs;
+  repo: Repo;
+  worktreePath: string;
+  signal?: AbortSignal;
+}
+
 /**
  * The dumb interpreter (ADR-0001): start at the trigger, walk the single
  * unlabeled outgoing edge, run each agent phase in a fresh provider session.
@@ -25,13 +34,7 @@ export class WorkflowEngine {
   ) {}
 
   /** Resolves on success; throws PhaseFailedError (failed) or anything else (crashed). */
-  async execute(ctx: {
-    run: Run;
-    ticket: TicketWithAcs;
-    repo: Repo;
-    worktreePath: string;
-    signal?: AbortSignal;
-  }): Promise<void> {
+  async execute(ctx: RunContext): Promise<void> {
     const provider = this.providers[ctx.ticket.provider!];
     if (!provider) throw new Error(`no adapter registered for provider ${ctx.ticket.provider}`);
 
@@ -44,13 +47,7 @@ export class WorkflowEngine {
   }
 
   async #runPhase(
-    ctx: {
-      run: Run;
-      ticket: TicketWithAcs;
-      repo: Repo;
-      worktreePath: string;
-      signal?: AbortSignal;
-    },
+    ctx: RunContext,
     provider: NonNullable<ProviderRegistry[keyof ProviderRegistry]>,
     node: WorkflowNode,
   ): Promise<void> {
@@ -81,7 +78,7 @@ export class WorkflowEngine {
       throw new PhaseCancelledError(`phase ${node.name} cancelled`);
     }
     if (result.outcome === "crashed") {
-      this.store.endPhase(execution.id, "failed", result.failureReason ?? "provider crashed");
+      this.store.endPhase(execution.id, "crashed", result.failureReason ?? "provider crashed");
       throw new Error(result.failureReason ?? "provider crashed");
     }
     const contract = path.join(ctx.worktreePath, "kb", `${node.name}.md`);

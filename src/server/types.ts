@@ -98,7 +98,8 @@ export interface WorkflowGraph {
   edges: WorkflowEdge[];
 }
 
-export type PhaseState = "running" | "completed" | "failed";
+/** failed = wrong work (hollow phase, provider-reported failure); crashed = infrastructure. */
+export type PhaseState = "running" | "completed" | "failed" | "crashed";
 
 /** One phase attempt inside a Run; history is append-only per Run. */
 export interface PhaseExecution {

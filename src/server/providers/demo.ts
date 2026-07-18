@@ -19,9 +19,9 @@ export function demoProviders(): ProviderRegistry {
   for (const name of PROVIDERS) {
     registry[name] = new FakeProvider(async function* ({ prompt, cwd }) {
       let id = 0;
-      const block = (block: Extract<AgentEvent, { type: "block.open" }>["block"]) => {
+      const block = (content: Extract<AgentEvent, { type: "block.open" }>["block"]) => {
         id += 1;
-        return { open: { type: "block.open" as const, blockId: `demo-${id}`, block } };
+        return { open: { type: "block.open" as const, blockId: `demo-${id}`, block: content } };
       };
 
       const p = block({ kind: "prompt", text: prompt });

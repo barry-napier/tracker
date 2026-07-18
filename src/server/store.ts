@@ -472,7 +472,7 @@ export class Store {
 
   endPhase(
     executionId: number,
-    state: "completed" | "failed",
+    state: "completed" | "failed" | "crashed",
     failureReason?: string,
   ): PhaseExecution {
     const existing = this.getPhaseExecution(executionId);

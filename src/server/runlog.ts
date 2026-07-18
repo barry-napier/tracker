@@ -1,8 +1,8 @@
-import type { AgentEvent } from "./provider.ts";
+import type { AgentBlock, AgentEvent } from "./provider.ts";
 
 /** A provider AgentEvent as the log stream serves it: opens carry the phase. */
 export type RunLogEvent =
-  | { type: "block.open"; blockId: string; phase: string; block: unknown }
+  | { type: "block.open"; blockId: string; phase: string; block: AgentBlock }
   | { type: "block.delta"; blockId: string; textDelta: string }
   | { type: "block.close"; blockId: string };
 

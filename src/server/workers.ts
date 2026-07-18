@@ -80,7 +80,7 @@ export class WorkerPool {
       worktreePath = result.worktreePath;
     } catch (error) {
       if (this.#stopped) return;
-      this.#failures.set(ticket.id, (this.#failures.get(ticket.id) ?? 0) + 1);
+      this.#recordFailure(ticket.id);
       this.store.finishRun(run.id, "crashed", messageOf(error));
       return;
     }
@@ -92,13 +92,17 @@ export class WorkerPool {
       this.#failures.delete(ticket.id);
     } catch (error) {
       if (error instanceof PhaseCancelledError || this.#stopped) return;
-      this.#failures.set(ticket.id, (this.#failures.get(ticket.id) ?? 0) + 1);
+      this.#recordFailure(ticket.id);
       this.store.finishRun(
         run.id,
         error instanceof PhaseFailedError ? "failed" : "crashed",
         messageOf(error),
       );
     }
+  }
+
+  #recordFailure(ticketId: number): void {
+    this.#failures.set(ticketId, (this.#failures.get(ticketId) ?? 0) + 1);
   }
 }
 
