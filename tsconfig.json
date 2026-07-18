@@ -13,5 +13,8 @@
     "rewriteRelativeImportExtensions": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"]
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
+  // The renderer is DOM/JSX code with its own tsconfig; Vite builds it.
+  // boardState.ts stays DOM-free so the test program can still pull it in.
+  "exclude": ["src/renderer"]
 }

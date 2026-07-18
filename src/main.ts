@@ -10,10 +10,10 @@ if (!app.requestSingleInstanceLock()) {
 
 let server: TrackerServer | undefined;
 
-function createWindow(): void {
+function createWindow(apiBase: string): void {
   const win = new BrowserWindow({
-    width: 1100,
-    height: 720,
+    width: 1400,
+    height: 860,
     backgroundColor: "#0d0e10",
     webPreferences: {
       preload: path.join(app.getAppPath(), "src", "preload.cjs"),
@@ -22,7 +22,9 @@ function createWindow(): void {
     },
   });
 
-  void win.loadFile(path.join(app.getAppPath(), "src", "renderer", "index.html"));
+  void win.loadFile(path.join(app.getAppPath(), "build", "renderer", "index.html"), {
+    query: { apiBase },
+  });
 }
 
 app.on("second-instance", () => {
@@ -38,11 +40,12 @@ void app.whenReady().then(async () => {
     dataDir: app.getPath("userData"),
     port: Number(process.env.TRACKER_PORT ?? 4400),
   });
+  const apiBase = server.url;
 
-  createWindow();
+  createWindow(apiBase);
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(apiBase);
   });
 });
 

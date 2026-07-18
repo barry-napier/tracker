@@ -1,11 +1,15 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { EventBus } from "./bus.ts";
 import { withTransaction } from "./db.ts";
-import type { AcceptanceCriterion, AuditEvent, Project, Ticket } from "./types.ts";
+import type {
+  AcceptanceCriterion,
+  AuditEvent,
+  Project,
+  Ticket,
+  TicketWithAcs,
+} from "./types.ts";
 
-export interface TicketWithAcs extends Ticket {
-  acceptanceCriteria: AcceptanceCriterion[];
-}
+export type { TicketWithAcs } from "./types.ts";
 
 export class NotFoundError extends Error {}
 

@@ -4,9 +4,20 @@
 
 **Blocked by:** 22 — Headless skeleton.
 
-**Status:** ready-for-agent
+**Status:** done (2026-07-18)
 
-- [ ] Creating a ticket in the UI persists through the API and appears without reload (via SSE, not optimistic-only state)
-- [ ] Ticket detail opens as a right slide-over drawer over the board, not a route change
-- [ ] Drawer shows description, AC rows (status + origin), and the Audit Trail activity feed
-- [ ] Board state survives app relaunch (rendered from the store, no fixture data)
+- [x] Creating a ticket in the UI persists through the API and appears without reload (via SSE, not optimistic-only state)
+- [x] Ticket detail opens as a right slide-over drawer over the board, not a route change
+- [x] Drawer shows description, AC rows (status + origin), and the Audit Trail activity feed
+- [x] Board state survives app relaunch (rendered from the store, no fixture data)
+
+## Resolution (2026-07-18)
+
+Vite + React renderer in `src/renderer/` (no react plugin — esbuild's automatic JSX
+keeps the strict CSP workable in dev), loaded by Electron from `build/renderer` with
+the API base passed as a query param. SSE flows through a tested pure reducer
+(`boardState.ts`: idempotent upserts, audit dedupe by event id — `tests/board-state.test.ts`);
+the stream opens before the snapshot fetch and buffers, so no event is lost. Hono
+gained CORS (renderer origin is `file://` / vite dev). Verified live in the browser
+(create → SSE card, drawer, out-of-band PATCH updating card + feed, server restart
+persistence) plus an Electron smoke test (embedded server up, renderer SSE connected).

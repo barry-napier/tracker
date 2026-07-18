@@ -38,6 +38,10 @@ export interface AcceptanceCriterion {
   updatedAt: string;
 }
 
+export interface TicketWithAcs extends Ticket {
+  acceptanceCriteria: AcceptanceCriterion[];
+}
+
 export type Actor = "human" | "agent";
 
 export interface AuditEvent {

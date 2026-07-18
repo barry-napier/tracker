@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import type { BusEvent, EventBus } from "./bus.ts";
 import { NotFoundError, type Store } from "./store.ts";
@@ -9,6 +10,23 @@ function isNonEmptyString(value: unknown): value is string {
 
 export function createApp(store: Store, bus: EventBus): Hono {
   const app = new Hono();
+
+  // The renderer calls from a non-http origin (file:// in the packaged app
+  // sends `Origin: null`, the Vite dev server a localhost origin). Anything
+  // else — i.e. arbitrary websites open in a local browser — is refused.
+  app.use(
+    "/api/*",
+    cors({
+      origin: (origin) => {
+        if (origin === "null") return origin;
+        try {
+          const { hostname } = new URL(origin);
+          if (hostname === "localhost" || hostname === "127.0.0.1") return origin;
+        } catch {}
+        return "";
+      },
+    }),
+  );
 
   app.post("/api/projects", async (c) => {
     const body = await c.req.json<{ name?: string; ticketPrefix?: string }>();
