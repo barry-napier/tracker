@@ -81,6 +81,8 @@ export interface WorkflowNode {
   type: WorkflowNodeType;
   name: string;
   promptTemplate: string | null;
+  /** Extended Phase Contract: this node must emit AC checks (ticket 07 §4). */
+  emitsChecks: boolean;
 }
 
 export interface WorkflowEdge {
@@ -147,6 +149,28 @@ export interface AcceptanceCriterion {
   position: number;
   status: AcStatus;
   origin: AcOrigin;
+  /** How the battery verifies this AC; null until a plan phase registers one. */
+  check: AcCheck | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * The registered verification for an AC (ticket 07 §4): a script the
+ * orchestrator executes (exit 0 = verified), or a routing to the Manual
+ * Walkthrough with the plan phase's one-line reason. One row per AC —
+ * re-registration on a later Run updates in place.
+ */
+export interface AcCheck {
+  id: number;
+  acId: number;
+  /** The Run whose plan phase registered (or last re-registered) it. */
+  runId: number;
+  kind: "script" | "human";
+  /** Worktree-relative, e.g. `checks/ac-3.sh`; null for human routings. */
+  scriptPath: string | null;
+  /** Why a machine can't check this; null for scripts. */
+  reason: string | null;
   createdAt: string;
   updatedAt: string;
 }

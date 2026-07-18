@@ -108,6 +108,8 @@ export function TicketDetail({
               <em className="dim">
                 {criterion.status}
                 {ORIGIN_LABELS[criterion.origin] && ` · ${ORIGIN_LABELS[criterion.origin]}`}
+                {criterion.check?.kind === "script" && ` · ${criterion.check.scriptPath}`}
+                {criterion.check?.kind === "human" && ` · manual walkthrough: ${criterion.check.reason}`}
               </em>
             </li>
           ))}

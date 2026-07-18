@@ -2,8 +2,10 @@ import type { DatabaseSync } from "node:sqlite";
 import type { EventBus } from "./bus.ts";
 import { withTransaction } from "./db.ts";
 import { branchNameFor, type WorktreeResult } from "./worktrees.ts";
+import type { CheckRegistration } from "./checks.ts";
 import type {
   AcceptanceCriterion,
+  AcCheck,
   Artifact,
   AuditEvent,
   PhaseExecution,
@@ -194,7 +196,9 @@ export class Store {
     const row = this.db.prepare("SELECT * FROM tickets WHERE id = ?").get(id);
     if (row === undefined) return undefined;
     const acs = this.db
-      .prepare("SELECT * FROM acceptance_criteria WHERE ticket_id = ? ORDER BY position, id")
+      .prepare(
+        "SELECT ac.*, c.id AS check_id, c.run_id AS check_run_id, c.kind AS check_kind, c.script_path AS check_script_path, c.reason AS check_reason, c.created_at AS check_created_at, c.updated_at AS check_updated_at FROM acceptance_criteria ac LEFT JOIN ac_checks c ON c.ac_id = ac.id WHERE ac.ticket_id = ? ORDER BY ac.position, ac.id",
+      )
       .all(id)
       .map(acFromRow);
     return { ...ticketFromRow(row), acceptanceCriteria: acs };
@@ -452,6 +456,64 @@ export class Store {
     return artifacts;
   }
 
+  /**
+   * Register the plan phase's verification for each pending AC (ticket 07 §4).
+   * One row per AC — a later Run's plan phase re-registering (bounce re-entry
+   * re-validates coverage) updates in place, so re-registration is idempotent.
+   */
+  registerAcChecks(runId: number, entries: readonly CheckRegistration[]): TicketWithAcs {
+    const run = this.getRun(runId);
+    if (!run) throw new NotFoundError(`run ${runId} not found`);
+    const existing = this.getTicket(run.ticketId);
+    if (!existing) throw new NotFoundError(`ticket ${run.ticketId} not found`);
+    const acIds = new Set(existing.acceptanceCriteria.map((ac) => ac.id));
+    for (const entry of entries) {
+      if (!acIds.has(entry.acId)) {
+        throw new ValidationError(`AC ${entry.acId} does not belong to ticket ${existing.id}`);
+      }
+    }
+    const { ticket, audit } = withTransaction(this.db, () => {
+      const upsert = this.db.prepare(
+        `INSERT INTO ac_checks (ac_id, run_id, kind, script_path, reason, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (ac_id) DO UPDATE SET
+           run_id = excluded.run_id, kind = excluded.kind, script_path = excluded.script_path,
+           reason = excluded.reason, updated_at = excluded.updated_at`,
+      );
+      const now = nowIso();
+      for (const entry of entries) {
+        upsert.run(
+          entry.acId,
+          runId,
+          entry.kind,
+          entry.kind === "script" ? entry.scriptPath : null,
+          entry.kind === "human" ? entry.reason : null,
+          now,
+          now,
+        );
+      }
+      const ticket = this.getTicket(existing.id)!;
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "agent",
+        type: "checks.registered",
+        detail: {
+          runId,
+          scripts: entries.filter((entry) => entry.kind === "script").length,
+          human: entries.filter((entry) => entry.kind === "human").length,
+        },
+      });
+      return { ticket, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    this.bus.emit("ticket.updated", ticket);
+    for (const ac of ticket.acceptanceCriteria) {
+      if (entries.some((entry) => entry.acId === ac.id)) this.bus.emit("ac.updated", ac);
+    }
+    return ticket;
+  }
+
   listPhaseExecutions(runId: number): PhaseExecution[] {
     return this.db
       .prepare("SELECT * FROM phase_executions WHERE run_id = ? ORDER BY id")
@@ -476,6 +538,7 @@ export class Store {
           type: String(row.type) as "trigger" | "agent_phase",
           name: String(row.name),
           promptTemplate: row.prompt_template === null ? null : String(row.prompt_template),
+          emitsChecks: Number(row.emits_checks) === 1,
         })),
       edges: this.db
         .prepare("SELECT * FROM workflow_edges WHERE workflow_id = ? ORDER BY id")
@@ -677,6 +740,19 @@ function acFromRow(row: Row): AcceptanceCriterion {
     position: Number(row.position),
     status: String(row.status) as AcceptanceCriterion["status"],
     origin: String(row.origin) as AcceptanceCriterion["origin"],
+    check:
+      row.check_id === null || row.check_id === undefined
+        ? null
+        : {
+            id: Number(row.check_id),
+            acId: Number(row.id),
+            runId: Number(row.check_run_id),
+            kind: String(row.check_kind) as AcCheck["kind"],
+            scriptPath: row.check_script_path === null ? null : String(row.check_script_path),
+            reason: row.check_reason === null ? null : String(row.check_reason),
+            createdAt: String(row.check_created_at),
+            updatedAt: String(row.check_updated_at),
+          },
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };

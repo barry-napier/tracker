@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { readCheckManifest } from "./checks.ts";
 import type { ProviderRegistry } from "./provider.ts";
 import { RunLogRegistry } from "./runlog.ts";
 import type { Store } from "./store.ts";
@@ -62,8 +63,9 @@ export class WorkflowEngine {
       displayKey: ctx.ticket.displayKey,
       title: ctx.ticket.title,
       description: ctx.ticket.description,
+      // AC-<id> gives check-emitting phases the ids their manifest keys on.
       acceptanceCriteria: ctx.ticket.acceptanceCriteria
-        .map((criterion) => `- [${criterion.status}] ${criterion.text}`)
+        .map((criterion) => `- [${criterion.status}] AC-${criterion.id}: ${criterion.text}`)
         .join("\n"),
       branch: ctx.ticket.branch ?? "",
       targetBranch: ctx.repo.targetBranch,
@@ -91,12 +93,24 @@ export class WorkflowEngine {
       throw new Error(reason);
     }
     const contract = path.join(ctx.worktreePath, "kb", `${node.name}.md`);
-    const failure =
+    let failure =
       result.outcome !== "completed"
         ? (result.failureReason ?? `provider reported ${result.outcome}`)
         : existsSync(contract)
           ? undefined
           : `contract file kb/${node.name}.md missing — phase is hollow`;
+    // Extended Phase Contract (ticket 07 §4): a check-emitting node must also
+    // cover every pending AC in checks/manifest.json. Statuses are re-read —
+    // a human may have waived an AC since claim.
+    if (failure === undefined && node.emitsChecks) {
+      const acs = this.store.getTicket(ctx.ticket.id)!.acceptanceCriteria;
+      const manifest = readCheckManifest(ctx.worktreePath, acs);
+      if (manifest.ok) {
+        this.store.registerAcChecks(ctx.run.id, manifest.entries);
+      } else {
+        failure = manifest.failure;
+      }
+    }
     if (failure !== undefined) {
       this.store.endPhase(execution.id, "failed", { failureReason: failure, providerSessionId });
       throw new PhaseFailedError(failure);

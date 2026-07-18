@@ -29,6 +29,15 @@ export function phaseFromPrompt(prompt: string): string {
 }
 
 /**
+ * How a scripted provider learns which ACs its plan-phase manifest must
+ * cover, the way a real agent would: from the rendered AC lines
+ * (`- [pending] AC-<id>: …`) in the prompt.
+ */
+export function pendingAcIdsFromPrompt(prompt: string): number[] {
+  return [...prompt.matchAll(/^- \[pending\] AC-(\d+):/gm)].map((match) => Number(match[1]));
+}
+
+/**
  * The spec's primary test fake: scripted per-test to behave like a real
  * agent — or to misbehave (omit the contract file, crash, hang) for the
  * crash-policy and gate-failure paths. Also stands in for real adapters in

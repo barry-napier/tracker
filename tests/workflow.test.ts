@@ -1,108 +1,22 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import type { TrackerServer } from "../src/server/index.ts";
-import type { AgentEvent, PhaseContext } from "../src/server/provider.ts";
-import { FakeProvider, phaseFromPrompt } from "../src/server/providers/fake.ts";
 import { git } from "./git-helpers.ts";
-import { api, bootServer, cleanups, runCleanups, seedWorkspace } from "./server-helpers.ts";
+import { api, runCleanups, cleanups } from "./server-helpers.ts";
 import { SseClient } from "./sse-client.ts";
+import {
+  bootWorkspace,
+  PHASES,
+  scriptedProvider,
+  waitForTicketState,
+  type PhaseCall,
+} from "./workflow-helpers.ts";
 
 afterEach(runCleanups);
 
-const PHASES = ["research", "plan", "implement", "dogfood", "document"] as const;
-
-/** The full conversation, block by block: all five kinds, text streamed as a delta. */
-function* conversation(phase: string, prompt: string): Generator<AgentEvent> {
-  const id = (n: number) => `${phase}-b${n}`;
-  yield { type: "block.open", blockId: id(1), block: { kind: "prompt", text: prompt } };
-  yield { type: "block.close", blockId: id(1) };
-  yield { type: "block.open", blockId: id(2), block: { kind: "thinking", text: `${phase} first.` } };
-  yield { type: "block.close", blockId: id(2) };
-  yield { type: "block.open", blockId: id(3), block: { kind: "text", text: "Working " } };
-  yield { type: "block.delta", blockId: id(3), textDelta: `through ${phase}.` };
-  yield { type: "block.close", blockId: id(3) };
-  yield {
-    type: "block.open",
-    blockId: id(4),
-    block: { kind: "tool_call", tool: "write_file", input: `{"path":"kb/${phase}.md"}` },
-  };
-  yield { type: "block.close", blockId: id(4) };
-  yield {
-    type: "block.open",
-    blockId: id(5),
-    block: { kind: "tool_result", tool: "write_file", output: "ok", isError: false },
-  };
-  yield { type: "block.close", blockId: id(5) };
-}
-
-function writeContract(cwd: string, phase: string): void {
-  mkdirSync(path.join(cwd, "kb"), { recursive: true });
-  writeFileSync(path.join(cwd, "kb", `${phase}.md`), `# ${phase}\n\nDid the ${phase} thing.\n`);
-}
-
-/**
- * A well-behaved agent for every phase — misbehaves only where the test's
- * `sabotage` hook says so (return false → skip the contract file; throw → crash).
- */
-function scriptedProvider(
-  calls: Array<PhaseContext & { phase: string; attempt: number }>,
-  sabotage: (phase: string, attempt: number) => void | false = () => {},
-): FakeProvider {
-  const attempts = new Map<string, number>();
-  return new FakeProvider(async function* (ctx) {
-    const phase = phaseFromPrompt(ctx.prompt);
-    const attempt = (attempts.get(phase) ?? 0) + 1;
-    attempts.set(phase, attempt);
-    calls.push({ ...ctx, phase, attempt });
-    yield* conversation(phase, ctx.prompt);
-    if (sabotage(phase, attempt) !== false) writeContract(ctx.cwd, phase);
-    return { outcome: "completed" as const, providerSessionId: `sess-${phase}-${attempt}` };
-  });
-}
-
-async function bootWorkspace(provider: FakeProvider) {
-  const dataDir = await mkdtemp(path.join(tmpdir(), "tracker-wf-"));
-  cleanups.push(() => rm(dataDir, { recursive: true, force: true }));
-  const server = await bootServer(dataDir, { workers: 3, providers: { "claude-code": provider } });
-  const { project, repo } = await seedWorkspace(server);
-  const ticket = (
-    await api(server, "POST", "/api/tickets", {
-      projectId: project.id,
-      title: "Ship the widget",
-      description: "The widget must ship.",
-      acceptanceCriteria: ["Widget renders"],
-    })
-  ).json;
-  await api(server, "POST", `/api/tickets/${ticket.id}/promote`, {
-    repoId: repo.id,
-    provider: "claude-code",
-  });
-  return { dataDir, server, ticket };
-}
-
-async function waitForTicketState(
-  server: TrackerServer,
-  ticketId: number,
-  state: string,
-  timeoutMs = 15_000,
-): Promise<any> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const { json } = await api(server, "GET", `/api/tickets/${ticketId}`);
-    if (json.state === state) return json;
-    if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for ticket ${ticketId} to reach ${state}; at ${json.state}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-}
-
 describe("the full seeded workflow", () => {
   test("five phases run in order with fresh sessions and kb handoff", async () => {
-    const calls: Array<PhaseContext & { phase: string; attempt: number }> = [];
+    const calls: PhaseCall[] = [];
     const { dataDir, server, ticket } = await bootWorkspace(scriptedProvider(calls));
     const client = await SseClient.connect(`${server.url}/api/events`);
     cleanups.push(async () => client.close());
@@ -116,9 +30,10 @@ describe("the full seeded workflow", () => {
     expect(calls.every((c) => c.cwd === runs[0].worktreePath)).toBe(true);
 
     // The fixed template variable set is the only context injection.
+    const acId = ticket.acceptanceCriteria[0].id;
     const research = calls[0]!.prompt;
     expect(research).toContain("Ship the widget");
-    expect(research).toContain("[pending] Widget renders");
+    expect(research).toContain(`[pending] AC-${acId}: Widget renders`);
     expect(research).toContain("none yet");
     const implement = calls[2]!.prompt;
     expect(implement).toContain("kb/research.md, kb/plan.md");
@@ -162,7 +77,7 @@ describe("the full seeded workflow", () => {
   }, 20_000);
 
   test("a hollow mid-workflow phase fails the run but its evidence survives", async () => {
-    const calls: Array<PhaseContext & { phase: string; attempt: number }> = [];
+    const calls: PhaseCall[] = [];
     const provider = scriptedProvider(calls, (phase, attempt) =>
       phase === "implement" && attempt === 1 ? false : undefined,
     );
@@ -187,7 +102,7 @@ describe("the full seeded workflow", () => {
   }, 20_000);
 
   test("a crashing phase crashes the run; the re-claim recovers", async () => {
-    const calls: Array<PhaseContext & { phase: string; attempt: number }> = [];
+    const calls: PhaseCall[] = [];
     const provider = scriptedProvider(calls, (phase, attempt) => {
       if (phase === "research" && attempt === 1) throw new Error("provider fell over");
     });
@@ -204,7 +119,7 @@ describe("the full seeded workflow", () => {
   }, 20_000);
 
   test("the per-run log stream carries every phase's blocks with unique ids", async () => {
-    const calls: Array<PhaseContext & { phase: string; attempt: number }> = [];
+    const calls: PhaseCall[] = [];
     const { server, ticket } = await bootWorkspace(scriptedProvider(calls));
     await waitForTicketState(server, ticket.id, "verifying");
 

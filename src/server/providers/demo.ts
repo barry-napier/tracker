@@ -3,7 +3,7 @@ import path from "node:path";
 import type { AgentEvent } from "../provider.ts";
 import type { ProviderRegistry } from "../provider.ts";
 import { PROVIDERS } from "../types.ts";
-import { FakeProvider, phaseFromPrompt } from "./fake.ts";
+import { FakeProvider, pendingAcIdsFromPrompt, phaseFromPrompt } from "./fake.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -45,6 +45,28 @@ export function demoProviders(): ProviderRegistry {
         await sleep(250);
       }
       yield { type: "block.close", blockId: text.open.blockId };
+
+      // The plan phase's extended contract: a demo-grade check per pending
+      // AC (trivially passing) plus the manifest covering them all.
+      if (phase === "plan") {
+        const acIds = pendingAcIdsFromPrompt(prompt);
+        mkdirSync(path.join(cwd, "checks"), { recursive: true });
+        const manifest: Record<string, string> = {};
+        for (const acId of acIds) {
+          const script = `checks/ac-${acId}.sh`;
+          writeFileSync(
+            path.join(cwd, script),
+            `#!/bin/sh\n# Demo check for AC-${acId} — no real agent authored this.\nexit 0\n`,
+            { mode: 0o755 },
+          );
+          manifest[String(acId)] = script;
+        }
+        const checks = block({ kind: "tool_call", tool: "write_file", input: `{"path":"checks/manifest.json"}` });
+        yield checks.open;
+        yield { type: "block.close", blockId: checks.open.blockId };
+        writeFileSync(path.join(cwd, "checks", "manifest.json"), JSON.stringify(manifest, null, 2));
+        await sleep(400);
+      }
 
       const call = block({ kind: "tool_call", tool: "write_file", input: `{"path":"kb/${phase}.md"}` });
       yield call.open;

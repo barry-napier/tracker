@@ -6,7 +6,7 @@ import { startServer } from "../src/server/index.ts";
 // process to start one). State lives in .dev-data/, ignored by git.
 const server = await startServer({
   dataDir: path.join(import.meta.dirname, "..", ".dev-data"),
-  port: Number(process.env.TRACKER_PORT ?? 4400),
+  port: Number(process.env.TRACKER_PORT ?? process.env.PORT ?? 4400),
   providers: demoProviders(),
 });
 console.log(`Tracker API listening at ${server.url}`);

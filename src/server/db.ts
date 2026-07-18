@@ -217,6 +217,44 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         (1, 5, 6, NULL);
     `,
   },
+  {
+    version: 6,
+    sql: `
+      -- One registration per AC (upsert keeps re-runs idempotent): how the
+      -- battery verifies it — a script in the worktree, or a human in the
+      -- Manual Walkthrough. run_id records the latest registering Run.
+      CREATE TABLE ac_checks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ac_id INTEGER NOT NULL UNIQUE REFERENCES acceptance_criteria(id),
+        run_id INTEGER NOT NULL REFERENCES runs(id),
+        kind TEXT NOT NULL,
+        script_path TEXT,
+        reason TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      -- The plan node's extended Phase Contract is workflow data, not an
+      -- engine special case: any node may declare it emits AC checks.
+      ALTER TABLE workflow_nodes ADD COLUMN emits_checks INTEGER NOT NULL DEFAULT 0;
+      UPDATE workflow_nodes SET emits_checks = 1 WHERE id = 4;
+
+      -- Extend the seeded plan template with the AC-check contract.
+      UPDATE workflow_nodes SET prompt_template =
+        'You are planning ticket {{displayKey}}: {{title}}.' || char(10) || char(10) ||
+        '{{description}}' || char(10) || char(10) ||
+        'Acceptance criteria:' || char(10) || '{{acceptanceCriteria}}' || char(10) || char(10) ||
+        'Knowledge from earlier phases: {{priorKb}}' || char(10) || char(10) ||
+        'Decide how the work gets done and verified. Do not change product code. ' ||
+        'For every pending acceptance criterion (numbered AC-<id> above): if it is machine-checkable, ' ||
+        'write an executable script checks/ac-<id>.sh that exits 0 when the criterion holds; ' ||
+        'otherwise route it to a human. Then write checks/manifest.json mapping every pending AC id ' ||
+        'to its script path or to {"human": "<one-line reason>"} — for example ' ||
+        '{"3": "checks/ac-3.sh", "4": {"human": "needs visual judgment"}}. ' ||
+        'Before finishing, write kb/{{phase}}.md: the implementation plan, step by step, with the seams you will test at.'
+      WHERE id = 4;
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

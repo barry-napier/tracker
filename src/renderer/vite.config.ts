@@ -9,5 +9,6 @@ export default defineConfig({
     outDir: "../../build/renderer",
     emptyOutDir: true,
   },
-  server: { port: 5199 },
+  // PORT lets a second dev session (or the preview harness) avoid collisions.
+  server: { port: Number(process.env.PORT ?? 5199) },
 });
