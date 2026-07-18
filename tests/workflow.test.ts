@@ -5,7 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import type { TrackerServer } from "../src/server/index.ts";
 import type { AgentEvent, PhaseContext } from "../src/server/provider.ts";
-import { FakeProvider } from "../src/server/providers/fake.ts";
+import { FakeProvider, phaseFromPrompt } from "../src/server/providers/fake.ts";
 import { git } from "./git-helpers.ts";
 import { api, bootServer, cleanups, runCleanups, seedWorkspace } from "./server-helpers.ts";
 import { SseClient } from "./sse-client.ts";
@@ -13,17 +13,6 @@ import { SseClient } from "./sse-client.ts";
 afterEach(runCleanups);
 
 const PHASES = ["research", "plan", "implement", "dogfood", "document"] as const;
-
-/**
- * Real agents learn their phase from the prompt; the scripts do the same.
- * Matches the contract instruction ("write kb/<phase>.md"), not the
- * {{priorKb}} handoff line, which also names kb files.
- */
-function phaseOf(prompt: string): string {
-  const match = /write kb\/([a-z]+)\.md/.exec(prompt);
-  if (!match) throw new Error(`prompt names no contract file: ${prompt.slice(0, 80)}`);
-  return match[1]!;
-}
 
 /** The full conversation, block by block: all five kinds, text streamed as a delta. */
 function* conversation(phase: string, prompt: string): Generator<AgentEvent> {
@@ -64,7 +53,7 @@ function scriptedProvider(
 ): FakeProvider {
   const attempts = new Map<string, number>();
   return new FakeProvider(async function* (ctx) {
-    const phase = phaseOf(ctx.prompt);
+    const phase = phaseFromPrompt(ctx.prompt);
     const attempt = (attempts.get(phase) ?? 0) + 1;
     attempts.set(phase, attempt);
     calls.push({ ...ctx, phase, attempt });

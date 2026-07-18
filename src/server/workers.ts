@@ -98,8 +98,11 @@ export class WorkerPool {
     } catch (error) {
       if (error instanceof PhaseCancelledError || this.#stopped) return;
       // Best effort on the failure paths — evidence survives, but a persist
-      // hiccup must not mask the run's real outcome.
-      await this.artifacts.persistRun(run.id, worktreePath).catch(() => {});
+      // hiccup must not mask the run's real outcome. Loudly best-effort:
+      // an invisible skip would fake "evidence persisted on every run end".
+      await this.artifacts.persistRun(run.id, worktreePath).catch((persistError: unknown) => {
+        console.error(`run ${run.id}: artifact persist failed`, persistError);
+      });
       this.#recordFailure(ticket.id);
       this.store.finishRun(
         run.id,

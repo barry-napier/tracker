@@ -3,7 +3,7 @@ import path from "node:path";
 import type { AgentEvent } from "../provider.ts";
 import type { ProviderRegistry } from "../provider.ts";
 import { PROVIDERS } from "../types.ts";
-import { FakeProvider } from "./fake.ts";
+import { FakeProvider, phaseFromPrompt } from "./fake.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -18,9 +18,8 @@ export function demoProviders(): ProviderRegistry {
   const registry: ProviderRegistry = {};
   for (const name of PROVIDERS) {
     registry[name] = new FakeProvider(async function* ({ prompt, cwd }) {
-      // The phase rides in the prompt's contract instruction, as it will
-      // for real agents; block ids are per-phase so a run's log never collides.
-      const phase = /write kb\/([a-z]+)\.md/.exec(prompt)?.[1] ?? "implement";
+      // Block ids are per-phase so a run's log never collides.
+      const phase = phaseFromPrompt(prompt);
       let id = 0;
       const block = (content: Extract<AgentEvent, { type: "block.open" }>["block"]) => {
         id += 1;

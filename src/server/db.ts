@@ -107,9 +107,7 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         workflow_id INTEGER NOT NULL REFERENCES workflows(id),
         type TEXT NOT NULL,
         name TEXT NOT NULL,
-        prompt_template TEXT,
-        -- Reserved for future per-node gating; unused in v1 (ADR-0003).
-        gate_requirements TEXT
+        prompt_template TEXT
       );
 
       CREATE TABLE workflow_edges (
@@ -150,6 +148,9 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
     version: 5,
     sql: `
       ALTER TABLE phase_executions ADD COLUMN provider_session_id TEXT;
+
+      -- Reserved for future per-node gating; unused in v1 (ADR-0003).
+      ALTER TABLE workflow_nodes ADD COLUMN gate_requirements TEXT;
 
       -- Blobs live on disk under app data; rows are pointers with a content
       -- hash and the worktree HEAD SHA at persist time (spec 21, Store).

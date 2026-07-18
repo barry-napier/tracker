@@ -11,3 +11,11 @@
 - [ ] 3 crashed Runs park in Human Review with the cap flag
 - [ ] Kill-the-app-mid-phase → relaunch marks the orphan crashed and the Ticket recovers per policy
 - [ ] Wall-clock timeout enforced orchestrator-side for any provider
+
+**Note from slice 27 (2026-07-18):** cancelled/orphaned Runs currently skip artifact
+persistence entirely (`WorkerPool` bails before `ArtifactStore.persistRun`; the
+worktree keeps the `kb/` files, so nothing is lost — just not yet persisted). The
+startup orphan sweep here should persist the orphan's `kb/*` when it marks the Run
+crashed, closing the "every Run end persists evidence" gap. Same for the unpinned
+decision flagged in slice 26: hollow-phase failures currently go to Todo and do not
+count toward any cap — decide their home when the bounce/crash policies land.
