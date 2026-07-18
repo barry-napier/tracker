@@ -29,4 +29,6 @@ Input from issue 05's resolution (2026-07-18): `gate_results` rows hang off a Ru
 
 Mechanical definitions carried forward for the implementers: `pr-fresh` = PR head SHA == branch tip; `branch-recorded` = branch pushed to the GitHub remote and recorded on the ticket; `demo-fresh` = demo artifact timestamp newer than the last code commit on the branch; `artifact` existence and `artifact-lint` required-sections are defined by ticket 11 (recap/dogfood formats).
 
+**Roster amendment (2026-07-18, via the delegation above):** [Recap doc and dogfood report formats](11-recap-dogfood-formats.md) added a seventh gate, **`dogfood-green`** — every scenario in `dogfood-results.json` must be `pass`/`fixed`/`waived`; each failing row emits one follow-up AC through the standard bounce machinery. Definition lives in ticket 11.
+
 "Every criterion verified or explicitly waived" mechanically: Done requires every AC row in {verified, waived} — machine-verified via check scripts, human-verified via Manual Walkthrough, or waived with reason.

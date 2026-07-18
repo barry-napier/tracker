@@ -1,8 +1,32 @@
 # Recap doc and dogfood report formats
 
 Type: grilling
-Status: open
+Status: resolved
+Assignee: Barry Napier (session 2026-07-18)
 
 ## Question
 
 What are the formats of the recap doc (visual recap) and dogfood report the agent must produce? The prototype's visual recap shows: verification badge row (thermo/CI/tests/demo), "what changed and why" prose, before/after UI impact, src-only file tree, key-change diff excerpts. Decide: exact section list for each artifact, storage (markdown in the DB? files in the worktree kb/ dir as the prototype suggests?), how the review wizard renders them, and what the document phase of the workflow must emit so the wizard never renders an empty step.
+
+## Answer (2026-07-18)
+
+Resolved by grilling against the prototype code at `~/Downloads/tracker` (reference specs: `orchestrator/visual-recap.md`, `docs/dogfood-agent-design.md`, `orchestrator/skills/dogfood/{SKILL.md,report-template.md,matrix.schema.json,governor.md,personas/}`, `kanban/server/index.mjs` lintRecap + recap/dogfood endpoints, `kanban/src/components/{ReviewWizard,RecapView}.tsx`). Port behavior and prompt assets, not code.
+
+1. **Visual Recap = agent-authored self-contained HTML**, per the prototype's `visual-recap.md` authoring spec, vendored (adapted) into the document-phase prompt template. Agent authors sections 3–8: outcome narrative, UI wireframes (*if UI changed*), contract blocks (*if routes/schema changed*), src-only file tree, key-change tabs (riskiest first, mechanical bulk collapsed), "What to review" (2–5 numbered notes: deviations from ticket, behavior hiding in refactors, soft verification, blast radius). Hard rules carried: grounded mechanically in the diff, src-only diffstat, secret redaction, zero external resources, no boilerplate. The prototype's sections 1–2 (meta line, verification badge strip) are **not** in the doc — the wizard renders them live from ticket/run/git and `gate_results` + AC rows, so they can't be faked or go stale.
+
+2. **Dogfood Report = markdown from the vendored report template**, five sections: Verdict line; Matrix (journey/kind/functional/experiential/evidence/fix columns, cap 12 ranked by risk, cut log mandatory — silent truncation banned); Paper cuts (sharp/mild); Decisions for a human (governor shape: observed behavior, options with costs, recommendation); Instruments (suite result, console/network harvest, server, not-covered). **Persona** is optional per-repo config (path to a markdown persona file, like preview config); absence is stated honestly in the report, never faked. Alongside it the phase emits **`dogfood-results.json`** conforming to the vendored `matrix.schema.json` (scenarios `S<n>` with `flow_ref` → AC ids, `kind: browser|http`, `branch: happy|failure|empty|permission`, `status: pending|pass|fail|fixed|parked|waived`, `fix: {sha, test}`, `paper_cuts`, top-level `cut[]` with reasons).
+
+3. **Producer: the seed workflow's review node becomes the dogfood phase** — seed is research → plan → implement → **dogfood** → document. Fresh-session-per-phase already provides the prototype's structural independence from the builder. The phase boots the preview via PreviewManager (`ui` → browser journeys, `api` → http), derives scenarios from the diff + ACs, and **may fix** under the prototype's governor: caps 2/scenario, 4/run (prompt-enforced), every fix recorded in the matrix as fix SHA + regression test; over cap → scenario stays failed, honestly. Code-review concerns belong to the gate battery + Human Review; a self-review phase was dead weight. The document phase then writes the recap (fix SHAs included by construction — document runs last).
+
+4. **Storage: nothing workflow-generated is committed to the branch** — PR stays pure src (drops the prototype's committed-kb noise and its two-diffstat apology). The worktree manager adds `kb/` and `checks/` to `.git/info/exclude` at worktree creation (local-only; never touches the target repo). At the end of **every** run — pass, bounce, or crash — the orchestrator copies `kb/*` to `<app-data>/artifacts/<run-id>/` and records artifact rows (path, type, worktree HEAD SHA at persist time). The wizard reads the blob store, never the worktree.
+
+5. **Gates** (per the delegation in [Evidence gate battery v1](06-evidence-gate-battery.md)):
+   - `artifact` = existence of `recap.html`, `dogfood-report.md`, `dogfood-results.json` (which artifacts a workflow owes = node-level gate requirements, already in the node schema).
+   - `artifact-lint` = port of the prototype's `lintRecap` **verbatim in spirit**: hard-fail only on external resource references (script/img/link/iframe/etc. src, CSS `url()`/`@import`) and missing "What to review"; missing verification-strip mention is a warning. Plus: `dogfood-results.json` validates against the vendored schema with ≥ 1 scenario. `dogfood-report.md` is existence-only — the template enforces structure through the prompt, as the prototype deliberately chose (its restraint is a learned position; every false 422 is a wasted bounce).
+   - **`dogfood-green` (new gate, amends the 06 roster)** = every scenario status ∈ {pass, fixed, waived}; each failing row emits one follow-up AC via the standard bounce machinery. An honest red report still *completes the phase* (contract + report exist) — the gate has the teeth, not the phase. A non-empty "Decisions for a human" does **not** fail the gate: bouncing can't answer a question; the wizard's Dogfood step surfaces it and Human Review is Tracker's park.
+
+6. **Wizard rendering** (constraints flowed to ticket 12): recap in a sandboxed iframe (`allow-scripts`, no same-origin, CSP `default-src 'none'` defense-in-depth on the serving endpoint); dogfood report as rendered markdown; live badge/meta header above both from DB + gate results; **stale banner only when provably stale** (prefix SHA compare of artifact SHA vs branch tip; unknowable → null → no banner); conditional steps + graceful-empty — a park-by-cap arrival renders an explicit "missing — arrived via bounce cap" placeholder per absent artifact, never a blank panel; the Documentation & Artifacts step excludes `dogfood-report.md` (it has its own step).
+
+New ubiquitous-language terms (added to `CONTEXT.md`): **Visual Recap**, **Dogfood Report**, **Persona**, **dogfood-green**.
+
+Constraints flowed to: [12](12-board-review-wizard-ui.md) (wizard chrome/rendering), [14](14-store-implementation.md) (artifact SHA, persona config, gate roster), [16](16-worktree-manager.md) (`.git/info/exclude`), [17](17-orchestrator.md) (seed rename, artifact persistence, new gate, vendored prompt assets), [20](20-preview-manager.md) (dogfood phase as consumer).

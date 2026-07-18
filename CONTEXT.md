@@ -40,6 +40,18 @@ What the workflow engine requires of every phase: run in a fresh provider sessio
 
 A deterministic artifact the orchestrator renders when a Ticket bounces: per failed AC or gate — the criterion, the check, an output excerpt (full log linked), and evidence pointers; human reviewer feedback verbatim; pointers to the prior Run's artifacts and branch. Written into the persisting worktree and recorded as a Run artifact, it is how failure context reaches the next Run. Never LLM-summarized — structured data first, prose rendering second.
 
+### Visual Recap
+
+An agent-authored, self-contained HTML page that lets the reviewer understand a change structurally — what changed, why, where the risk is — without reading the raw diff. Grounded mechanically in the diff; ends with "What to review," the notes directing the reviewer's attention. Produced by the document phase, never committed to the branch, rendered by the review wizard in a sandboxed iframe. The meta line and verification badges are wizard chrome drawn from live data, not part of the page.
+
+### Dogfood Report
+
+The dogfood phase's account of actually using what was built: a scenario Matrix of user journeys walked against the Preview Environment (with evidence and any governor-capped fixes recorded by SHA + regression test), paper cuts, open Decisions for a human, and the instruments used. Ships with a machine-readable results file the `dogfood-green` gate reads: any scenario not passed, fixed, or waived bounces the Ticket; open human decisions never bounce — they surface at Human Review.
+
+### Persona
+
+An optional per-Repo markdown file giving the dogfood phase a user's lens (e.g. a claims adjuster) for judging experience, not just function. No Persona configured → the report says the experiential judge was skipped; the lens is never faked.
+
 ### Audit Trail
 
 The append-only record of domain events describing everything that happened to a Ticket over its life — promoted, claimed, phase transitions, gate results, bounces, verdicts, merges. Each event has an actor (human or agent worker), an event type, and event-specific detail. Events are never updated or deleted. The activity feed in the ticket detail view is the rendered form of the Audit Trail.
