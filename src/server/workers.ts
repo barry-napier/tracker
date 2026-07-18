@@ -1,24 +1,27 @@
 import type { EventBus } from "./bus.ts";
+import { PhaseCancelledError, PhaseFailedError, type WorkflowEngine } from "./engine.ts";
 import type { Store } from "./store.ts";
+import type { Repo, Run, TicketWithAcs } from "./types.ts";
 import type { WorktreeManager } from "./worktrees.ts";
 
-const MAX_SETUP_FAILURES = 3;
+const MAX_FAILURES = 3;
 
 /**
  * The factory's claiming half (spec: 3 workers, more melted the CPU). A slot
- * is held from claim until the Run ends; nothing ends Runs yet in this slice,
- * so a claimed ticket occupies its slot until the app quits — slice 26 frees
- * slots when phases finish.
+ * is held from claim until the Run ends — setup, workflow phases, and the
+ * run's verdict all happen inside it — then freed for the next Todo ticket.
  */
 export class WorkerPool {
   #active = new Set<number>();
   #inFlight = new Set<Promise<void>>();
-  #setupFailures = new Map<number, number>();
+  #failures = new Map<number, number>();
   #stopped = false;
+  #abort = new AbortController();
 
   constructor(
     private readonly store: Store,
     private readonly worktrees: WorktreeManager,
+    private readonly engine: WorkflowEngine,
     private readonly capacity: number,
   ) {}
 
@@ -31,9 +34,14 @@ export class WorkerPool {
     this.claimUpToCapacity();
   }
 
-  /** Resolves once no setup is mid-git, so teardown can't race a clone. */
+  /**
+   * Cancel in-flight phases and resolve once nothing is mid-git or mid-DB.
+   * Cancelled Runs stay "running" on disk — the startup orphan sweep of a
+   * later slice marks them crashed (spec: no leases, ticket 08).
+   */
   async stop(): Promise<void> {
     this.#stopped = true;
+    this.#abort.abort();
     await Promise.allSettled([...this.#inFlight]);
   }
 
@@ -41,39 +49,59 @@ export class WorkerPool {
     if (this.#stopped) return;
     while (this.#active.size < this.capacity) {
       // Stop-gap until slice 41's crash policy (which parks in Human Review):
-      // a ticket whose setup keeps dying is skipped instead of hot-looping
-      // claim → crash. It sits in Todo, unclaimed, until an app restart.
+      // a ticket that keeps dying — setup crash, hollow phase, provider
+      // crash — is skipped instead of hot-looping claim → fail. It sits in
+      // Todo, unclaimed, until an app restart.
       const exclude = new Set(
-        [...this.#setupFailures]
-          .filter(([, count]) => count >= MAX_SETUP_FAILURES)
+        [...this.#failures]
+          .filter(([, count]) => count >= MAX_FAILURES)
           .map(([ticketId]) => ticketId),
       );
       const claimed = this.store.claimNextTodoTicket(exclude);
       if (!claimed) return;
       this.#active.add(claimed.run.id);
-      const setup = this.#setUp(claimed);
-      this.#inFlight.add(setup);
-      void setup.finally(() => this.#inFlight.delete(setup));
+      const work = this.#work(claimed);
+      this.#inFlight.add(work);
+      void work.finally(() => {
+        this.#inFlight.delete(work);
+        this.#active.delete(claimed.run.id);
+        this.claimUpToCapacity();
+      });
     }
   }
 
-  async #setUp(claimed: {
-    ticket: { id: number; displayKey: string; branch: string | null };
-    run: { id: number };
-    repo: { path: string; targetBranch: string };
-  }): Promise<void> {
+  async #work(claimed: { ticket: TicketWithAcs; run: Run; repo: Repo }): Promise<void> {
     const { ticket, run, repo } = claimed;
+    let worktreePath: string;
     try {
       const result = await this.worktrees.ensureWorktree(repo, ticket.displayKey, ticket.branch!);
       if (this.#stopped) return;
       this.store.recordWorktree(run.id, result);
-      this.#setupFailures.delete(ticket.id);
-      // The Run now idles in its worktree; slice 26 starts the first phase here.
+      worktreePath = result.worktreePath;
     } catch (error) {
       if (this.#stopped) return;
-      this.#setupFailures.set(ticket.id, (this.#setupFailures.get(ticket.id) ?? 0) + 1);
-      this.#active.delete(run.id);
-      this.store.markRunCrashed(run.id, error instanceof Error ? error.message : String(error));
+      this.#failures.set(ticket.id, (this.#failures.get(ticket.id) ?? 0) + 1);
+      this.store.finishRun(run.id, "crashed", messageOf(error));
+      return;
+    }
+
+    if (this.#stopped) return;
+    try {
+      await this.engine.execute({ run, ticket, repo, worktreePath, signal: this.#abort.signal });
+      this.store.finishRun(run.id, "completed");
+      this.#failures.delete(ticket.id);
+    } catch (error) {
+      if (error instanceof PhaseCancelledError || this.#stopped) return;
+      this.#failures.set(ticket.id, (this.#failures.get(ticket.id) ?? 0) + 1);
+      this.store.finishRun(
+        run.id,
+        error instanceof PhaseFailedError ? "failed" : "crashed",
+        messageOf(error),
+      );
     }
   }
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

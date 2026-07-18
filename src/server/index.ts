@@ -2,6 +2,9 @@ import { serve } from "@hono/node-server";
 import { EventBus } from "./bus.ts";
 import { openDatabase } from "./db.ts";
 import { createApp } from "./app.ts";
+import { WorkflowEngine } from "./engine.ts";
+import type { ProviderRegistry } from "./provider.ts";
+import { RunLogRegistry } from "./runlog.ts";
 import { Store } from "./store.ts";
 import { WorkerPool } from "./workers.ts";
 import { WorktreeManager } from "./worktrees.ts";
@@ -17,12 +20,16 @@ export async function startServer(options: {
   port: number;
   /** Worker-pool size; see WorkerPool for the default's rationale. 0 disables claims. */
   workers?: number;
+  /** Provider adapters by name; a claim on an unregistered provider crashes its run. */
+  providers?: ProviderRegistry;
 }): Promise<TrackerServer> {
   const db = openDatabase(options.dataDir);
   const bus = new EventBus();
   const store = new Store(db, bus);
-  const app = createApp(store, bus);
-  const pool = new WorkerPool(store, new WorktreeManager(options.dataDir), options.workers ?? 3);
+  const runLogs = new RunLogRegistry();
+  const app = createApp(store, bus, runLogs);
+  const engine = new WorkflowEngine(store, options.providers ?? {}, runLogs);
+  const pool = new WorkerPool(store, new WorktreeManager(options.dataDir), engine, options.workers ?? 3);
   pool.start(bus);
 
   return new Promise((resolve) => {

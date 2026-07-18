@@ -3,11 +3,23 @@ import { rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import type { TrackerServer } from "../src/server/index.ts";
+import { FakeProvider } from "../src/server/providers/fake.ts";
 import { api, bootServer, cleanups, runCleanups } from "./server-helpers.ts";
 import { git, initScratchRepo } from "./git-helpers.ts";
 import { SseClient } from "./sse-client.ts";
 
 afterEach(runCleanups);
+
+/**
+ * A provider whose phase never ends: claimed tickets stay In Progress while
+ * the test asserts claim semantics. pool.stop() cancels it at teardown.
+ */
+function stuckProvider(): FakeProvider {
+  return new FakeProvider(async function* () {
+    await new Promise(() => {});
+    throw new Error("unreachable");
+  });
+}
 
 /** Project + registered scratch repo, ready for promotion to trigger claims. */
 async function seedWorkspace(server: TrackerServer) {
@@ -41,7 +53,7 @@ async function fileTicket(
 
 describe("claim cuts a worktree", () => {
   test("a promoted ticket is claimed: run row, branch, worktree, In Progress over SSE", async () => {
-    const server = await bootServer(undefined, { workers: 3 });
+    const server = await bootServer(undefined, { workers: 3, providers: { "claude-code": stuckProvider() } });
     const { project, repo } = await seedWorkspace(server);
     const ticket = await fileTicket(server, project.id);
 
@@ -88,7 +100,7 @@ describe("claim cuts a worktree", () => {
   });
 
   test("a ticket with an external ref gets its branch named after it", async () => {
-    const server = await bootServer(undefined, { workers: 3 });
+    const server = await bootServer(undefined, { workers: 3, providers: { "claude-code": stuckProvider() } });
     const { project, repo } = await seedWorkspace(server);
     const ticket = await fileTicket(server, project.id, {
       title: "Fix login crash",
@@ -109,7 +121,7 @@ describe("claim cuts a worktree", () => {
   });
 
   test("the pool claims at most three tickets at once; the fourth stays in Todo", async () => {
-    const server = await bootServer(undefined, { workers: 3 });
+    const server = await bootServer(undefined, { workers: 3, providers: { "claude-code": stuckProvider() } });
     const { project, repo } = await seedWorkspace(server);
     const tickets = [];
     for (let i = 0; i < 4; i++) {

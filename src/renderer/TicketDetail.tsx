@@ -6,6 +6,7 @@ import type {
   Run,
   TicketWithAcs,
 } from "../server/types.ts";
+import { AgentLog } from "./AgentLog.tsx";
 import { PROVIDER_LABELS, repoName } from "./format.ts";
 import { STATE_LABELS } from "./ticketStates.ts";
 
@@ -94,6 +95,10 @@ export function TicketDetail({
             </li>
           ))}
         </ul>
+
+        <h4>Agent log</h4>
+        {!latestRun && <p className="dim">No run yet — promote the ticket to start one.</p>}
+        {latestRun && <AgentLog runId={latestRun.id} />}
 
         <h4>Activity</h4>
         {audit.length === 0 && <p className="dim">No activity yet.</p>}

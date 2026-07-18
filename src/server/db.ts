@@ -93,6 +93,57 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       ALTER TABLE tickets ADD COLUMN branch TEXT;
     `,
   },
+  {
+    version: 4,
+    sql: `
+      CREATE TABLE workflows (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+
+      CREATE TABLE workflow_nodes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workflow_id INTEGER NOT NULL REFERENCES workflows(id),
+        type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        prompt_template TEXT
+      );
+
+      CREATE TABLE workflow_edges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workflow_id INTEGER NOT NULL REFERENCES workflows(id),
+        from_node_id INTEGER NOT NULL REFERENCES workflow_nodes(id),
+        to_node_id INTEGER NOT NULL REFERENCES workflow_nodes(id),
+        condition_label TEXT
+      );
+
+      CREATE TABLE phase_executions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id INTEGER NOT NULL REFERENCES runs(id),
+        node_id INTEGER NOT NULL REFERENCES workflow_nodes(id),
+        phase TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'running',
+        failure_reason TEXT,
+        started_at TEXT NOT NULL,
+        ended_at TEXT
+      );
+
+      -- Seed workflow (ADR-0001: seed data, not engine shape). This slice
+      -- runs a single phase; slice 27 extends the seed to the full five.
+      INSERT INTO workflows (id, name, created_at) VALUES (1, 'core-loop', datetime('now'));
+      INSERT INTO workflow_nodes (id, workflow_id, type, name, prompt_template) VALUES
+        (1, 1, 'trigger', 'ticket-claimed', NULL),
+        (2, 1, 'agent_phase', 'implement',
+          'You are implementing ticket {{displayKey}}: {{title}}.' || char(10) || char(10) ||
+          '{{description}}' || char(10) || char(10) ||
+          'Acceptance criteria:' || char(10) || '{{acceptanceCriteria}}' || char(10) || char(10) ||
+          'Work in the current directory on branch {{branch}} (target: {{targetBranch}}). ' ||
+          'Commit as you go. Before finishing, write kb/{{phase}}.md summarizing what you did and why.');
+      INSERT INTO workflow_edges (workflow_id, from_node_id, to_node_id, condition_label)
+        VALUES (1, 1, 2, NULL);
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

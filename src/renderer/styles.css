@@ -427,3 +427,62 @@ body {
   font-family: ui-monospace, monospace;
   font-size: 0.75rem;
 }
+
+.agentlog {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.logblock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.logkind {
+  font-family: ui-monospace, monospace;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.logbody {
+  margin: 0;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.logblock-prompt .logbody,
+.logblock-thinking .logbody {
+  color: var(--dim);
+}
+
+.logblock-thinking .logbody {
+  font-style: italic;
+}
+
+.logblock-tool_call .logbody,
+.logblock-tool_result .logbody {
+  font-family: ui-monospace, monospace;
+}
+
+.cursor {
+  animation: blink 1s step-end infinite;
+  color: var(--accent);
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}

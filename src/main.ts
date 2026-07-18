@@ -1,5 +1,6 @@
 import { app, BrowserWindow } from "electron";
 import path from "node:path";
+import { demoProviders } from "./server/providers/demo.ts";
 import { startServer, type TrackerServer } from "./server/index.ts";
 
 // One app instance = one orchestrator = one SQLite writer.
@@ -39,6 +40,8 @@ void app.whenReady().then(async () => {
   server = await startServer({
     dataDir: app.getPath("userData"),
     port: Number(process.env.TRACKER_PORT ?? 4400),
+    // Scripted demo phases until the real adapter slices land.
+    providers: demoProviders(),
   });
   const apiBase = server.url;
 

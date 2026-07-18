@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import type { BusEvent, EventBus } from "./bus.ts";
+import type { RunLogRegistry } from "./runlog.ts";
 import { NotFoundError, StateError, ValidationError, type Store } from "./store.ts";
 import { isProvider, PROVIDERS, type PreviewKind } from "./types.ts";
 
@@ -9,7 +10,7 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
 }
 
-export function createApp(store: Store, bus: EventBus): Hono {
+export function createApp(store: Store, bus: EventBus, runLogs: RunLogRegistry): Hono {
   const app = new Hono();
 
   // The renderer calls from a non-http origin (file:// in the packaged app
@@ -138,7 +139,43 @@ export function createApp(store: Store, bus: EventBus): Hono {
   app.get("/api/tickets/:id/runs", (c) => {
     const ticket = store.getTicket(Number(c.req.param("id")));
     if (!ticket) return c.json({ error: "not found" }, 404);
-    return c.json(store.listRuns(ticket.id));
+    return c.json(store.listRunsWithPhases(ticket.id));
+  });
+
+  // Per-run agent log: replay from Last-Event-ID, then live block events.
+  app.get("/api/runs/:id/log", (c) => {
+    const run = store.getRun(Number(c.req.param("id")));
+    if (!run) return c.json({ error: "not found" }, 404);
+    const log = runLogs.for(run.id);
+    const lastEventId = Number(c.req.header("last-event-id") ?? 0);
+    return streamSSE(c, async (stream) => {
+      const queue = log.entriesSince(Number.isFinite(lastEventId) ? lastEventId : 0);
+      let notify: (() => void) | undefined;
+      const unsubscribe = log.subscribe((entry) => {
+        queue.push(entry);
+        notify?.();
+      });
+      let closed = false;
+      stream.onAbort(() => {
+        closed = true;
+        unsubscribe();
+        notify?.();
+      });
+      while (!closed) {
+        while (queue.length > 0) {
+          const entry = queue.shift()!;
+          await stream.writeSSE({
+            id: String(entry.seq),
+            event: entry.event.type,
+            data: JSON.stringify(entry.event),
+          });
+        }
+        await new Promise<void>((resolve) => {
+          notify = resolve;
+        });
+        notify = undefined;
+      }
+    });
   });
 
   app.get("/api/tickets/:id/audit", (c) => {

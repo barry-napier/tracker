@@ -5,13 +5,16 @@ import { branchNameFor, type WorktreeResult } from "./worktrees.ts";
 import type {
   AcceptanceCriterion,
   AuditEvent,
+  PhaseExecution,
   PreviewKind,
   Project,
-  Provider,
+  ProviderName,
   Repo,
   Run,
+  RunWithPhases,
   Ticket,
   TicketWithAcs,
+  WorkflowGraph,
 } from "./types.ts";
 
 export type { TicketWithAcs } from "./types.ts";
@@ -41,7 +44,7 @@ export class Store {
   createProject(input: {
     name: string;
     ticketPrefix?: string;
-    defaultProvider?: Provider;
+    defaultProvider?: ProviderName;
   }): Project {
     const { project, audit } = withTransaction(this.db, () => {
       const result = this.db
@@ -233,7 +236,7 @@ export class Store {
    * The single deliberate "go" action: Backlog → Todo with the target Repo
    * and provider fixed on the Ticket (one Ticket = one branch = one PR).
    */
-  promoteTicket(id: number, input: { repoId: number; provider: Provider }): TicketWithAcs {
+  promoteTicket(id: number, input: { repoId: number; provider: ProviderName }): TicketWithAcs {
     const existing = this.getTicket(id);
     if (!existing) throw new NotFoundError(`ticket ${id} not found`);
     if (existing.state !== "backlog") {
@@ -336,28 +339,40 @@ export class Store {
     return run;
   }
 
-  /** Setup died; the attempt is over and the ticket goes back to the queue. */
-  markRunCrashed(runId: number, reason: string): Run {
+  /**
+   * The attempt is over. Completed sends the Ticket to Verifying (the gate
+   * battery arrives in slice 29 and takes it from there); failed and crashed
+   * both send it back to Todo for a fresh claim — the distinction matters to
+   * the crash policy and bounce machinery of later slices, so it's recorded
+   * honestly now.
+   */
+  finishRun(
+    runId: number,
+    outcome: "completed" | "failed" | "crashed",
+    reason?: string,
+  ): Run {
     const existing = this.getRun(runId);
     if (!existing) throw new NotFoundError(`run ${runId} not found`);
+    if (existing.state !== "running") {
+      throw new StateError(`run ${runId} is ${existing.state}, not running`);
+    }
+    const ticketState = outcome === "completed" ? "verifying" : "todo";
     const { run, ticket, audit } = withTransaction(this.db, () => {
       const now = nowIso();
       this.db
-        .prepare(
-          "UPDATE runs SET state = 'crashed', crash_reason = ?, ended_at = ? WHERE id = ?",
-        )
-        .run(reason, now, runId);
+        .prepare("UPDATE runs SET state = ?, crash_reason = ?, ended_at = ? WHERE id = ?")
+        .run(outcome, outcome === "crashed" ? (reason ?? null) : null, now, runId);
       const run = this.getRun(runId)!;
       this.db
-        .prepare("UPDATE tickets SET state = 'todo', updated_at = ? WHERE id = ?")
-        .run(now, run.ticketId);
+        .prepare("UPDATE tickets SET state = ?, updated_at = ? WHERE id = ?")
+        .run(ticketState, now, run.ticketId);
       const ticket = this.getTicket(run.ticketId)!;
       const audit = this.insertAudit({
         projectId: ticket.projectId,
         ticketId: ticket.id,
         actor: "agent",
-        type: "run.crashed",
-        detail: { runId, reason },
+        type: `run.${outcome}`,
+        detail: reason === undefined ? { runId } : { runId, reason },
       });
       return { run, ticket, audit };
     });
@@ -378,6 +393,124 @@ export class Store {
       .prepare("SELECT * FROM runs WHERE ticket_id = ? ORDER BY id DESC")
       .all(ticketId)
       .map(runFromRow);
+  }
+
+  listRunsWithPhases(ticketId: number): RunWithPhases[] {
+    return this.listRuns(ticketId).map((run) => ({
+      ...run,
+      phases: this.listPhaseExecutions(run.id),
+    }));
+  }
+
+  listPhaseExecutions(runId: number): PhaseExecution[] {
+    return this.db
+      .prepare("SELECT * FROM phase_executions WHERE run_id = ? ORDER BY id")
+      .all(runId)
+      .map(phaseFromRow);
+  }
+
+  /** The seeded graph every ticket runs until workflows become assignable. */
+  getDefaultWorkflow(): WorkflowGraph {
+    const workflow = this.db.prepare("SELECT * FROM workflows ORDER BY id LIMIT 1").get();
+    if (!workflow) throw new Error("no workflow seeded");
+    const id = Number(workflow.id);
+    return {
+      id,
+      name: String(workflow.name),
+      nodes: this.db
+        .prepare("SELECT * FROM workflow_nodes WHERE workflow_id = ? ORDER BY id")
+        .all(id)
+        .map((row) => ({
+          id: Number(row.id),
+          workflowId: Number(row.workflow_id),
+          type: String(row.type) as "trigger" | "agent_phase",
+          name: String(row.name),
+          promptTemplate: row.prompt_template === null ? null : String(row.prompt_template),
+        })),
+      edges: this.db
+        .prepare("SELECT * FROM workflow_edges WHERE workflow_id = ? ORDER BY id")
+        .all(id)
+        .map((row) => ({
+          id: Number(row.id),
+          workflowId: Number(row.workflow_id),
+          fromNodeId: Number(row.from_node_id),
+          toNodeId: Number(row.to_node_id),
+          conditionLabel: row.condition_label === null ? null : String(row.condition_label),
+        })),
+    };
+  }
+
+  startPhase(runId: number, node: { id: number; name: string }): PhaseExecution {
+    const run = this.getRun(runId);
+    if (!run) throw new NotFoundError(`run ${runId} not found`);
+    const { execution, ticket, audit } = withTransaction(this.db, () => {
+      const result = this.db
+        .prepare(
+          "INSERT INTO phase_executions (run_id, node_id, phase, state, started_at) VALUES (?, ?, ?, 'running', ?)",
+        )
+        .run(runId, node.id, node.name, nowIso());
+      const execution = this.getPhaseExecution(Number(result.lastInsertRowid))!;
+      const ticket = this.getTicket(run.ticketId)!;
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "agent",
+        type: "phase.started",
+        detail: { runId, phase: node.name },
+      });
+      return { execution, ticket, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    this.bus.emit("run.phase_changed", {
+      runId,
+      ticketId: ticket.id,
+      phase: execution.phase,
+      status: "started",
+    });
+    return execution;
+  }
+
+  endPhase(
+    executionId: number,
+    state: "completed" | "failed",
+    failureReason?: string,
+  ): PhaseExecution {
+    const existing = this.getPhaseExecution(executionId);
+    if (!existing) throw new NotFoundError(`phase execution ${executionId} not found`);
+    const { execution, ticket, audit } = withTransaction(this.db, () => {
+      this.db
+        .prepare(
+          "UPDATE phase_executions SET state = ?, failure_reason = ?, ended_at = ? WHERE id = ?",
+        )
+        .run(state, failureReason ?? null, nowIso(), executionId);
+      const execution = this.getPhaseExecution(executionId)!;
+      const run = this.getRun(execution.runId)!;
+      const ticket = this.getTicket(run.ticketId)!;
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "agent",
+        type: `phase.${state}`,
+        detail:
+          failureReason === undefined
+            ? { runId: execution.runId, phase: execution.phase }
+            : { runId: execution.runId, phase: execution.phase, reason: failureReason },
+      });
+      return { execution, ticket, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    this.bus.emit("run.phase_changed", {
+      runId: execution.runId,
+      ticketId: ticket.id,
+      phase: execution.phase,
+      status: execution.state,
+    });
+    return execution;
+  }
+
+  getPhaseExecution(id: number): PhaseExecution | undefined {
+    const row = this.db.prepare("SELECT * FROM phase_executions WHERE id = ?").get(id);
+    return row === undefined ? undefined : phaseFromRow(row);
   }
 
   listProjectAuditEvents(projectId: number): AuditEvent[] {
@@ -439,6 +572,19 @@ function runFromRow(row: Row): Run {
     worktreePath: row.worktree_path === null ? null : String(row.worktree_path),
     crashReason: row.crash_reason === null ? null : String(row.crash_reason),
     createdAt: String(row.created_at),
+    endedAt: row.ended_at === null ? null : String(row.ended_at),
+  };
+}
+
+function phaseFromRow(row: Row): PhaseExecution {
+  return {
+    id: Number(row.id),
+    runId: Number(row.run_id),
+    nodeId: Number(row.node_id),
+    phase: String(row.phase),
+    state: String(row.state) as PhaseExecution["state"],
+    failureReason: row.failure_reason === null ? null : String(row.failure_reason),
+    startedAt: String(row.started_at),
     endedAt: row.ended_at === null ? null : String(row.ended_at),
   };
 }

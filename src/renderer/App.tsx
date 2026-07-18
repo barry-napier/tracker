@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   PROVIDERS,
   type Project,
-  type Provider,
+  type ProviderName,
   type Repo,
   type TicketWithAcs,
 } from "../server/types.ts";
@@ -30,7 +30,7 @@ function useWorkspace() {
     });
   }, []);
 
-  const createProject = useCallback(async (name: string, defaultProvider: Provider) => {
+  const createProject = useCallback(async (name: string, defaultProvider: ProviderName) => {
     setProject(await apiPost<Project>("/api/projects", { name, defaultProvider }));
   }, []);
 
@@ -141,7 +141,7 @@ function PromoteControl({
   // Derived, not initial-state: repos may arrive after this card mounts.
   const [pickedRepoId, setPickedRepoId] = useState<number | null>(null);
   const repoId = pickedRepoId ?? repos[0]?.id ?? null;
-  const [provider, setProvider] = useState<Provider>(project.defaultProvider);
+  const [provider, setProvider] = useState<ProviderName>(project.defaultProvider);
   const [error, setError] = useState<string | null>(null);
 
   if (repos.length === 0) {
@@ -204,11 +204,11 @@ function ProviderSelect({
   value,
   onChange,
 }: {
-  value: Provider;
-  onChange: (provider: Provider) => void;
+  value: ProviderName;
+  onChange: (provider: ProviderName) => void;
 }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value as Provider)}>
+    <select value={value} onChange={(e) => onChange(e.target.value as ProviderName)}>
       {PROVIDERS.map((p) => (
         <option key={p} value={p}>
           {PROVIDER_LABELS[p]}
@@ -221,10 +221,10 @@ function ProviderSelect({
 function ProjectSetup({
   onCreate,
 }: {
-  onCreate: (name: string, defaultProvider: Provider) => Promise<void>;
+  onCreate: (name: string, defaultProvider: ProviderName) => Promise<void>;
 }) {
   const [name, setName] = useState("");
-  const [provider, setProvider] = useState<Provider>("claude-code");
+  const [provider, setProvider] = useState<ProviderName>("claude-code");
   const [error, setError] = useState<string | null>(null);
 
   return (

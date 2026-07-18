@@ -1,18 +1,24 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { ProviderRegistry } from "../src/server/provider.ts";
 import { startServer, type TrackerServer } from "../src/server/index.ts";
 
 export const cleanups: Array<() => Promise<void>> = [];
 
 export async function bootServer(
   dataDir?: string,
-  options: { workers?: number } = {},
+  options: { workers?: number; providers?: ProviderRegistry } = {},
 ): Promise<TrackerServer> {
   const dir = dataDir ?? (await mkdtemp(path.join(tmpdir(), "tracker-test-")));
   // Workers default off: earlier-slice tests register repos at fake paths
   // and must not have the factory try to clone them.
-  const server = await startServer({ dataDir: dir, port: 0, workers: options.workers ?? 0 });
+  const server = await startServer({
+    dataDir: dir,
+    port: 0,
+    workers: options.workers ?? 0,
+    providers: options.providers,
+  });
   cleanups.push(async () => {
     await server.close();
     if (!dataDir) await rm(dir, { recursive: true, force: true });
