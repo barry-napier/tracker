@@ -24,7 +24,7 @@ The core loop lives in this Electron app: file a ticket with acceptance criteria
   - Workflows are data, not code: stored as a graph — nodes (type, name, prompt template, gate requirements) + edges (nullable condition label) per [ADR-0001](../../docs/adr/0001-workflows-are-graphs.md); research→plan→implement→review→document ships as the seeded default; the engine is an interpreter.
   - Ubiquitous language lives in repo-root `CONTEXT.md`; consult it before naming anything.
 - **Spec:** the full synthesis of tickets 01–12 lives in [Spec: Tracker core loop](issues/21-core-loop-spec.md) (`ready-for-agent`) — build sessions read it first; it also fixes the testing seams (HTTP API primary, FakeProvider + GitHubPort fakes).
-- **Build slices:** the spec is sliced into vertical tracer-bullet tickets 22–42 (2026-07-18, /to-tickets; the earlier horizontal module tickets 14–20 are closed as superseded). Frontier starts at [Headless skeleton](issues/22-headless-skeleton.md); [End-to-end proof](issues/13-e2e-proof.md) remains the map-closing acceptance ticket, now blocked by 33, 35, 37, 38, 39, 40, 41, 42. Work slices one at a time with /implement, clearing context between tickets.
+- **Build slices:** the spec is sliced into vertical tracer-bullet tickets 22–42 (2026-07-18, /to-tickets; the earlier horizontal module tickets 14–20 are closed as superseded). Frontier: [22 Headless skeleton](issues/22-headless-skeleton.md) done 2026-07-18; next up [23 Renderer skeleton](issues/23-renderer-skeleton.md); [End-to-end proof](issues/13-e2e-proof.md) remains the map-closing acceptance ticket, now blocked by 33, 35, 37, 38, 39, 40, 41, 42. Work slices one at a time with /implement, clearing context between tickets.
 
 ## Decisions so far
 

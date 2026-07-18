@@ -5,11 +5,14 @@
   "private": true,
   "description": "Tracker desktop app",
   "type": "module",
-  "main": "src/main.mjs",
+  "main": "build/main.js",
   "scripts": {
-    "start": "electron .",
-    "build": "electron-builder --mac",
-    "build:dir": "electron-builder --mac dir"
+    "start": "npm run compile && electron .",
+    "compile": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "npm run compile && electron-builder --mac",
+    "build:dir": "npm run compile && electron-builder --mac dir"
   },
   "build": {
     "appId": "com.barrynapier.tracker",
@@ -18,6 +21,7 @@
       "output": "dist"
     },
     "files": [
+      "build/**/*",
       "src/**/*",
       "package.json"
     ],
@@ -35,7 +39,14 @@
     "node": ">=22"
   },
   "devDependencies": {
+    "@types/node": "^26.1.1",
     "electron": "^37.0.0",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.10",
+    "hono": "^4.12.30"
   }
 }

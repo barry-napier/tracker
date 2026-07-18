@@ -1,0 +1,56 @@
+import { app, BrowserWindow } from "electron";
+import path from "node:path";
+import { startServer, type TrackerServer } from "./server/index.ts";
+
+// One app instance = one orchestrator = one SQLite writer.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+  process.exit(0);
+}
+
+let server: TrackerServer | undefined;
+
+function createWindow(): void {
+  const win = new BrowserWindow({
+    width: 1100,
+    height: 720,
+    backgroundColor: "#0d0e10",
+    webPreferences: {
+      preload: path.join(app.getAppPath(), "src", "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  void win.loadFile(path.join(app.getAppPath(), "src", "renderer", "index.html"));
+}
+
+app.on("second-instance", () => {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+});
+
+void app.whenReady().then(async () => {
+  server = await startServer({
+    dataDir: app.getPath("userData"),
+    port: Number(process.env.TRACKER_PORT ?? 4400),
+  });
+
+  createWindow();
+
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on("before-quit", () => {
+  void server?.close().catch(() => {});
+  server = undefined;
+});
+
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
+});
