@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "renderer-prototype",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "prototype"],
+      "port": 5199
+    }
+  ]
+}

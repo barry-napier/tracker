@@ -8,6 +8,7 @@
   "main": "src/main.mjs",
   "scripts": {
     "start": "electron .",
+    "prototype": "vite --config src/renderer-prototype/vite.config.ts",
     "build": "electron-builder --mac",
     "build:dir": "electron-builder --mac dir"
   },
@@ -35,7 +36,14 @@
     "node": ">=22"
   },
   "devDependencies": {
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
     "electron": "^37.0.0",
-    "electron-builder": "^26.15.3"
+    "electron-builder": "^26.15.3",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.5"
   }
 }
