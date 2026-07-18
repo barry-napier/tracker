@@ -6,7 +6,9 @@ import type { GitHubPort } from "../src/server/github.ts";
 import type { TrackerServer } from "../src/server/index.ts";
 import type { AgentEvent, PhaseContext } from "../src/server/provider.ts";
 import { FakeProvider, phaseFromPrompt, writePlanChecks } from "../src/server/providers/fake.ts";
-import { api, bootServer, cleanups, seedWorkspace } from "./server-helpers.ts";
+import { git } from "./git-helpers.ts";
+import type { FakeGitHub } from "./github-fake.ts";
+import { api, bootServer, cleanups, FIXTURE_REMOTE, seedWorkspace } from "./server-helpers.ts";
 
 export { pendingAcIdsFromPrompt, writePlanChecks } from "../src/server/providers/fake.ts";
 
@@ -123,6 +125,32 @@ export async function bootWorkspace(
     provider: "claude-code",
   });
   return { dataDir, server, ticket, repo };
+}
+
+/** The agent's production job at the end of a run: push the branch, open the PR. */
+export function pushesToGitHub(github: FakeGitHub): (ctx: PhaseCall) => void {
+  return (ctx) => {
+    if (ctx.phase !== "document") return;
+    const branch = git(ctx.cwd, "branch", "--show-current");
+    github.recordBranch(FIXTURE_REMOTE, branch);
+    github.openPr(FIXTURE_REMOTE, branch, git(ctx.cwd, "rev-parse", "HEAD"));
+  };
+}
+
+export async function waitForAudit(
+  server: TrackerServer,
+  ticketId: number,
+  type: string,
+  timeoutMs = 15_000,
+): Promise<any> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const { json } = await api(server, "GET", `/api/tickets/${ticketId}/audit`);
+    const event = json.find((candidate: any) => candidate.type === type);
+    if (event) return event;
+    if (Date.now() > deadline) throw new Error(`timed out waiting for audit event ${type}`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
 }
 
 export async function waitForTicketState(

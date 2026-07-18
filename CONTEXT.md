@@ -22,7 +22,7 @@ A single verifiable line item on a Ticket stating something that must be true fo
 
 ### Evidence Gate
 
-A machine check the orchestrator runs against a Run before a Ticket may leave Verifying. Each gate results in pass, fail, or skip — skip means "not applicable," determined by facts (ticket type, repo config), never by the agent, and is distinct from pass. The battery is diagnostic: every gate and AC check runs even after a failure, and all failures bounce the Ticket together as a batch of Follow-up Criteria. Agent-authored AC checks are gates: the agent writes the check, the orchestrator executes it — results cannot be self-reported.
+A machine check the orchestrator runs against a Run before a Ticket may leave Verifying. Each gate results in pass, fail, or skip — skip means "not applicable," determined by facts (ticket type, repo config), never by the agent, and is distinct from pass. The battery is diagnostic: every gate and AC check runs even after a failure, and all failures bounce the Ticket together in one batch — each failed gate births a Follow-up Criterion, while a failed AC carries itself forward by resetting to pending on the next Run. The third failed cycle parks the Ticket in Human Review instead, flagged arrived-by-cap: it reached the veto point without passing gates. Agent-authored AC checks are gates: the agent writes the check, the orchestrator executes it — results cannot be self-reported.
 
 ### External Reference
 

@@ -33,6 +33,9 @@ export async function runCleanups(): Promise<void> {
   while (cleanups.length > 0) await cleanups.pop()!();
 }
 
+/** The remote seedWorkspace registers; FakeGitHub keys its state by it. */
+export const FIXTURE_REMOTE = "git@github.com:barry/fixture-app.git";
+
 /** Project + registered scratch repo, ready for promotion to trigger claims. */
 export async function seedWorkspace(
   server: TrackerServer,
@@ -45,7 +48,7 @@ export async function seedWorkspace(
     await api(server, "POST", "/api/repos", {
       projectId: project.id,
       path: source,
-      githubRemote: "git@github.com:barry/fixture-app.git",
+      githubRemote: FIXTURE_REMOTE,
       ...repoConfig,
     })
   ).json;

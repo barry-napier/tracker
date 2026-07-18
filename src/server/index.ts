@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { ArtifactStore } from "./artifacts.ts";
+import { Bouncer } from "./bounce.ts";
 import { EventBus } from "./bus.ts";
 import { openDatabase } from "./db.ts";
 import { createApp } from "./app.ts";
@@ -34,12 +35,14 @@ export async function startServer(options: {
   const runLogs = new RunLogRegistry();
   const app = createApp(store, bus, runLogs);
   const engine = new WorkflowEngine(store, options.providers ?? {}, runLogs);
+  const artifacts = new ArtifactStore(options.dataDir, store);
   const pool = new WorkerPool(
     store,
     new WorktreeManager(options.dataDir),
     engine,
-    new ArtifactStore(options.dataDir, store),
+    artifacts,
     new GateBattery(store, options.github ?? new NullGitHub()),
+    new Bouncer(store, artifacts),
     options.workers ?? 3,
   );
   pool.start(bus);

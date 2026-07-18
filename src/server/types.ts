@@ -56,6 +56,10 @@ export interface Ticket {
    * the branch-name string, is the source of identity.
    */
   branch: string | null;
+  /** Failed battery cycles so far; the third parks the ticket (ticket 06 §6). */
+  bounceCount: number;
+  /** True when the ticket reached Human Review by bounce cap, not by passing gates. */
+  arrivedByCap: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -156,6 +160,22 @@ export interface GateResult {
   detail: Record<string, unknown>;
   acId: number | null;
   createdAt: string;
+}
+
+/**
+ * What a re-claim inherits, captured at bounce time because nothing resets
+ * the worktree (ticket 08): recorded in the bounce event and Bounce Report.
+ */
+export interface TreeState {
+  branch: string;
+  aheadBy: number;
+  dirtyCount: number;
+}
+
+/** A Follow-up Criterion about to be born from a failed gate (ticket 06 §5). */
+export interface FollowUpSeed {
+  gate: string;
+  text: string;
 }
 
 export interface RunWithPhases extends Run {

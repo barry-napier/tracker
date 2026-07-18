@@ -298,6 +298,25 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       WHERE id = 6;
     `,
   },
+  {
+    version: 8,
+    sql: `
+      -- Bounce machinery (ticket 30): failed cycles are counted on the
+      -- Ticket; the third parks it in Human Review flagged arrived-by-cap
+      -- so the wizard can say it got there without passing gates.
+      ALTER TABLE tickets ADD COLUMN bounce_count INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE tickets ADD COLUMN arrived_by_cap INTEGER NOT NULL DEFAULT 0;
+
+      -- Re-entry context reaches phases through the engine's fixed template
+      -- variable set, so the seeded templates must actually reference it:
+      -- follow-up criteria born from failures, and the Bounce Report path
+      -- ("none" on a first run).
+      UPDATE workflow_nodes SET prompt_template = prompt_template || char(10) || char(10) ||
+        'Follow-up criteria from bounced attempts: {{followUps}}' || char(10) ||
+        'Bounce report from the previous attempt: {{bounceReportPath}}'
+      WHERE type = 'agent_phase';
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

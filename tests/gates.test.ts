@@ -2,15 +2,15 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { lintRecap } from "../src/server/gates.ts";
-import type { TrackerServer } from "../src/server/index.ts";
-import { git } from "./git-helpers.ts";
 import { FakeGitHub } from "./github-fake.ts";
 import { api, bootServer, cleanups, runCleanups, seedWorkspace } from "./server-helpers.ts";
 import { SseClient } from "./sse-client.ts";
 import {
   bootWorkspace,
   pendingAcIdsFromPrompt,
+  pushesToGitHub,
   scriptedProvider,
+  waitForAudit,
   waitForTicketState,
   writePlanChecks,
   writeRecap,
@@ -18,35 +18,6 @@ import {
 } from "./workflow-helpers.ts";
 
 afterEach(runCleanups);
-
-/** The remote seedWorkspace registers; FakeGitHub keys its state by it. */
-const REMOTE = "git@github.com:barry/fixture-app.git";
-
-/** The agent's production job at the end of a run: push the branch, open the PR. */
-function pushesToGitHub(github: FakeGitHub): (ctx: PhaseCall) => void {
-  return (ctx) => {
-    if (ctx.phase !== "document") return;
-    const branch = git(ctx.cwd, "branch", "--show-current");
-    github.recordBranch(REMOTE, branch);
-    github.openPr(REMOTE, branch, git(ctx.cwd, "rev-parse", "HEAD"));
-  };
-}
-
-async function waitForAudit(
-  server: TrackerServer,
-  ticketId: number,
-  type: string,
-  timeoutMs = 15_000,
-): Promise<any> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const { json } = await api(server, "GET", `/api/tickets/${ticketId}/audit`);
-    const event = json.find((candidate: any) => candidate.type === type);
-    if (event) return event;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for audit event ${type}`);
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-}
 
 function gateStatuses(run: any): Record<string, string> {
   return Object.fromEntries(
@@ -115,7 +86,7 @@ describe("the gate battery at Verifying", () => {
     expect(streamed.every((m) => m.data.ticketId === ticket.id)).toBe(true);
   }, 20_000);
 
-  test("the battery is diagnostic: everything runs, failures batch, ticket stays Verifying", async () => {
+  test("the battery is diagnostic: everything runs even after failures, and the batch is one event", async () => {
     const calls: PhaseCall[] = [];
     const provider = scriptedProvider(calls, {
       // The agent's check doesn't hold up: non-zero exit fails the AC.
@@ -126,16 +97,19 @@ describe("the gate battery at Verifying", () => {
       },
     });
     // No GitHubPort backing (nothing pushed), no test command (suite skips),
-    // a preview configured (a demo IS owed — and none exists).
+    // a preview configured (a demo IS owed — and none exists). Nothing here
+    // ever converges, so the ticket bounces its way to the park-by-cap
+    // terminal state; this test reads the FIRST run's diagnostic batch.
     const { server, ticket } = await bootWorkspace(provider, {
       repo: { previewCommand: "npm start", previewKind: "ui" },
     });
 
-    await waitForTicketState(server, ticket.id, "verifying");
+    await waitForTicketState(server, ticket.id, "human_review", 30_000);
     const failedAudit = await waitForAudit(server, ticket.id, "gates.failed");
 
     const runs = (await api(server, "GET", `/api/tickets/${ticket.id}/runs`)).json;
-    expect(gateStatuses(runs[0])).toEqual({
+    const firstRun = runs.at(-1);
+    expect(gateStatuses(firstRun)).toEqual({
       artifact: "pass",
       "artifact-lint": "fail",
       "branch-recorded": "fail",
@@ -143,16 +117,16 @@ describe("the gate battery at Verifying", () => {
       "pr-fresh": "fail",
       "demo-fresh": "fail",
     });
-    const lint = runs[0].gateResults.find((r: any) => r.gate === "artifact-lint");
+    const lint = firstRun.gateResults.find((r: any) => r.gate === "artifact-lint");
     expect(lint.detail.problems).toEqual([
       "recap references external resources — it must be fully self-contained",
       'recap has no "What to review" section',
     ]);
-    const suite = runs[0].gateResults.find((r: any) => r.gate === "suite");
+    const suite = firstRun.gateResults.find((r: any) => r.gate === "suite");
     expect(suite.detail).toEqual({ reason: "no test command configured" });
 
     const acId = ticket.acceptanceCriteria[0].id;
-    const acCheck = runs[0].gateResults.find((r: any) => r.acId === acId);
+    const acCheck = firstRun.gateResults.find((r: any) => r.acId === acId);
     expect(acCheck).toMatchObject({ status: "fail", detail: { exitCode: 3 } });
     const detail = (await api(server, "GET", `/api/tickets/${ticket.id}`)).json;
     expect(detail.acceptanceCriteria[0]).toMatchObject({
@@ -160,7 +134,8 @@ describe("the gate battery at Verifying", () => {
       provenance: "machine",
     });
 
-    // One diagnostic batch: every failure named; the bounce lands in slice 30.
+    // One diagnostic batch: every failure named in run 1's single event.
+    expect(failedAudit.detail).toMatchObject({ runId: firstRun.id });
     expect(failedAudit.detail.failed).toEqual([
       "artifact-lint",
       "branch-recorded",
@@ -168,8 +143,7 @@ describe("the gate battery at Verifying", () => {
       "demo-fresh",
       `ac-check:AC-${acId}`,
     ]);
-    expect((await api(server, "GET", `/api/tickets/${ticket.id}`)).json.state).toBe("verifying");
-  }, 20_000);
+  }, 40_000);
 
   test("a waived AC keeps its waive and its check is skipped, never run", async () => {
     const github = new FakeGitHub();

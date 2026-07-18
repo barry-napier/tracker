@@ -1,4 +1,5 @@
 import type { ArtifactStore } from "./artifacts.ts";
+import type { Bouncer } from "./bounce.ts";
 import type { EventBus } from "./bus.ts";
 import { PhaseCancelledError, PhaseFailedError, type WorkflowEngine } from "./engine.ts";
 import type { GateBattery } from "./gates.ts";
@@ -26,6 +27,7 @@ export class WorkerPool {
     private readonly engine: WorkflowEngine,
     private readonly artifacts: ArtifactStore,
     private readonly battery: GateBattery,
+    private readonly bouncer: Bouncer,
     private readonly capacity: number,
   ) {}
 
@@ -61,7 +63,7 @@ export class WorkerPool {
           .filter(([, count]) => count >= MAX_FAILURES)
           .map(([ticketId]) => ticketId),
       );
-      const claimed = this.store.claimNextTodoTicket(exclude);
+      const claimed = this.store.claimNextTicket(exclude);
       if (!claimed) return;
       this.#active.add(claimed.run.id);
       const work = this.#work(claimed);
@@ -103,10 +105,19 @@ export class WorkerPool {
       // battery blow-up leaves the ticket visibly parked in Verifying with
       // whatever results were recorded; it must not be mistaken for a
       // crashed run — the work itself completed.
+      let verdict: { passed: boolean } | undefined;
       try {
-        await this.battery.run({ run, ticket, repo, worktreePath });
+        verdict = await this.battery.run({ run, ticket, repo, worktreePath });
       } catch (error) {
         console.error(`run ${run.id}: gate battery crashed mid-flight`, error);
+      }
+      if (this.#stopped || verdict === undefined || verdict.passed) return;
+      // A bounce blow-up strands the ticket in Verifying the same way — say
+      // which half died so the parked state is diagnosable.
+      try {
+        await this.bouncer.bounce({ run, ticket, repo, worktreePath });
+      } catch (error) {
+        console.error(`run ${run.id}: bounce crashed mid-flight`, error);
       }
     } catch (error) {
       if (error instanceof PhaseCancelledError || this.#stopped) return;

@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { BOUNCE_REPORT_PATH } from "./bounce.ts";
 import { readCheckManifest } from "./checks.ts";
 import type { ProviderRegistry } from "./provider.ts";
 import { RunLogRegistry } from "./runlog.ts";
@@ -58,6 +59,12 @@ export class WorkflowEngine {
     priorKb: readonly string[],
   ): Promise<void> {
     const execution = this.store.startPhase(ctx.run.id, node);
+    // Re-entry context (spec 21, Phase Contract): follow-up criteria and the
+    // Bounce Report the previous cycle left in the reused worktree. Statuses
+    // ride along so a follow-up settled on an earlier cycle reads as such.
+    const followUps = ctx.ticket.acceptanceCriteria
+      .filter((criterion) => criterion.origin !== "original")
+      .map((criterion) => `AC-${criterion.id} (${criterion.origin}, ${criterion.status}) ${criterion.text}`);
     // The engine's fixed template variable set — the only context injection.
     const prompt = renderTemplate(node.promptTemplate ?? "", {
       displayKey: ctx.ticket.displayKey,
@@ -71,6 +78,10 @@ export class WorkflowEngine {
       targetBranch: ctx.repo.targetBranch,
       phase: node.name,
       priorKb: priorKb.length === 0 ? "none yet" : priorKb.join(", "),
+      followUps: followUps.length === 0 ? "none" : followUps.join("; "),
+      bounceReportPath: existsSync(path.join(ctx.worktreePath, BOUNCE_REPORT_PATH))
+        ? BOUNCE_REPORT_PATH
+        : "none",
     });
 
     const log = this.logs.for(ctx.run.id);

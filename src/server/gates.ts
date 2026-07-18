@@ -88,7 +88,7 @@ export class GateBattery {
 
     const failed = outcomes
       .filter((outcome) => outcome.status === "fail")
-      .map((outcome) => (outcome.acId === undefined ? outcome.gate : `ac-check:AC-${outcome.acId}`));
+      .map(failureLabel);
     const passed = failed.length === 0;
     this.store.concludeVerification(ctx.run.id, { passed, failed });
     return { passed, failed };
@@ -246,6 +246,17 @@ export class GateBattery {
       detail: { scriptPath, exitCode, output },
     };
   }
+}
+
+/**
+ * The battery's canonical failure label — a gate's name, or the criterion an
+ * AC check verifies. The gates.failed audit event and the bounce event's
+ * batch use the same vocabulary.
+ */
+export function failureLabel(result: { gate: string; acId?: number | null }): string {
+  return result.acId === undefined || result.acId === null
+    ? result.gate
+    : `ac-check:AC-${result.acId}`;
 }
 
 /**

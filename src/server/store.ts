@@ -8,6 +8,7 @@ import type {
   AcCheck,
   Artifact,
   AuditEvent,
+  FollowUpSeed,
   GateResult,
   GateStatus,
   PhaseExecution,
@@ -19,6 +20,7 @@ import type {
   RunWithPhases,
   Ticket,
   TicketWithAcs,
+  TreeState,
   WorkflowGraph,
 } from "./types.ts";
 
@@ -33,6 +35,9 @@ export class ValidationError extends Error {}
 function nowIso(): string {
   return new Date().toISOString();
 }
+
+/** Three failed cycles matches observed agent convergence (ticket 06 §6). */
+const BOUNCE_CAP = 3;
 
 /**
  * Canonical state lives in mutable rows; every mutation appends an Audit
@@ -278,25 +283,34 @@ export class Store {
   }
 
   /**
-   * Claim = Run creation (ticket 08, no leases): atomically move the oldest
-   * Todo ticket to In Progress, fix its branch name (first claim only), and
-   * open the Run. Worktree paths land later via recordWorktree — git is slow
-   * and runs outside the transaction.
+   * Claim = Run creation (ticket 08, no leases): atomically claim the oldest
+   * claimable ticket — Todo, or a bounced In Progress ticket with no Run
+   * still running — fix its branch name (first claim only), and open the
+   * Run. Opening a new Run resets failed and machine-verified ACs to
+   * pending (human-verified and waived persist — ticket 05); the battery
+   * re-earns machine green marks every cycle. Worktree paths land later via
+   * recordWorktree — git is slow and runs outside the transaction.
    */
-  claimNextTodoTicket(excludeTicketIds: ReadonlySet<number> = new Set()): {
+  claimNextTicket(excludeTicketIds: ReadonlySet<number> = new Set()): {
     ticket: TicketWithAcs;
     run: Run;
     repo: Repo;
   } | undefined {
     const claimed = withTransaction(this.db, () => {
       const candidates = this.db
-        .prepare("SELECT id FROM tickets WHERE state = 'todo' ORDER BY id")
+        .prepare(
+          `SELECT id FROM tickets
+           WHERE state = 'todo'
+              OR (state = 'in_progress' AND NOT EXISTS (
+                    SELECT 1 FROM runs WHERE runs.ticket_id = tickets.id AND runs.state = 'running'))
+           ORDER BY id`,
+        )
         .all();
       const row = candidates.find((c) => !excludeTicketIds.has(Number(c.id)));
       if (row === undefined) return undefined;
       const existing = this.getTicket(Number(row.id))!;
       const repo = this.getRepo(existing.repoId!);
-      if (!repo) throw new StateError(`ticket ${existing.displayKey} is todo without a repo`);
+      if (!repo) throw new StateError(`ticket ${existing.displayKey} is claimable without a repo`);
 
       const branch = existing.branch ?? branchNameFor(existing);
       const now = nowIso();
@@ -306,6 +320,15 @@ export class Store {
       const runResult = this.db
         .prepare("INSERT INTO runs (ticket_id, state, created_at) VALUES (?, 'running', ?)")
         .run(existing.id, now);
+      const resetAcIds = this.db
+        .prepare(
+          `UPDATE acceptance_criteria SET status = 'pending', provenance = NULL, updated_at = ?
+           WHERE ticket_id = ?
+             AND (status = 'failed' OR (status = 'verified' AND provenance = 'machine'))
+           RETURNING id`,
+        )
+        .all(now, existing.id)
+        .map((reset) => Number(reset.id));
       const run = this.getRun(Number(runResult.lastInsertRowid))!;
       const ticket = this.getTicket(existing.id)!;
       const audit = this.insertAudit({
@@ -313,14 +336,17 @@ export class Store {
         ticketId: ticket.id,
         actor: "agent",
         type: "ticket.claimed",
-        detail: { runId: run.id, branch, repoId: repo.id },
+        detail: { runId: run.id, branch, repoId: repo.id, resetAcIds },
       });
-      return { ticket, run, repo, audit };
+      return { ticket, run, repo, resetAcIds, audit };
     });
     if (!claimed) return undefined;
     this.bus.emit("audit.appended", claimed.audit);
     this.bus.emit("ticket.updated", claimed.ticket);
     this.bus.emit("run.created", this.runDetails(claimed.run));
+    for (const ac of claimed.ticket.acceptanceCriteria) {
+      if (claimed.resetAcIds.includes(ac.id)) this.bus.emit("ac.updated", ac);
+    }
     return { ticket: claimed.ticket, run: claimed.run, repo: claimed.repo };
   }
 
@@ -626,6 +652,82 @@ export class Store {
   }
 
   /**
+   * The failed battery's one bounce (ticket 06 §5): the whole batch lands in
+   * a single event — follow-up AC rows born from the failed gates, the tree
+   * state the next Run inherits, and the Ticket's move back to In Progress
+   * for a fresh claim. The third failed cycle parks in Human Review instead,
+   * flagged arrived-by-cap: past that point the failure is spec-shaped,
+   * which is human territory (ticket 06 §6).
+   */
+  bounceTicket(
+    runId: number,
+    input: {
+      /** The battery's failed labels (gates and ac-check:AC-<id>), verbatim. */
+      failed: string[];
+      followUps: FollowUpSeed[];
+      treeState: TreeState;
+    },
+  ): { ticket: TicketWithAcs; parked: boolean; followUpAcIds: number[] } {
+    const run = this.getRun(runId);
+    if (!run) throw new NotFoundError(`run ${runId} not found`);
+    const existing = this.getTicket(run.ticketId)!;
+    if (existing.state !== "verifying") {
+      throw new StateError(`ticket ${existing.displayKey} is ${existing.state}, not verifying`);
+    }
+    const bounceCount = existing.bounceCount + 1;
+    const parked = bounceCount >= BOUNCE_CAP;
+    const { ticket, followUpAcIds, audit } = withTransaction(this.db, () => {
+      const now = nowIso();
+      const positionRow = this.db
+        .prepare(
+          "SELECT COALESCE(MAX(position), -1) + 1 AS next FROM acceptance_criteria WHERE ticket_id = ?",
+        )
+        .get(existing.id)!;
+      const insert = this.db.prepare(
+        "INSERT INTO acceptance_criteria (ticket_id, text, position, origin, created_at, updated_at) VALUES (?, ?, ?, 'gate-fail', ?, ?)",
+      );
+      const followUpAcIds = input.followUps.map((followUp, offset) => {
+        const inserted = insert.run(
+          existing.id,
+          followUp.text,
+          Number(positionRow.next) + offset,
+          now,
+          now,
+        );
+        return Number(inserted.lastInsertRowid);
+      });
+      this.db
+        .prepare(
+          "UPDATE tickets SET state = ?, bounce_count = ?, arrived_by_cap = ?, updated_at = ? WHERE id = ?",
+        )
+        .run(parked ? "human_review" : "in_progress", bounceCount, parked ? 1 : 0, now, existing.id);
+      const ticket = this.getTicket(existing.id)!;
+      const detail: Record<string, unknown> = {
+        runId,
+        bounceCount,
+        failed: input.failed,
+        followUpAcIds,
+        treeState: input.treeState,
+      };
+      if (parked) detail.reason = "bounce-cap";
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "agent",
+        type: parked ? "ticket.parked" : "ticket.bounced",
+        detail,
+      });
+      return { ticket, followUpAcIds, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    this.bus.emit("ticket.updated", ticket);
+    for (const ac of ticket.acceptanceCriteria) {
+      if (followUpAcIds.includes(ac.id)) this.bus.emit("ac.updated", ac);
+    }
+    return { ticket, parked, followUpAcIds };
+  }
+
+  /**
    * Human-only, reason mandatory, legal in any state (pre-waiving an
    * aspirational AC is legitimate — ticket 06). Forward-acting: the battery
    * reads statuses at its start, so a mid-flight waive takes effect next
@@ -821,6 +923,8 @@ function ticketFromRow(row: Row): Ticket {
     provider: row.provider === null ? null : (String(row.provider) as Ticket["provider"]),
     externalRef: row.external_ref === null ? null : String(row.external_ref),
     branch: row.branch === null ? null : String(row.branch),
+    bounceCount: Number(row.bounce_count),
+    arrivedByCap: Number(row.arrived_by_cap) === 1,
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
   };
