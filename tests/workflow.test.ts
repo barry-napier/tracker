@@ -48,7 +48,7 @@ describe("the full seeded workflow", () => {
 
     // kb/* persisted to app data: kind, content hash, worktree HEAD SHA.
     const headSha = git(runs[0].worktreePath, "rev-parse", "HEAD");
-    expect(runs[0].artifacts).toHaveLength(5);
+    expect(runs[0].artifacts).toHaveLength(6);
     for (const artifact of runs[0].artifacts) {
       expect(artifact.kind).toBe("kb");
       expect(artifact.contentHash).toMatch(/^[0-9a-f]{64}$/);
@@ -56,7 +56,7 @@ describe("the full seeded workflow", () => {
       expect(existsSync(path.join(dataDir, artifact.path))).toBe(true);
     }
     expect(runs[0].artifacts.map((a: any) => a.name).sort()).toEqual(
-      [...PHASES].map((p) => `${p}.md`).sort(),
+      [...[...PHASES].map((p) => `${p}.md`), "recap.html"].sort(),
     );
 
     // The board heard each phase start and finish, and the run end enriched.
@@ -68,7 +68,7 @@ describe("the full seeded workflow", () => {
       [...PHASES].flatMap(() => ["started", "completed"]),
     );
     const runUpdates = client.messages.filter((m) => m.event === "run.updated");
-    expect(runUpdates.at(-1)!.data.artifacts).toHaveLength(5);
+    expect(runUpdates.at(-1)!.data.artifacts).toHaveLength(6);
 
     const audit = (await api(server, "GET", `/api/tickets/${ticket.id}/audit`)).json;
     const types = audit.map((event: { type: string }) => event.type);
@@ -78,9 +78,9 @@ describe("the full seeded workflow", () => {
 
   test("a hollow mid-workflow phase fails the run but its evidence survives", async () => {
     const calls: PhaseCall[] = [];
-    const provider = scriptedProvider(calls, (phase, attempt) =>
-      phase === "implement" && attempt === 1 ? false : undefined,
-    );
+    const provider = scriptedProvider(calls, {
+      sabotage: (phase, attempt) => (phase === "implement" && attempt === 1 ? false : undefined),
+    });
     const { server, ticket } = await bootWorkspace(provider);
     await waitForTicketState(server, ticket.id, "verifying");
 
@@ -103,8 +103,10 @@ describe("the full seeded workflow", () => {
 
   test("a crashing phase crashes the run; the re-claim recovers", async () => {
     const calls: PhaseCall[] = [];
-    const provider = scriptedProvider(calls, (phase, attempt) => {
-      if (phase === "research" && attempt === 1) throw new Error("provider fell over");
+    const provider = scriptedProvider(calls, {
+      sabotage: (phase, attempt) => {
+        if (phase === "research" && attempt === 1) throw new Error("provider fell over");
+      },
     });
     const { server, ticket } = await bootWorkspace(provider);
     await waitForTicketState(server, ticket.id, "verifying");

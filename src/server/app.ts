@@ -73,6 +73,7 @@ export function createApp(store: Store, bus: EventBus, runLogs: RunLogRegistry):
       previewCommand?: string;
       previewKind?: string;
       previewReadinessPath?: string;
+      testCommand?: string;
     }>();
     if (typeof body.projectId !== "number") return c.json({ error: "projectId is required" }, 400);
     if (!isNonEmptyString(body.path)) return c.json({ error: "path is required" }, 400);
@@ -90,6 +91,7 @@ export function createApp(store: Store, bus: EventBus, runLogs: RunLogRegistry):
       previewCommand: body.previewCommand,
       previewKind: body.previewKind as PreviewKind | undefined,
       previewReadinessPath: body.previewReadinessPath,
+      testCommand: body.testCommand,
     });
     return c.json(repo, 201);
   });
@@ -195,6 +197,16 @@ export function createApp(store: Store, bus: EventBus, runLogs: RunLogRegistry):
       provider: body.provider,
     });
     return c.json(ticket);
+  });
+
+  // Waiving is human-only with a mandatory reason, legal in any state —
+  // retiring an aspirational AC before it burns a bounce cycle is legitimate.
+  app.post("/api/acs/:id/waive", async (c) => {
+    const body = await c.req.json<{ reason?: string }>();
+    if (!isNonEmptyString(body.reason)) {
+      return c.json({ error: "a waive requires a reason" }, 400);
+    }
+    return c.json(store.waiveAc(Number(c.req.param("id")), body.reason));
   });
 
   app.patch("/api/tickets/:id", async (c) => {

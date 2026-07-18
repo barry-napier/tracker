@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { GitHubPort } from "../src/server/github.ts";
 import type { ProviderRegistry } from "../src/server/provider.ts";
 import { startServer, type TrackerServer } from "../src/server/index.ts";
 import { initScratchRepo } from "./git-helpers.ts";
@@ -9,7 +10,7 @@ export const cleanups: Array<() => Promise<void>> = [];
 
 export async function bootServer(
   dataDir?: string,
-  options: { workers?: number; providers?: ProviderRegistry } = {},
+  options: { workers?: number; providers?: ProviderRegistry; github?: GitHubPort } = {},
 ): Promise<TrackerServer> {
   const dir = dataDir ?? (await mkdtemp(path.join(tmpdir(), "tracker-test-")));
   // Workers default off: earlier-slice tests register repos at fake paths
@@ -19,6 +20,7 @@ export async function bootServer(
     port: 0,
     workers: options.workers ?? 0,
     providers: options.providers,
+    github: options.github,
   });
   cleanups.push(async () => {
     await server.close();
@@ -34,6 +36,7 @@ export async function runCleanups(): Promise<void> {
 /** Project + registered scratch repo, ready for promotion to trigger claims. */
 export async function seedWorkspace(
   server: TrackerServer,
+  repoConfig: Record<string, unknown> = {},
 ): Promise<{ source: string; project: any; repo: any }> {
   const source = initScratchRepo("fixture-app");
   cleanups.push(() => rm(path.dirname(source), { recursive: true, force: true }));
@@ -43,6 +46,7 @@ export async function seedWorkspace(
       projectId: project.id,
       path: source,
       githubRemote: "git@github.com:barry/fixture-app.git",
+      ...repoConfig,
     })
   ).json;
   return { source, project, repo };

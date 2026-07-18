@@ -17,14 +17,16 @@ describe("the plan phase's extended contract", () => {
   test("plan registers a check per AC — scripts against rows, human routings flagged", async () => {
     const calls: PhaseCall[] = [];
     // Route the first AC to a script and the second to a human.
-    const provider = scriptedProvider(calls, undefined, ({ cwd, prompt }) => {
-      const [scripted, humanRouted] = pendingAcIdsFromPrompt(prompt);
-      writePlanChecks(cwd, `- [pending] AC-${scripted}: only this one`);
-      const manifest = {
-        [String(scripted)]: `checks/ac-${scripted}.sh`,
-        [String(humanRouted)]: { human: "needs visual judgment" },
-      };
-      writeFileSync(path.join(cwd, "checks", "manifest.json"), JSON.stringify(manifest));
+    const provider = scriptedProvider(calls, {
+      planChecks: ({ cwd, prompt }) => {
+        const [scripted, humanRouted] = pendingAcIdsFromPrompt(prompt);
+        writePlanChecks(cwd, `- [pending] AC-${scripted}: only this one`);
+        const manifest = {
+          [String(scripted)]: `checks/ac-${scripted}.sh`,
+          [String(humanRouted)]: { human: "needs visual judgment" },
+        };
+        writeFileSync(path.join(cwd, "checks", "manifest.json"), JSON.stringify(manifest));
+      },
     });
     const { server, ticket } = await bootWorkspace(provider, {
       acceptanceCriteria: ["Widget renders", "Widget feels right"],
@@ -58,7 +60,7 @@ describe("the plan phase's extended contract", () => {
 
   test("a plan that skips the manifest fails the phase, not the contract file", async () => {
     const calls: PhaseCall[] = [];
-    const provider = scriptedProvider(calls, undefined, () => {});
+    const provider = scriptedProvider(calls, { planChecks: () => {} });
     const { server, ticket } = await bootWorkspace(provider);
     await waitForTicketState(server, ticket.id, "todo", 20_000);
 
@@ -75,10 +77,12 @@ describe("the plan phase's extended contract", () => {
 
   test("a manifest that misses a pending AC fails the plan phase naming it", async () => {
     const calls: PhaseCall[] = [];
-    const provider = scriptedProvider(calls, undefined, ({ cwd, prompt }) => {
-      // Cover only the first AC; leave the second uncovered.
-      const [first] = pendingAcIdsFromPrompt(prompt);
-      writePlanChecks(cwd, `- [pending] AC-${first}: first only`);
+    const provider = scriptedProvider(calls, {
+      planChecks: ({ cwd, prompt }) => {
+        // Cover only the first AC; leave the second uncovered.
+        const [first] = pendingAcIdsFromPrompt(prompt);
+        writePlanChecks(cwd, `- [pending] AC-${first}: first only`);
+      },
     });
     const { server, ticket } = await bootWorkspace(provider, {
       acceptanceCriteria: ["Widget renders", "Widget persists"],
@@ -96,16 +100,15 @@ describe("the plan phase's extended contract", () => {
   test("checks persist in the worktree and re-registration is idempotent", async () => {
     const calls: PhaseCall[] = [];
     const checksSeenAtPlanStart: boolean[] = [];
-    const provider = scriptedProvider(
-      calls,
+    const provider = scriptedProvider(calls, {
       // First attempt goes hollow at implement so the run fails after plan
       // registered its checks; the re-claim runs the full workflow again.
-      (phase, attempt) => (phase === "implement" && attempt === 1 ? false : undefined),
-      (ctx) => {
+      sabotage: (phase, attempt) => (phase === "implement" && attempt === 1 ? false : undefined),
+      planChecks: (ctx) => {
         checksSeenAtPlanStart.push(existsSync(path.join(ctx.cwd, "checks", "manifest.json")));
         writePlanChecks(ctx.cwd, ctx.prompt);
       },
-    );
+    });
     const { server, ticket } = await bootWorkspace(provider);
     await waitForTicketState(server, ticket.id, "verifying", 20_000);
 

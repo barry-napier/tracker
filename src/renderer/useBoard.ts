@@ -54,6 +54,8 @@ export function useBoard(): {
         const data: unknown = JSON.parse((message as MessageEvent<string>).data);
         // Phase transitions carry no row data; refetch the run they touch
         // so the drawer's phase list moves while the run is mid-flight.
+        // Gate results need no handling here: each one also emits an
+        // enriched run.updated.
         if (type === "run.phase_changed") {
           loadRuns((data as { ticketId: number }).ticketId);
           return;

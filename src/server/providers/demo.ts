@@ -60,6 +60,22 @@ export function demoProviders(): ProviderRegistry {
         await sleep(400);
       }
 
+      // The document node owes the Visual Recap (its gate requirement); a
+      // demo-grade one keeps the artifact gates honest in the dev app.
+      if (phase === "document") {
+        const recap = block({ kind: "tool_call", tool: "write_file", input: `{"path":"kb/recap.html"}` });
+        yield recap.open;
+        yield { type: "block.close", blockId: recap.open.blockId };
+        mkdirSync(path.join(cwd, "kb"), { recursive: true });
+        writeFileSync(
+          path.join(cwd, "kb", "recap.html"),
+          `<style>body { font: 14px sans-serif; }</style>\n` +
+            `<h1>Visual Recap</h1>\n<p>Scripted demo phase — no real work happened.</p>\n` +
+            `<h2>What to review</h2>\n<ol><li>Nothing — the ${name} demo provider wrote this.</li></ol>\n`,
+        );
+        await sleep(400);
+      }
+
       const call = block({ kind: "tool_call", tool: "write_file", input: `{"path":"kb/${phase}.md"}` });
       yield call.open;
       yield { type: "block.close", blockId: call.open.blockId };

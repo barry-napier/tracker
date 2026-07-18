@@ -1,6 +1,7 @@
 import type { ArtifactStore } from "./artifacts.ts";
 import type { EventBus } from "./bus.ts";
 import { PhaseCancelledError, PhaseFailedError, type WorkflowEngine } from "./engine.ts";
+import type { GateBattery } from "./gates.ts";
 import type { Store } from "./store.ts";
 import type { Repo, Run, TicketWithAcs } from "./types.ts";
 import type { WorktreeManager } from "./worktrees.ts";
@@ -24,6 +25,7 @@ export class WorkerPool {
     private readonly worktrees: WorktreeManager,
     private readonly engine: WorkflowEngine,
     private readonly artifacts: ArtifactStore,
+    private readonly battery: GateBattery,
     private readonly capacity: number,
   ) {}
 
@@ -95,6 +97,17 @@ export class WorkerPool {
       await this.artifacts.persistRun(run.id, worktreePath);
       this.store.finishRun(run.id, "completed");
       this.#failures.delete(ticket.id);
+      if (this.#stopped) return;
+      // The battery judges the Run at Verifying (ADR-0003) — still inside
+      // the worker slot, so a claim can't land on an unjudged worktree. A
+      // battery blow-up leaves the ticket visibly parked in Verifying with
+      // whatever results were recorded; it must not be mistaken for a
+      // crashed run — the work itself completed.
+      try {
+        await this.battery.run({ run, ticket, repo, worktreePath });
+      } catch (error) {
+        console.error(`run ${run.id}: gate battery crashed mid-flight`, error);
+      }
     } catch (error) {
       if (error instanceof PhaseCancelledError || this.#stopped) return;
       // Best effort on the failure paths — evidence survives, but a persist

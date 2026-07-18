@@ -258,6 +258,46 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       WHERE id = 4;
     `,
   },
+  {
+    version: 7,
+    sql: `
+      -- One row per gate execution against a Run (ticket 06): the battery is
+      -- diagnostic, so a Run accumulates every gate's result, failures
+      -- included. ac_id links agent-authored AC checks to their criterion.
+      CREATE TABLE gate_results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_id INTEGER NOT NULL REFERENCES runs(id),
+        gate TEXT NOT NULL,
+        status TEXT NOT NULL,
+        detail TEXT NOT NULL DEFAULT '{}',
+        ac_id INTEGER REFERENCES acceptance_criteria(id),
+        created_at TEXT NOT NULL
+      );
+
+      -- Who verified an AC (machine = orchestrator-run check, human = wizard
+      -- or waive) and why a waived one was retired. Null until either lands.
+      ALTER TABLE acceptance_criteria ADD COLUMN provenance TEXT;
+      ALTER TABLE acceptance_criteria ADD COLUMN waive_reason TEXT;
+
+      -- The suite gate runs this in the worktree; null = no suite → skip.
+      ALTER TABLE repos ADD COLUMN test_command TEXT;
+
+      -- The document node owes the Visual Recap (ticket 11): the artifact
+      -- gate reads each node's owed files from gate_requirements.
+      UPDATE workflow_nodes SET gate_requirements = '["kb/recap.html"]' WHERE id = 6;
+      UPDATE workflow_nodes SET prompt_template =
+        'You are documenting ticket {{displayKey}}: {{title}}.' || char(10) || char(10) ||
+        '{{description}}' || char(10) || char(10) ||
+        'Acceptance criteria:' || char(10) || '{{acceptanceCriteria}}' || char(10) || char(10) ||
+        'Knowledge from earlier phases: {{priorKb}}' || char(10) || char(10) ||
+        'Write up the change so a reviewer can judge it quickly. ' ||
+        'Author kb/recap.html — a fully self-contained HTML Visual Recap grounded in the diff: ' ||
+        'inline all CSS, reference no external resources whatsoever, and end with a ' ||
+        '"What to review" section of 2-5 numbered notes directing the reviewer''s attention. ' ||
+        'Before finishing, write kb/{{phase}}.md: what changed, why, and what to review.'
+      WHERE id = 6;
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

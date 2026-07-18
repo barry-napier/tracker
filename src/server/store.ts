@@ -8,6 +8,8 @@ import type {
   AcCheck,
   Artifact,
   AuditEvent,
+  GateResult,
+  GateStatus,
   PhaseExecution,
   PreviewKind,
   Project,
@@ -87,13 +89,14 @@ export class Store {
     previewCommand?: string;
     previewKind?: PreviewKind;
     previewReadinessPath?: string;
+    testCommand?: string;
   }): Repo {
     const project = this.getProject(input.projectId);
     if (!project) throw new NotFoundError(`project ${input.projectId} not found`);
     const { repo, audit } = withTransaction(this.db, () => {
       const result = this.db
         .prepare(
-          "INSERT INTO repos (project_id, path, github_remote, target_branch, preview_command, preview_kind, preview_readiness_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO repos (project_id, path, github_remote, target_branch, preview_command, preview_kind, preview_readiness_path, test_command, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .run(
           input.projectId,
@@ -103,6 +106,7 @@ export class Store {
           input.previewCommand ?? null,
           input.previewKind ?? null,
           input.previewReadinessPath ?? null,
+          input.testCommand ?? null,
           nowIso(),
         );
       const repo = this.getRepo(Number(result.lastInsertRowid));
@@ -410,6 +414,7 @@ export class Store {
       ...run,
       phases: this.listPhaseExecutions(run.id),
       artifacts: this.listArtifacts(run.id),
+      gateResults: this.listGateResults(run.id),
     };
   }
 
@@ -514,6 +519,145 @@ export class Store {
     return ticket;
   }
 
+  /**
+   * One gate execution lands: the row, its audit event, and — for an AC
+   * check — the criterion's new status commit together. Results come from
+   * the orchestrator only; nothing here is reachable from a provider.
+   */
+  recordGateResult(
+    runId: number,
+    input: { gate: string; status: GateStatus; detail?: Record<string, unknown>; acId?: number },
+  ): GateResult {
+    const run = this.getRun(runId);
+    if (!run) throw new NotFoundError(`run ${runId} not found`);
+    const { result, acChanged, ticket, audit } = withTransaction(this.db, () => {
+      const now = nowIso();
+      const inserted = this.db
+        .prepare(
+          "INSERT INTO gate_results (run_id, gate, status, detail, ac_id, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .run(
+          runId,
+          input.gate,
+          input.status,
+          JSON.stringify(input.detail ?? {}),
+          input.acId ?? null,
+          now,
+        );
+      // An executed AC check settles its criterion with machine provenance;
+      // a skip (waived, human-routed) leaves the row alone.
+      const settledAcId = input.status === "skip" ? undefined : input.acId;
+      if (settledAcId !== undefined) {
+        this.db
+          .prepare(
+            "UPDATE acceptance_criteria SET status = ?, provenance = 'machine', updated_at = ? WHERE id = ?",
+          )
+          .run(input.status === "pass" ? "verified" : "failed", now, settledAcId);
+      }
+      const result = this.getGateResult(Number(inserted.lastInsertRowid))!;
+      const ticket = this.getTicket(run.ticketId)!;
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "agent",
+        type: "gate.result",
+        detail:
+          input.acId === undefined
+            ? { runId, gate: input.gate, status: input.status }
+            : { runId, gate: input.gate, status: input.status, acId: input.acId },
+      });
+      return { result, acChanged: settledAcId !== undefined, ticket, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    this.bus.emit("gate.result", { ticketId: ticket.id, ...result });
+    // The enriched run row rides along so board state (where live events
+    // outrank snapshot fetches) sees gate results without a refetch race.
+    this.bus.emit("run.updated", this.runDetails(this.getRun(runId)!));
+    if (acChanged) {
+      const ac = ticket.acceptanceCriteria.find((candidate) => candidate.id === input.acId);
+      if (ac) this.bus.emit("ac.updated", ac);
+    }
+    return result;
+  }
+
+  getGateResult(id: number): GateResult | undefined {
+    const row = this.db.prepare("SELECT * FROM gate_results WHERE id = ?").get(id);
+    return row === undefined ? undefined : gateResultFromRow(row);
+  }
+
+  listGateResults(runId: number): GateResult[] {
+    return this.db
+      .prepare("SELECT * FROM gate_results WHERE run_id = ? ORDER BY id")
+      .all(runId)
+      .map(gateResultFromRow);
+  }
+
+  /**
+   * The battery's verdict on a Verifying ticket: all green → Human Review;
+   * any failure leaves it in Verifying with the failures on record — the
+   * bounce that acts on them lands in slice 30.
+   */
+  concludeVerification(runId: number, outcome: { passed: boolean; failed: string[] }): Ticket {
+    const run = this.getRun(runId);
+    if (!run) throw new NotFoundError(`run ${runId} not found`);
+    const existing = this.getTicket(run.ticketId)!;
+    if (existing.state !== "verifying") {
+      throw new StateError(`ticket ${existing.displayKey} is ${existing.state}, not verifying`);
+    }
+    const { ticket, audit } = withTransaction(this.db, () => {
+      if (outcome.passed) {
+        this.db
+          .prepare("UPDATE tickets SET state = 'human_review', updated_at = ? WHERE id = ?")
+          .run(nowIso(), existing.id);
+      }
+      const ticket = this.getTicket(existing.id)!;
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "agent",
+        type: outcome.passed ? "gates.passed" : "gates.failed",
+        detail: outcome.passed ? { runId } : { runId, failed: outcome.failed },
+      });
+      return { ticket, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    if (outcome.passed) this.bus.emit("ticket.updated", ticket);
+    return ticket;
+  }
+
+  /**
+   * Human-only, reason mandatory, legal in any state (pre-waiving an
+   * aspirational AC is legitimate — ticket 06). Forward-acting: the battery
+   * reads statuses at its start, so a mid-flight waive takes effect next
+   * cycle, never rescuing a Verifying run.
+   */
+  waiveAc(acId: number, reason: string): AcceptanceCriterion {
+    const row = this.db.prepare("SELECT * FROM acceptance_criteria WHERE id = ?").get(acId);
+    if (!row) throw new NotFoundError(`acceptance criterion ${acId} not found`);
+    if (reason.trim() === "") throw new ValidationError("a waive requires a reason");
+    const { ac, ticket, audit } = withTransaction(this.db, () => {
+      this.db
+        .prepare(
+          "UPDATE acceptance_criteria SET status = 'waived', provenance = 'human', waive_reason = ?, updated_at = ? WHERE id = ?",
+        )
+        .run(reason.trim(), nowIso(), acId);
+      const ticket = this.getTicket(Number(row.ticket_id))!;
+      const ac = ticket.acceptanceCriteria.find((candidate) => candidate.id === acId)!;
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "human",
+        type: "ac.waived",
+        detail: { acId, reason: reason.trim() },
+      });
+      return { ac, ticket, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    this.bus.emit("ac.updated", ac);
+    this.bus.emit("ticket.updated", ticket);
+    return ac;
+  }
+
   listPhaseExecutions(runId: number): PhaseExecution[] {
     return this.db
       .prepare("SELECT * FROM phase_executions WHERE run_id = ? ORDER BY id")
@@ -539,6 +683,10 @@ export class Store {
           name: String(row.name),
           promptTemplate: row.prompt_template === null ? null : String(row.prompt_template),
           emitsChecks: Number(row.emits_checks) === 1,
+          gateRequirements:
+            row.gate_requirements === null
+              ? []
+              : (JSON.parse(String(row.gate_requirements)) as string[]),
         })),
       edges: this.db
         .prepare("SELECT * FROM workflow_edges WHERE workflow_id = ? ORDER BY id")
@@ -728,6 +876,7 @@ function repoFromRow(row: Row): Repo {
     previewKind: row.preview_kind === null ? null : (String(row.preview_kind) as Repo["previewKind"]),
     previewReadinessPath:
       row.preview_readiness_path === null ? null : String(row.preview_readiness_path),
+    testCommand: row.test_command === null ? null : String(row.test_command),
     createdAt: String(row.created_at),
   };
 }
@@ -740,6 +889,9 @@ function acFromRow(row: Row): AcceptanceCriterion {
     position: Number(row.position),
     status: String(row.status) as AcceptanceCriterion["status"],
     origin: String(row.origin) as AcceptanceCriterion["origin"],
+    provenance:
+      row.provenance === null ? null : (String(row.provenance) as AcceptanceCriterion["provenance"]),
+    waiveReason: row.waive_reason === null ? null : String(row.waive_reason),
     check:
       row.check_id === null || row.check_id === undefined
         ? null
@@ -755,6 +907,18 @@ function acFromRow(row: Row): AcceptanceCriterion {
           },
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
+  };
+}
+
+function gateResultFromRow(row: Row): GateResult {
+  return {
+    id: Number(row.id),
+    runId: Number(row.run_id),
+    gate: String(row.gate),
+    status: String(row.status) as GateResult["status"],
+    detail: JSON.parse(String(row.detail)) as Record<string, unknown>,
+    acId: row.ac_id === null ? null : Number(row.ac_id),
+    createdAt: String(row.created_at),
   };
 }
 

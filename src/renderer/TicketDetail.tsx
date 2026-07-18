@@ -2,12 +2,14 @@ import { useEffect } from "react";
 import type {
   AcceptanceCriterion,
   AuditEvent,
+  GateResult,
   PhaseExecution,
   Repo,
   RunWithPhases,
   TicketWithAcs,
 } from "../server/types.ts";
 import { AgentLog } from "./AgentLog.tsx";
+import { apiPost } from "./api.ts";
 import { PROVIDER_LABELS, repoName } from "./format.ts";
 import { STATE_LABELS } from "./ticketStates.ts";
 
@@ -23,6 +25,33 @@ const PHASE_MARKS: Record<PhaseExecution["state"], string> = {
   failed: "✗",
   crashed: "✗",
 };
+
+// Skip renders as "n/a", never as a green check (ticket 06): a fact-driven
+// "not applicable" must not masquerade as evidence.
+const GATE_MARKS: Record<GateResult["status"], string> = {
+  pass: "✓",
+  fail: "✗",
+  skip: "n/a",
+};
+
+function gateSummary(result: GateResult): string {
+  const detail = result.detail;
+  if (typeof detail.reason === "string") return detail.reason;
+  if (Array.isArray(detail.problems)) return detail.problems.join("; ");
+  if (typeof detail.exitCode === "number") return `exit ${detail.exitCode}`;
+  if (Array.isArray(detail.missing) && detail.missing.length > 0) {
+    return `missing ${detail.missing.join(", ")}`;
+  }
+  return "";
+}
+
+function waive(criterion: AcceptanceCriterion): void {
+  const reason = window.prompt(`Waive "${criterion.text}" — reason (required):`);
+  if (reason === null || reason.trim() === "") return;
+  apiPost(`/api/acs/${criterion.id}/waive`, { reason: reason.trim() }).catch((error: unknown) => {
+    window.alert(error instanceof Error ? error.message : String(error));
+  });
+}
 
 /** Ticket detail as a right slide-over over the board (ticket 12, Variant A). */
 export function TicketDetail({
@@ -104,9 +133,22 @@ export function TicketDetail({
           {ticket.acceptanceCriteria.map((criterion) => (
             <li key={criterion.id}>
               <span className={`dot dot-${criterion.status}`} title={criterion.status} />
-              <span>{criterion.text}</span>
+              <span>
+                {criterion.text}
+                {criterion.status !== "waived" && (
+                  <button
+                    className="waivebtn"
+                    title="Waive this criterion (requires a reason)"
+                    onClick={() => waive(criterion)}
+                  >
+                    waive
+                  </button>
+                )}
+              </span>
               <em className="dim">
                 {criterion.status}
+                {criterion.provenance && ` · ${criterion.provenance}`}
+                {criterion.waiveReason && ` · ${criterion.waiveReason}`}
                 {ORIGIN_LABELS[criterion.origin] && ` · ${ORIGIN_LABELS[criterion.origin]}`}
                 {criterion.check?.kind === "script" && ` · ${criterion.check.scriptPath}`}
                 {criterion.check?.kind === "human" && ` · manual walkthrough: ${criterion.check.reason}`}
@@ -114,6 +156,27 @@ export function TicketDetail({
             </li>
           ))}
         </ul>
+
+        <h4>Gates</h4>
+        {(!latestRun || latestRun.gateResults.length === 0) && (
+          <p className="dim">No gate results yet — the battery runs at Verifying.</p>
+        )}
+        {latestRun && latestRun.gateResults.length > 0 && (
+          <ul className="gatelist">
+            {latestRun.gateResults.map((result) => (
+              <li key={result.id}>
+                <span className={`gatemark gate-${result.status}`} title={result.status}>
+                  {GATE_MARKS[result.status]}
+                </span>
+                <span>
+                  {result.gate}
+                  {result.acId !== null && ` · AC-${result.acId}`}
+                </span>
+                <em className="dim">{gateSummary(result)}</em>
+              </li>
+            ))}
+          </ul>
+        )}
 
         <h4>Artifacts</h4>
         {(!latestRun || latestRun.artifacts.length === 0) && (

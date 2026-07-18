@@ -25,6 +25,8 @@ export interface Repo {
   previewCommand: string | null;
   previewKind: PreviewKind | null;
   previewReadinessPath: string | null;
+  /** What the suite gate runs in the worktree; null = no suite → skip. */
+  testCommand: string | null;
   createdAt: string;
 }
 
@@ -83,6 +85,11 @@ export interface WorkflowNode {
   promptTemplate: string | null;
   /** Extended Phase Contract: this node must emit AC checks (ticket 07 §4). */
   emitsChecks: boolean;
+  /**
+   * Worktree-relative artifacts this node owes beyond its contract file
+   * (e.g. kb/recap.html); the artifact gate checks their existence.
+   */
+  gateRequirements: string[];
 }
 
 export interface WorkflowEdge {
@@ -134,13 +141,33 @@ export interface Artifact {
   createdAt: string;
 }
 
+/**
+ * One gate execution against a Run. Skip means "not applicable" — determined
+ * by facts (ticket type, repo config), never by the agent — and is distinct
+ * from pass. AC checks carry the criterion they verify in acId.
+ */
+export type GateStatus = "pass" | "fail" | "skip";
+
+export interface GateResult {
+  id: number;
+  runId: number;
+  gate: string;
+  status: GateStatus;
+  detail: Record<string, unknown>;
+  acId: number | null;
+  createdAt: string;
+}
+
 export interface RunWithPhases extends Run {
   phases: PhaseExecution[];
   artifacts: Artifact[];
+  gateResults: GateResult[];
 }
 
 export type AcStatus = "pending" | "verified" | "failed" | "waived";
 export type AcOrigin = "original" | "gate-fail" | "review-fail";
+/** Who settled the AC: an orchestrator-run check, or a human (wizard/waive). */
+export type AcProvenance = "machine" | "human";
 
 export interface AcceptanceCriterion {
   id: number;
@@ -149,6 +176,9 @@ export interface AcceptanceCriterion {
   position: number;
   status: AcStatus;
   origin: AcOrigin;
+  provenance: AcProvenance | null;
+  /** The human's mandatory reason; only ever set on a waived AC. */
+  waiveReason: string | null;
   /** How the battery verifies this AC; null until a plan phase registers one. */
   check: AcCheck | null;
   createdAt: string;

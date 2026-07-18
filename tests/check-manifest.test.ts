@@ -26,6 +26,8 @@ function ac(id: number, status: AcceptanceCriterion["status"] = "pending"): Acce
     position: id,
     status,
     origin: "original",
+    provenance: null,
+    waiveReason: null,
     check: null,
     createdAt: "",
     updatedAt: "",

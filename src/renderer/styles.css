@@ -415,6 +415,61 @@ body {
   background: var(--amber);
 }
 
+.waivebtn {
+  margin-left: 0.5rem;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--dim);
+  font-size: 0.7rem;
+  padding: 0 0.5rem;
+  cursor: pointer;
+}
+
+.waivebtn:hover {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+
+.gatelist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.gatelist li {
+  display: grid;
+  grid-template-columns: 2rem auto 1fr;
+  column-gap: 0.5rem;
+  align-items: baseline;
+}
+
+.gatelist em {
+  font-style: normal;
+  font-size: 0.75rem;
+}
+
+.gatemark {
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+}
+
+.gate-pass {
+  color: var(--green);
+}
+
+.gate-fail {
+  color: var(--red);
+}
+
+/* A skip is "not applicable" — it must never read as green (ticket 06). */
+.gate-skip {
+  color: var(--dim);
+}
+
 .feed li {
   display: flex;
   justify-content: space-between;

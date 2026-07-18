@@ -4,6 +4,8 @@ import { EventBus } from "./bus.ts";
 import { openDatabase } from "./db.ts";
 import { createApp } from "./app.ts";
 import { WorkflowEngine } from "./engine.ts";
+import { GateBattery } from "./gates.ts";
+import { NullGitHub, type GitHubPort } from "./github.ts";
 import type { ProviderRegistry } from "./provider.ts";
 import { RunLogRegistry } from "./runlog.ts";
 import { Store } from "./store.ts";
@@ -23,6 +25,8 @@ export async function startServer(options: {
   workers?: number;
   /** Provider adapters by name; a claim on an unregistered provider crashes its run. */
   providers?: ProviderRegistry;
+  /** GitHub seam for the battery's gates; defaults to the pre-slice-31 stand-in. */
+  github?: GitHubPort;
 }): Promise<TrackerServer> {
   const db = openDatabase(options.dataDir);
   const bus = new EventBus();
@@ -35,6 +39,7 @@ export async function startServer(options: {
     new WorktreeManager(options.dataDir),
     engine,
     new ArtifactStore(options.dataDir, store),
+    new GateBattery(store, options.github ?? new NullGitHub()),
     options.workers ?? 3,
   );
   pool.start(bus);
