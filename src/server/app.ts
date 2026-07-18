@@ -2,7 +2,8 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import type { BusEvent, EventBus } from "./bus.ts";
-import { NotFoundError, type Store } from "./store.ts";
+import { NotFoundError, StateError, ValidationError, type Store } from "./store.ts";
+import { isProvider, PROVIDERS, type PreviewKind } from "./types.ts";
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
@@ -29,11 +30,22 @@ export function createApp(store: Store, bus: EventBus): Hono {
   );
 
   app.post("/api/projects", async (c) => {
-    const body = await c.req.json<{ name?: string; ticketPrefix?: string }>();
+    const body = await c.req.json<{
+      name?: string;
+      ticketPrefix?: string;
+      defaultProvider?: string;
+    }>();
     if (!isNonEmptyString(body.name)) {
       return c.json({ error: "name is required" }, 400);
     }
-    const project = store.createProject({ name: body.name, ticketPrefix: body.ticketPrefix });
+    if (body.defaultProvider !== undefined && !isProvider(body.defaultProvider)) {
+      return c.json({ error: `defaultProvider must be one of ${PROVIDERS.join(", ")}` }, 400);
+    }
+    const project = store.createProject({
+      name: body.name,
+      ticketPrefix: body.ticketPrefix,
+      defaultProvider: body.defaultProvider,
+    });
     return c.json(project, 201);
   });
 
@@ -43,6 +55,47 @@ export function createApp(store: Store, bus: EventBus): Hono {
     const project = store.getProject(Number(c.req.param("id")));
     if (!project) return c.json({ error: "not found" }, 404);
     return c.json(project);
+  });
+
+  app.get("/api/projects/:id/audit", (c) => {
+    const project = store.getProject(Number(c.req.param("id")));
+    if (!project) return c.json({ error: "not found" }, 404);
+    return c.json(store.listProjectAuditEvents(project.id));
+  });
+
+  app.post("/api/repos", async (c) => {
+    const body = await c.req.json<{
+      projectId?: number;
+      path?: string;
+      githubRemote?: string;
+      targetBranch?: string;
+      previewCommand?: string;
+      previewKind?: string;
+      previewReadinessPath?: string;
+    }>();
+    if (typeof body.projectId !== "number") return c.json({ error: "projectId is required" }, 400);
+    if (!isNonEmptyString(body.path)) return c.json({ error: "path is required" }, 400);
+    if (!isNonEmptyString(body.githubRemote)) {
+      return c.json({ error: "githubRemote is required" }, 400);
+    }
+    if (body.previewKind !== undefined && body.previewKind !== "ui" && body.previewKind !== "api") {
+      return c.json({ error: "previewKind must be ui or api" }, 400);
+    }
+    const repo = store.createRepo({
+      projectId: body.projectId,
+      path: body.path,
+      githubRemote: body.githubRemote,
+      targetBranch: isNonEmptyString(body.targetBranch) ? body.targetBranch : undefined,
+      previewCommand: body.previewCommand,
+      previewKind: body.previewKind as PreviewKind | undefined,
+      previewReadinessPath: body.previewReadinessPath,
+    });
+    return c.json(repo, 201);
+  });
+
+  app.get("/api/repos", (c) => {
+    const projectId = c.req.query("projectId");
+    return c.json(store.listRepos(projectId === undefined ? undefined : Number(projectId)));
   });
 
   app.post("/api/tickets", async (c) => {
@@ -84,6 +137,19 @@ export function createApp(store: Store, bus: EventBus): Hono {
     const ticket = store.getTicket(Number(c.req.param("id")));
     if (!ticket) return c.json({ error: "not found" }, 404);
     return c.json(store.listAuditEvents(ticket.id));
+  });
+
+  app.post("/api/tickets/:id/promote", async (c) => {
+    const body = await c.req.json<{ repoId?: number; provider?: string }>();
+    if (typeof body.repoId !== "number") return c.json({ error: "repoId is required" }, 400);
+    if (!isProvider(body.provider)) {
+      return c.json({ error: `provider must be one of ${PROVIDERS.join(", ")}` }, 400);
+    }
+    const ticket = store.promoteTicket(Number(c.req.param("id")), {
+      repoId: body.repoId,
+      provider: body.provider,
+    });
+    return c.json(ticket);
   });
 
   app.patch("/api/tickets/:id", async (c) => {
@@ -131,6 +197,8 @@ export function createApp(store: Store, bus: EventBus): Hono {
 
   app.onError((error, c) => {
     if (error instanceof NotFoundError) return c.json({ error: error.message }, 404);
+    if (error instanceof StateError) return c.json({ error: error.message }, 409);
+    if (error instanceof ValidationError) return c.json({ error: error.message }, 400);
     if (error instanceof SyntaxError) return c.json({ error: "invalid JSON body" }, 400);
     console.error(error);
     return c.json({ error: "internal error" }, 500);

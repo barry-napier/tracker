@@ -2,38 +2,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { startServer, type TrackerServer } from "../src/server/index.ts";
+import { api, bootServer, cleanups, runCleanups } from "./server-helpers.ts";
 import { SseClient } from "./sse-client.ts";
 
-const cleanups: Array<() => Promise<void>> = [];
-
-async function bootServer(dataDir?: string): Promise<TrackerServer> {
-  const dir = dataDir ?? (await mkdtemp(path.join(tmpdir(), "tracker-test-")));
-  const server = await startServer({ dataDir: dir, port: 0 });
-  cleanups.push(async () => {
-    await server.close();
-    if (!dataDir) await rm(dir, { recursive: true, force: true });
-  });
-  return server;
-}
-
-afterEach(async () => {
-  while (cleanups.length > 0) await cleanups.pop()!();
-});
-
-async function api(
-  server: TrackerServer,
-  method: string,
-  route: string,
-  body?: unknown,
-): Promise<{ status: number; json: any }> {
-  const res = await fetch(`${server.url}${route}`, {
-    method,
-    headers: body === undefined ? {} : { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  return { status: res.status, json: await res.json() };
-}
+afterEach(runCleanups);
 
 describe("headless skeleton", () => {
   test("creates a project and reads it back", async () => {

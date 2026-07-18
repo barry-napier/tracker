@@ -1,5 +1,11 @@
 import { useEffect } from "react";
-import type { AcceptanceCriterion, AuditEvent, TicketWithAcs } from "../server/types.ts";
+import type {
+  AcceptanceCriterion,
+  AuditEvent,
+  Repo,
+  TicketWithAcs,
+} from "../server/types.ts";
+import { PROVIDER_LABELS, repoName } from "./format.ts";
 import { STATE_LABELS } from "./ticketStates.ts";
 
 const ORIGIN_LABELS: Record<AcceptanceCriterion["origin"], string | null> = {
@@ -11,15 +17,18 @@ const ORIGIN_LABELS: Record<AcceptanceCriterion["origin"], string | null> = {
 /** Ticket detail as a right slide-over over the board (ticket 12, Variant A). */
 export function TicketDetail({
   ticket,
+  repos,
   audit,
   loadAudit,
   onClose,
 }: {
   ticket: TicketWithAcs;
+  repos: Repo[];
   audit: AuditEvent[];
   loadAudit: (ticketId: number) => void;
   onClose: () => void;
 }) {
+  const repo = repos.find((r) => r.id === ticket.repoId);
   useEffect(() => {
     loadAudit(ticket.id);
   }, [ticket.id, loadAudit]);
@@ -37,10 +46,10 @@ export function TicketDetail({
         <span className={`badge badge-${ticket.state}`}>{STATE_LABELS[ticket.state]}</span>
 
         <h4>Properties</h4>
-        {/* Repo/provider land at promotion (slice 24); runs at claim (slice 25). */}
+        {/* Repo/provider land at promotion; runs at claim (slice 25). */}
         <div className="props dim">
-          <span>Repo: —</span>
-          <span>Provider: —</span>
+          <span>Repo: {repo ? repoName(repo) : "—"}</span>
+          <span>Provider: {ticket.provider ? PROVIDER_LABELS[ticket.provider] : "—"}</span>
           <span>Run: —</span>
         </div>
 

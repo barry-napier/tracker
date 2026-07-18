@@ -56,6 +56,26 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       BEGIN SELECT RAISE(ABORT, 'audit events are append-only'); END;
     `,
   },
+  {
+    version: 2,
+    sql: `
+      CREATE TABLE repos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL REFERENCES projects(id),
+        path TEXT NOT NULL,
+        github_remote TEXT NOT NULL,
+        target_branch TEXT NOT NULL DEFAULT 'main',
+        preview_command TEXT,
+        preview_kind TEXT,
+        preview_readiness_path TEXT,
+        created_at TEXT NOT NULL
+      );
+
+      ALTER TABLE projects ADD COLUMN default_provider TEXT NOT NULL DEFAULT 'claude-code';
+      ALTER TABLE tickets ADD COLUMN repo_id INTEGER REFERENCES repos(id);
+      ALTER TABLE tickets ADD COLUMN provider TEXT;
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

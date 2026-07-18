@@ -158,6 +158,123 @@ body {
   cursor: default;
 }
 
+.newform label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--dim);
+}
+
+.newform select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font: inherit;
+  padding: 0.3rem 0.4rem;
+}
+
+.setup {
+  margin: 2rem auto 0;
+  width: min(340px, 90vw);
+}
+
+.setup h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.repobar {
+  margin-left: auto;
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  position: relative;
+}
+
+.addrepo {
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  color: var(--dim);
+  font: inherit;
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
+}
+
+.addrepo:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.repoform {
+  position: absolute;
+  top: 1.8rem;
+  right: 0;
+  width: 320px;
+  z-index: 10;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+}
+
+.promote {
+  align-self: flex-start;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
+}
+
+.promote:hover {
+  border-color: var(--accent);
+}
+
+.promoteform {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.4rem;
+  cursor: default;
+  font-size: 0.75rem;
+}
+
+.promoteform label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  color: var(--dim);
+}
+
+.promoteform select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font: inherit;
+  padding: 0.25rem 0.35rem;
+}
+
+.promoteform button {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+}
+
+.promoteform button:first-child {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .error {
   color: var(--red);
   margin: 0;
