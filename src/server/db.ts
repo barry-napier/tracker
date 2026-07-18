@@ -235,7 +235,10 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       );
 
       -- The plan node's extended Phase Contract is workflow data, not an
-      -- engine special case: any node may declare it emits AC checks.
+      -- engine special case: any node may declare it emits AC checks. Not
+      -- the reserved gate_requirements column (ADR-0003): gates verify a
+      -- Run's outcome orchestrator-side after the workflow; emits_checks
+      -- extends what the node itself must produce to complete.
       ALTER TABLE workflow_nodes ADD COLUMN emits_checks INTEGER NOT NULL DEFAULT 0;
       UPDATE workflow_nodes SET emits_checks = 1 WHERE id = 4;
 

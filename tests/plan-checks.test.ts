@@ -4,6 +4,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { api, runCleanups } from "./server-helpers.ts";
 import {
   bootWorkspace,
+  pendingAcIdsFromPrompt,
   scriptedProvider,
   waitForTicketState,
   writePlanChecks,
@@ -17,8 +18,7 @@ describe("the plan phase's extended contract", () => {
     const calls: PhaseCall[] = [];
     // Route the first AC to a script and the second to a human.
     const provider = scriptedProvider(calls, undefined, ({ cwd, prompt }) => {
-      const acIds = [...prompt.matchAll(/\[pending\] AC-(\d+):/g)].map((m) => Number(m[1]));
-      const [scripted, humanRouted] = acIds;
+      const [scripted, humanRouted] = pendingAcIdsFromPrompt(prompt);
       writePlanChecks(cwd, `- [pending] AC-${scripted}: only this one`);
       const manifest = {
         [String(scripted)]: `checks/ac-${scripted}.sh`,
@@ -77,8 +77,8 @@ describe("the plan phase's extended contract", () => {
     const calls: PhaseCall[] = [];
     const provider = scriptedProvider(calls, undefined, ({ cwd, prompt }) => {
       // Cover only the first AC; leave the second uncovered.
-      const acIds = [...prompt.matchAll(/\[pending\] AC-(\d+):/g)].map((m) => Number(m[1]));
-      writePlanChecks(cwd, `- [pending] AC-${acIds[0]}: first only`);
+      const [first] = pendingAcIdsFromPrompt(prompt);
+      writePlanChecks(cwd, `- [pending] AC-${first}: first only`);
     });
     const { server, ticket } = await bootWorkspace(provider, {
       acceptanceCriteria: ["Widget renders", "Widget persists"],

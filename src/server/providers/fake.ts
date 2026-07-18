@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import type {
   AgentEvent,
   PhaseContext,
@@ -35,6 +37,25 @@ export function phaseFromPrompt(prompt: string): string {
  */
 export function pendingAcIdsFromPrompt(prompt: string): number[] {
   return [...prompt.matchAll(/^- \[pending\] AC-(\d+):/gm)].map((match) => Number(match[1]));
+}
+
+/**
+ * A well-behaved plan phase for scripted providers: one executable script per
+ * pending AC named in the prompt, plus the manifest covering them all.
+ */
+export function writePlanChecks(
+  cwd: string,
+  prompt: string,
+  scriptBody: (acId: number) => string = () => "#!/bin/sh\nexit 0\n",
+): void {
+  mkdirSync(path.join(cwd, "checks"), { recursive: true });
+  const manifest: Record<string, string> = {};
+  for (const acId of pendingAcIdsFromPrompt(prompt)) {
+    const script = `checks/ac-${acId}.sh`;
+    writeFileSync(path.join(cwd, script), scriptBody(acId), { mode: 0o755 });
+    manifest[String(acId)] = script;
+  }
+  writeFileSync(path.join(cwd, "checks", "manifest.json"), JSON.stringify(manifest, null, 2));
 }
 
 /**

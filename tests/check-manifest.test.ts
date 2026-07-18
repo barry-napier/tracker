@@ -106,6 +106,34 @@ describe("readCheckManifest", () => {
     expect((result as any).failure).toContain("reason");
   });
 
+  test("fails when a check script is not executable", () => {
+    const cwd = worktree();
+    mkdirSync(path.join(cwd, "checks"), { recursive: true });
+    writeFileSync(path.join(cwd, "checks", "ac-1.sh"), "#!/bin/sh\nexit 0\n", { mode: 0o644 });
+    writeManifest(cwd, { "1": "checks/ac-1.sh" });
+    const result = readCheckManifest(cwd, [ac(1)]);
+    expect(result).toMatchObject({ ok: false });
+    expect((result as any).failure).toContain("not executable");
+  });
+
+  test("fails when a script entry points at a directory", () => {
+    const cwd = worktree();
+    mkdirSync(path.join(cwd, "checks", "ac-1.sh"), { recursive: true });
+    writeManifest(cwd, { "1": "checks/ac-1.sh" });
+    const result = readCheckManifest(cwd, [ac(1)]);
+    expect(result).toMatchObject({ ok: false });
+    expect((result as any).failure).toContain("checks/ac-1.sh");
+  });
+
+  test("fails on a non-canonical AC id key — no silent aliasing", () => {
+    const cwd = worktree();
+    writeScript(cwd, "ac-1.sh");
+    writeManifest(cwd, { "01": "checks/ac-1.sh", "1": "checks/ac-1.sh" });
+    const result = readCheckManifest(cwd, [ac(1)]);
+    expect(result).toMatchObject({ ok: false });
+    expect((result as any).failure).toContain('"01"');
+  });
+
   test("fails on a key that matches no AC of the ticket", () => {
     const cwd = worktree();
     writeScript(cwd, "ac-1.sh");

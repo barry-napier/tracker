@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import type { AcceptanceCriterion } from "./types.ts";
 
@@ -42,7 +42,8 @@ export function readCheckManifest(
   const byId = new Map(acs.map((ac) => [ac.id, ac]));
   const entries: CheckRegistration[] = [];
   for (const [key, value] of Object.entries(manifest)) {
-    const acId = /^\d+$/.test(key) ? Number(key) : undefined;
+    // Canonical ids only: "01" aliasing "1" would silently double-register.
+    const acId = /^[1-9]\d*$/.test(key) ? Number(key) : undefined;
     const ac = acId === undefined ? undefined : byId.get(acId);
     if (!ac) return fail(`${MANIFEST_PATH} names "${key}", which is no AC of this ticket`);
 
@@ -52,8 +53,13 @@ export function readCheckManifest(
       if (path.isAbsolute(value) || !resolved.startsWith(worktreePath + path.sep)) {
         return fail(`check script for AC-${ac.id} points outside the worktree: ${value}`);
       }
-      if (!existsSync(resolved)) {
+      const stat = existsSync(resolved) ? statSync(resolved) : undefined;
+      if (!stat?.isFile()) {
         return fail(`check script for AC-${ac.id} does not exist: ${value}`);
+      }
+      // Spec (ticket 07 §4) says executable; fail here, not at the battery.
+      if ((stat.mode & 0o111) === 0) {
+        return fail(`check script for AC-${ac.id} is not executable: ${value}`);
       }
       entry = { acId: ac.id, kind: "script", scriptPath: value };
     } else if (isHumanRouting(value)) {

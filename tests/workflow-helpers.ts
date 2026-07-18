@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TrackerServer } from "../src/server/index.ts";
 import type { AgentEvent, PhaseContext } from "../src/server/provider.ts";
-import { FakeProvider, pendingAcIdsFromPrompt, phaseFromPrompt } from "../src/server/providers/fake.ts";
+import { FakeProvider, phaseFromPrompt, writePlanChecks } from "../src/server/providers/fake.ts";
 import { api, bootServer, cleanups, seedWorkspace } from "./server-helpers.ts";
+
+export { pendingAcIdsFromPrompt, writePlanChecks } from "../src/server/providers/fake.ts";
 
 export const PHASES = ["research", "plan", "implement", "dogfood", "document"] as const;
 
@@ -38,18 +40,6 @@ export function* conversation(phase: string, prompt: string): Generator<AgentEve
 export function writeContract(cwd: string, phase: string): void {
   mkdirSync(path.join(cwd, "kb"), { recursive: true });
   writeFileSync(path.join(cwd, "kb", `${phase}.md`), `# ${phase}\n\nDid the ${phase} thing.\n`);
-}
-
-/** A well-behaved plan phase: one passing script per pending AC + the manifest. */
-export function writePlanChecks(cwd: string, prompt: string): void {
-  mkdirSync(path.join(cwd, "checks"), { recursive: true });
-  const manifest: Record<string, string> = {};
-  for (const acId of pendingAcIdsFromPrompt(prompt)) {
-    const script = `checks/ac-${acId}.sh`;
-    writeFileSync(path.join(cwd, script), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-    manifest[String(acId)] = script;
-  }
-  writeFileSync(path.join(cwd, "checks", "manifest.json"), JSON.stringify(manifest));
 }
 
 /**
