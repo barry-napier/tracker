@@ -34,7 +34,7 @@ An optional link from a Ticket to the same work item in an outside tracker (Jira
 
 ### Workflow
 
-A named graph of phases defining *how* work on a Ticket gets done — never *whether* it gets checked (verification is the orchestrator's, always). Workflows live in a single app-level library shared across all Projects. A Project selects exactly one Workflow by reference — one Workflow may drive many Projects — chosen at Project creation and changeable later; every Ticket on the board runs the Project's Workflow. A Workflow's content is versioned and versions are immutable; a Project follows the head version, while a Run pins the version current at claim — editing a Workflow or changing a Project's selection affects future claims, never a running or past attempt. A Workflow is archived, never hard-deleted: archiving removes it from selection but it keeps driving Projects that already reference it, and is reversible.
+A named graph of phases defining *how* work on a Ticket gets done — never *whether* it gets checked (verification is the orchestrator's, always). Workflows live in a single app-level library shared across all Projects. A Project selects exactly one Workflow by reference — one Workflow may drive many Projects — chosen at Project creation and changeable later; every Ticket on the board runs the Project's Workflow. A Workflow's content is versioned and versions are immutable; a Project follows the head version, while a Run pins the version current at claim — editing a Workflow or changing a Project's selection affects future claims, never a running or past attempt. A Workflow is archived, never hard-deleted: archiving removes it from selection but it keeps driving Projects that already reference it, and is reversible. Editing happens in the Workflow's Draft — at most one per Workflow, created from the head version, invisible to claims; publishing validates the Draft and appends it as the new head, discarding throws it away.
 
 ### Default Workflow
 
@@ -46,7 +46,7 @@ A single agent attempt at a Ticket: created when a worker claims the Ticket, end
 
 ### Phase Contract
 
-What the workflow engine requires of every phase: run in a fresh provider session, receive context through the engine's fixed template variable set, and write `kb/<phase-name>.md` in the worktree before finishing. A phase completes only when the provider signals success and the contract file exists. The plan phase's contract additionally requires AC checks: one executable per machine-checkable Acceptance Criterion plus a manifest covering every pending AC (script or human-routing with reason).
+What the workflow engine requires of every phase: run in a fresh provider session, receive context through the engine's fixed template variable set, and write `kb/<phase-name>.md` in the worktree before finishing. A phase completes only when the provider signals success and the contract file exists. A phase whose node has labeled outgoing edges must additionally declare its outcome in the contract file — one of the edge labels, passed in as template variables; a missing or unrecognized outcome fails the phase. The engine only ever string-matches the declared outcome to pick the edge: routing is the phase's judgment, verification never is. The plan phase's contract additionally requires AC checks: one executable per machine-checkable Acceptance Criterion plus a manifest covering every pending AC (script or human-routing with reason).
 
 ### Bounce Report
 
