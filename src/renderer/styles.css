@@ -228,11 +228,25 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  background: var(--surface-sunken);
-  border: 1px solid var(--border-muted);
+  background: none;
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font: inherit;
   padding: 0.2rem 0.25rem 0.2rem 0.4rem;
   font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+.tab:hover {
+  background: var(--overlay-hover);
+}
+
+.tab.active {
+  background: var(--surface-sunken);
+  border-color: var(--border-muted);
+  color: var(--text-base);
+  cursor: default;
 }
 
 .tab .avatar {
@@ -469,39 +483,6 @@ body {
 .setup h3 {
   margin: 0;
   font-size: var(--fs-base);
-}
-
-.repobar {
-  margin-left: auto;
-  display: flex;
-  gap: 0.6rem;
-  align-items: baseline;
-  position: relative;
-}
-
-.addrepo {
-  background: none;
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--fs-sm);
-  padding: 0.15rem 0.5rem;
-  cursor: pointer;
-}
-
-.addrepo:hover {
-  color: var(--text-base);
-  background: var(--overlay-hover);
-}
-
-.repoform {
-  position: absolute;
-  top: 1.8rem;
-  right: 0;
-  width: 320px;
-  z-index: 10;
-  box-shadow: var(--shadow-floating);
 }
 
 .promote {
@@ -1407,21 +1388,6 @@ body {
 .home-parent button:disabled {
   opacity: 0.5;
   cursor: default;
-}
-
-/* The topbar brand doubles as the way back to Home. */
-.brand {
-  background: none;
-  border: none;
-  color: var(--text-base);
-  font: inherit;
-  font-weight: 700;
-  padding: 0;
-  cursor: pointer;
-}
-
-.brand:hover {
-  color: var(--text-accent);
 }
 
 /* -- wizard verdicts: step marks, walkthrough actions, final verdict (ticket 33) -- */

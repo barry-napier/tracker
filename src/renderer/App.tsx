@@ -17,13 +17,16 @@ import { STATES } from "./ticketStates.ts";
 import { Icon } from "./icons.tsx";
 
 /**
- * Workspace state: Home (no open project) or one open Project's board.
- * Opening is explicit — the app always starts on Home (CONTEXT.md), and the
- * brand in the topbar is the way back. Ticket B layers tabs onto this.
+ * Workspace state: open Project tabs plus one active view. Home is the
+ * no-active-tab view — the Home button switches to it without closing tabs,
+ * so an open board is always one click away. Opening a project adds a tab
+ * (or re-activates an existing one); only the tab's × removes it.
  */
 function useWorkspace() {
   const [projects, setProjects] = useState<Project[]>([]);
-  const [project, setProject] = useState<Project | null>(null);
+  const [tabs, setTabs] = useState<Project[]>([]);
+  const [activeId, setActiveId] = useState<number | null>(null);
+  const project = tabs.find((t) => t.id === activeId) ?? null;
   const [repos, setRepos] = useState<Repo[]>([]);
 
   // Refetched on every return to Home so recents reorder by latest activity.
@@ -32,14 +35,17 @@ function useWorkspace() {
     void apiGet<Project[]>("/api/projects").then(setProjects);
   }, [project]);
 
-  const openProject = useCallback(
-    (opened: Project) => {
-      setProject(opened);
-      setRepos([]);
-      void apiGet<Repo[]>(`/api/repos?projectId=${opened.id}`).then(setRepos);
-    },
-    [],
-  );
+  // Repos follow the active tab.
+  useEffect(() => {
+    setRepos([]);
+    if (activeId === null) return;
+    void apiGet<Repo[]>(`/api/repos?projectId=${activeId}`).then(setRepos);
+  }, [activeId]);
+
+  const openProject = useCallback((opened: Project) => {
+    setTabs((open) => (open.some((t) => t.id === opened.id) ? open : [...open, opened]));
+    setActiveId(opened.id);
+  }, []);
 
   // Fetch fallback: an "already tracked" click must open its Project even
   // when the recents list is stale or still in flight.
@@ -51,31 +57,51 @@ function useWorkspace() {
     [projects, openProject],
   );
 
-  const goHome = useCallback(() => setProject(null), []);
+  const goHome = useCallback(() => setActiveId(null), []);
 
-  const createRepo = useCallback(
-    async (input: { path: string; githubRemote: string; targetBranch: string }) => {
-      if (!project) return;
-      const repo = await apiPost<Repo>("/api/repos", { projectId: project.id, ...input });
-      setRepos((existing) => [...existing, repo]);
-    },
-    [project],
-  );
+  const activateTab = useCallback((id: number) => setActiveId(id), []);
 
-  return { projects, project, repos, openProject, openProjectById, goHome, createRepo };
+  const closeTab = useCallback((id: number) => {
+    setTabs((open) => open.filter((t) => t.id !== id));
+    setActiveId((current) => (current === id ? null : current));
+  }, []);
+
+  return {
+    projects,
+    tabs,
+    activeId,
+    project,
+    repos,
+    openProject,
+    openProjectById,
+    activateTab,
+    closeTab,
+    goHome,
+  };
 }
 
 export default function App() {
   const { board, error, loadAudit, loadRuns } = useBoard();
-  const { projects, project, repos, openProject, openProjectById, goHome, createRepo } =
-    useWorkspace();
+  const {
+    projects,
+    tabs,
+    activeId,
+    project,
+    repos,
+    openProject,
+    openProjectById,
+    activateTab,
+    closeTab,
+    goHome,
+  } = useWorkspace();
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const selected = board.tickets.find((t) => t.id === selectedId) ?? null;
   const [reviewId, setReviewId] = useState<number | null>(null);
-  // Live row from board state, so SSE updates keep the wizard chrome honest.
-  const reviewing = board.tickets.find((t) => t.id === reviewId) ?? null;
-  // The stream carries every project; the board shows only the open one.
+  // The stream carries every project; the board shows only the active tab's.
   const tickets = project ? board.tickets.filter((t) => t.projectId === project.id) : [];
+  // Scoped to the active tab, so switching tabs drops another board's overlays.
+  const selected = tickets.find((t) => t.id === selectedId) ?? null;
+  // Live row from board state, so SSE updates keep the wizard chrome honest.
+  const reviewing = tickets.find((t) => t.id === reviewId) ?? null;
 
   return (
     <div className="app">
@@ -89,20 +115,37 @@ export default function App() {
         >
           <Icon name="grid-plus" size={16} />
         </button>
-        {project && (
-          <>
-            <span className="tab">
-              <span className="avatar" style={{ background: avatarColor(project.name) }}>
-                {project.name.slice(0, 1).toUpperCase()}
-              </span>
-              {project.name}
-              <button type="button" className="tab-close" title="Close project" onClick={goHome}>
-                <Icon name="close-small" size={14} />
-              </button>
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            className={tab.id === activeId ? "tab active" : "tab"}
+            onClick={() => activateTab(tab.id)}
+          >
+            <span className="avatar" style={{ background: avatarColor(tab.name) }}>
+              {tab.name.slice(0, 1).toUpperCase()}
             </span>
-            <RepoBar repos={repos} onCreate={createRepo} />
-          </>
-        )}
+            {tab.name}
+            <span
+              role="button"
+              tabIndex={0}
+              className="tab-close"
+              title="Close tab"
+              onClick={(e) => {
+                e.stopPropagation();
+                closeTab(tab.id);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.stopPropagation();
+                  closeTab(tab.id);
+                }
+              }}
+            >
+              <Icon name="close-small" size={14} />
+            </span>
+          </button>
+        ))}
         <span className="topbar-actions">
           <ThemeToggle />
           <button type="button" className="icon-btn" title="Settings">
@@ -329,76 +372,6 @@ function ProviderSelect({
         </option>
       ))}
     </select>
-  );
-}
-
-function RepoBar({
-  repos,
-  onCreate,
-}: {
-  repos: Repo[];
-  onCreate: (input: { path: string; githubRemote: string; targetBranch: string }) => Promise<void>;
-}) {
-  const [open, setOpen] = useState(false);
-  const [path, setPath] = useState("");
-  const [remote, setRemote] = useState("");
-  const [branch, setBranch] = useState("main");
-  const [error, setError] = useState<string | null>(null);
-
-  return (
-    <span className="repobar">
-      <span className="dim">
-        {repos.length === 0 ? "No repos" : repos.map(repoName).join(", ")}
-      </span>
-      <button className="addrepo" onClick={() => setOpen(!open)}>
-        + Add repo
-      </button>
-      {open && (
-        <form
-          className="newform repoform"
-          onSubmit={(e) => {
-            e.preventDefault();
-            onCreate({ path: path.trim(), githubRemote: remote.trim(), targetBranch: branch.trim() })
-              .then(() => {
-                setOpen(false);
-                setPath("");
-                setRemote("");
-                setBranch("main");
-                setError(null);
-              })
-              .catch((err: unknown) => {
-                setError(err instanceof Error ? err.message : String(err));
-              });
-          }}
-        >
-          <input
-            autoFocus
-            placeholder="Local path (/Users/you/dev/app)"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-          />
-          <input
-            placeholder="GitHub remote (git@github.com:you/app.git)"
-            value={remote}
-            onChange={(e) => setRemote(e.target.value)}
-          />
-          <input
-            placeholder="Target branch"
-            value={branch}
-            onChange={(e) => setBranch(e.target.value)}
-          />
-          {error && <p className="error">{error}</p>}
-          <div className="formrow">
-            <button type="submit" disabled={path.trim() === "" || remote.trim() === ""}>
-              Register repo
-            </button>
-            <button type="button" onClick={() => setOpen(false)}>
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
-    </span>
   );
 }
 
