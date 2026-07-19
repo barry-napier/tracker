@@ -3,7 +3,7 @@ import { restoreTabs, serializeTabs } from "../src/renderer/tabsState.ts";
 import type { Project } from "../src/server/types.ts";
 
 function project(id: number, name: string): Project {
-  return { id, name, ticketPrefix: "TRK", defaultProvider: "claude-code", createdAt: "" };
+  return { id, name, ticketPrefix: "TRK", defaultProvider: "claude-code", workflowId: 1, createdAt: "" };
 }
 
 const KNOWN = [project(1, "tracker"), project(2, "reevu"), project(3, "cairn")];

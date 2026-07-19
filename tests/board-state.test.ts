@@ -63,6 +63,7 @@ function run(overrides: Partial<RunWithPhases> & { id: number }): RunWithPhases 
   return {
     ticketId: 1,
     state: "running",
+    workflowVersionId: 1,
     worktreePath: null,
     crashReason: null,
     phases: [],

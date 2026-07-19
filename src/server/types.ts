@@ -10,6 +10,8 @@ export interface Project {
   name: string;
   ticketPrefix: string;
   defaultProvider: ProviderName;
+  /** The one Workflow every Ticket on this board runs (selected by reference). */
+  workflowId: number;
   createdAt: string;
 }
 
@@ -103,6 +105,8 @@ export interface Run {
   id: number;
   ticketId: number;
   state: RunState;
+  /** The workflow version current at claim — pinned for the Run's whole life (ADR-0004). */
+  workflowVersionId: number;
   /** Null between claim and the worktree coming up. */
   worktreePath: string | null;
   crashReason: string | null;
@@ -112,10 +116,33 @@ export interface Run {
 
 export type WorkflowNodeType = "trigger" | "agent_phase";
 
+/**
+ * A Workflow's identity (ADR-0004): what Projects reference and the library
+ * lists. Content lives on immutable versions — see WorkflowGraph.
+ */
+export interface Workflow {
+  id: number;
+  name: string;
+  /** Removed from selection but still driving Projects that reference it. */
+  archived: boolean;
+  /** Preselected at Project creation; exactly one active default at all times. */
+  isDefault: boolean;
+  createdAt: string;
+}
+
+/** The library listing's row: identity plus what the head version looks like. */
+export interface WorkflowListing extends Workflow {
+  /** Head version number — what a Project's next claim would pin. */
+  version: number;
+  /** Agent-phase names of the head version, in graph walk order. */
+  phases: string[];
+  usedByProjects: number;
+}
+
 /** Workflows are node/edge graphs, never ordered lists (ADR-0001). */
 export interface WorkflowNode {
   id: number;
-  workflowId: number;
+  workflowVersionId: number;
   type: WorkflowNodeType;
   name: string;
   promptTemplate: string | null;
@@ -130,14 +157,18 @@ export interface WorkflowNode {
 
 export interface WorkflowEdge {
   id: number;
-  workflowId: number;
+  workflowVersionId: number;
   fromNodeId: number;
   toNodeId: number;
   conditionLabel: string | null;
 }
 
+/** One immutable version's content: what a Run's pinned id resolves to. */
 export interface WorkflowGraph {
-  id: number;
+  /** The version row's id — what runs.workflow_version_id points at. */
+  versionId: number;
+  workflowId: number;
+  version: number;
   name: string;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];

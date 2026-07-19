@@ -4,11 +4,13 @@
 
 **Blocked by:** nothing hard — but sequence after 36/37: they reshape the seeded graph's nodes, and once this ticket lands that graph is an immutable version 1 (later seed changes must append RPIRD v2). Also collides with 36 in store.ts/engine.ts if run concurrently.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Migration on an existing dev DB preserves all runs and phase history; `phase_executions.node_id` still resolves for past runs
-- [ ] Claim pins the version: changing a project's workflow (or the library) mid-flight never alters a running or past Run
-- [ ] Archived workflow stays live for projects referencing it — their next claim still runs it — but is excluded from any "selectable" listing
-- [ ] Archiving the default without a successor is rejected; with one, both flags move atomically
-- [ ] Duplicate yields an independent workflow whose graph edits (future) cannot touch the source; used-by counts and default badge come back on the library listing
-- [ ] Project-creation path accepts a workflow id and falls back to the default when none given
+- [x] Migration on an existing dev DB preserves all runs and phase history; `phase_executions.node_id` still resolves for past runs
+- [x] Claim pins the version: changing a project's workflow (or the library) mid-flight never alters a running or past Run
+- [x] Archived workflow stays live for projects referencing it — their next claim still runs it — but is excluded from any "selectable" listing
+- [x] Archiving the default without a successor is rejected; with one, both flags move atomically
+- [x] Duplicate yields an independent workflow whose graph edits (future) cannot touch the source; used-by counts and default badge come back on the library listing
+- [x] Project-creation path accepts a workflow id and falls back to the default when none given
+
+**Resolution notes:** Migration 11 rebuilds `workflow_nodes`/`workflow_edges` onto `workflow_version_id` with ids preserved (FK-off rebuild + `foreign_key_check`, `rekeysForeignKeys` flag in db.ts); `migrate(db, upTo)` is the test seam for staged-migration tests. Graph walk helpers moved to `src/server/graph.ts` (shared by engine and the listing's phase preview). `getDefaultWorkflow()` replaced by `getWorkflowGraph(versionId)`; engine and the artifact gate both read the Run's pinned `workflowVersionId`. Selection changes are audit-silent by design; claim's `ticket.claimed` detail carries the pinned version id. Tests: `tests/workflow-library.test.ts`.

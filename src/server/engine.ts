@@ -2,10 +2,11 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { BOUNCE_REPORT_PATH } from "./bounce.ts";
 import { readCheckManifest } from "./checks.ts";
+import { nextNode, triggerOf } from "./graph.ts";
 import type { ProviderRegistry } from "./provider.ts";
 import { RunLogRegistry } from "./runlog.ts";
 import type { Store } from "./store.ts";
-import type { Repo, Run, TicketWithAcs, WorkflowGraph, WorkflowNode } from "./types.ts";
+import type { Repo, Run, TicketWithAcs, WorkflowNode } from "./types.ts";
 
 /** Wrong work (hollow phase, provider-reported failure) — distinct from a crash. */
 export class PhaseFailedError extends Error {}
@@ -40,7 +41,8 @@ export class WorkflowEngine {
     const provider = this.providers[ctx.ticket.provider!];
     if (!provider) throw new Error(`no adapter registered for provider ${ctx.ticket.provider}`);
 
-    const workflow = this.store.getDefaultWorkflow();
+    // The Run's pinned version (ADR-0004): the graph can never change under it.
+    const workflow = this.store.getWorkflowGraph(ctx.run.workflowVersionId);
     // Context travels between phases as files: each completed phase's
     // contract doc joins the {{priorKb}} handoff for the ones after it.
     const priorKb: string[] = [];
@@ -128,23 +130,6 @@ export class WorkflowEngine {
     }
     this.store.endPhase(execution.id, "completed", { providerSessionId });
   }
-}
-
-function triggerOf(workflow: WorkflowGraph): WorkflowNode {
-  const trigger = workflow.nodes.find((node) => node.type === "trigger");
-  if (!trigger) throw new Error(`workflow ${workflow.name} has no trigger node`);
-  return trigger;
-}
-
-/** v1 walk: follow the node's single unlabeled outgoing edge, if any. */
-function nextNode(workflow: WorkflowGraph, from: WorkflowNode): WorkflowNode | undefined {
-  const edge = workflow.edges.find(
-    (candidate) => candidate.fromNodeId === from.id && candidate.conditionLabel === null,
-  );
-  if (!edge) return undefined;
-  const node = workflow.nodes.find((candidate) => candidate.id === edge.toNodeId);
-  if (!node) throw new Error(`edge ${edge.id} points at missing node ${edge.toNodeId}`);
-  return node;
 }
 
 /** The engine's fixed template variable set (Phase Contract). */

@@ -97,7 +97,7 @@ export class GateBattery {
   /** Every artifact the workflow's nodes owe (gate requirements) exists. */
   #artifact(ctx: BatteryContext): GateOutcome {
     const required = this.store
-      .getDefaultWorkflow()
+      .getWorkflowGraph(ctx.run.workflowVersionId)
       .nodes.flatMap((node) => node.gateRequirements);
     const missing = required.filter(
       (artifact) => !existsSync(path.join(ctx.worktreePath, artifact)),

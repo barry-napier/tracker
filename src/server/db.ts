@@ -3,7 +3,10 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 // Schema changes are append-only: never edit a shipped migration, add a new one.
-const MIGRATIONS: Array<{ version: number; sql: string }> = [
+// rekeysForeignKeys marks a migration that recreates FK'd tables: it runs with
+// foreign keys off (the documented SQLite table-rebuild procedure) and proves
+// integrity with foreign_key_check before committing.
+const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: boolean }> = [
   {
     version: 1,
     sql: `
@@ -349,6 +352,67 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       ALTER TABLE repos ADD COLUMN preview_readiness_timeout_ms INTEGER;
     `,
   },
+  {
+    version: 11,
+    sql: `
+      -- Identity (what Projects reference) stays on workflows; immutable
+      -- content moves under workflow_versions. The seeded graph becomes
+      -- RPIRD, version 1, the Default Workflow.
+      CREATE TABLE workflow_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workflow_id INTEGER NOT NULL REFERENCES workflows(id),
+        version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (workflow_id, version)
+      );
+
+      ALTER TABLE workflows ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE workflows ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0;
+      UPDATE workflows SET name = 'RPIRD', is_default = 1 WHERE id = 1;
+
+      INSERT INTO workflow_versions (workflow_id, version, created_at)
+        SELECT id, 1, datetime('now') FROM workflows ORDER BY id;
+
+      -- Re-key nodes and edges from workflow to version, ids preserved so
+      -- phase_executions.node_id keeps resolving for every past run. Table
+      -- rebuilds run with foreign keys off (rekeysForeignKeys).
+      CREATE TABLE workflow_nodes_v2 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workflow_version_id INTEGER NOT NULL REFERENCES workflow_versions(id),
+        type TEXT NOT NULL,
+        name TEXT NOT NULL,
+        prompt_template TEXT,
+        gate_requirements TEXT,
+        emits_checks INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT INTO workflow_nodes_v2 (id, workflow_version_id, type, name, prompt_template, gate_requirements, emits_checks)
+        SELECT n.id, v.id, n.type, n.name, n.prompt_template, n.gate_requirements, n.emits_checks
+        FROM workflow_nodes n JOIN workflow_versions v ON v.workflow_id = n.workflow_id;
+      DROP TABLE workflow_nodes;
+      ALTER TABLE workflow_nodes_v2 RENAME TO workflow_nodes;
+
+      CREATE TABLE workflow_edges_v2 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workflow_version_id INTEGER NOT NULL REFERENCES workflow_versions(id),
+        from_node_id INTEGER NOT NULL REFERENCES workflow_nodes(id),
+        to_node_id INTEGER NOT NULL REFERENCES workflow_nodes(id),
+        condition_label TEXT
+      );
+      INSERT INTO workflow_edges_v2 (id, workflow_version_id, from_node_id, to_node_id, condition_label)
+        SELECT e.id, v.id, e.from_node_id, e.to_node_id, e.condition_label
+        FROM workflow_edges e JOIN workflow_versions v ON v.workflow_id = e.workflow_id;
+      DROP TABLE workflow_edges;
+      ALTER TABLE workflow_edges_v2 RENAME TO workflow_edges;
+
+      -- Every Project selects a Workflow; every Run pins the version current
+      -- at claim. Backfill lands both on RPIRD v1 (ids 1/1 — the only graph
+      -- that has ever existed). The column defaults exist only to satisfy
+      -- NOT NULL on ALTER; the store always writes both explicitly.
+      ALTER TABLE projects ADD COLUMN workflow_id INTEGER NOT NULL DEFAULT 1 REFERENCES workflows(id);
+      ALTER TABLE runs ADD COLUMN workflow_version_id INTEGER NOT NULL DEFAULT 1 REFERENCES workflow_versions(id);
+    `,
+    rekeysForeignKeys: true,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {
@@ -360,7 +424,8 @@ export function openDatabase(dataDir: string): DatabaseSync {
   return db;
 }
 
-export function migrate(db: DatabaseSync): void {
+/** upTo is a test seam: build a database as it stood at an older version. */
+export function migrate(db: DatabaseSync, upTo?: number): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version INTEGER PRIMARY KEY,
@@ -375,13 +440,29 @@ export function migrate(db: DatabaseSync): void {
   );
   for (const migration of MIGRATIONS) {
     if (applied.has(migration.version)) continue;
-    withTransaction(db, () => {
-      db.exec(migration.sql);
-      db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(
-        migration.version,
-        new Date().toISOString(),
-      );
-    });
+    if (upTo !== undefined && migration.version > upTo) break;
+    // PRAGMA foreign_keys is a no-op inside a transaction, so the rebuild
+    // window opens before BEGIN and closes after — with the check inside.
+    if (migration.rekeysForeignKeys) db.exec("PRAGMA foreign_keys = OFF");
+    try {
+      withTransaction(db, () => {
+        db.exec(migration.sql);
+        if (migration.rekeysForeignKeys) {
+          const violations = db.prepare("PRAGMA foreign_key_check").all();
+          if (violations.length > 0) {
+            throw new Error(
+              `migration ${migration.version} broke referential integrity: ${JSON.stringify(violations)}`,
+            );
+          }
+        }
+        db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(
+          migration.version,
+          new Date().toISOString(),
+        );
+      });
+    } finally {
+      if (migration.rekeysForeignKeys) db.exec("PRAGMA foreign_keys = ON");
+    }
   }
 }
 

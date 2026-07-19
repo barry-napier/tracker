@@ -70,6 +70,7 @@ export function createApp(
       name?: string;
       ticketPrefix?: string;
       defaultProvider?: string;
+      workflowId?: number;
     }>();
     if (!isNonEmptyString(body.name)) {
       return c.json({ error: "name is required" }, 400);
@@ -77,13 +78,53 @@ export function createApp(
     if (body.defaultProvider !== undefined && !isProvider(body.defaultProvider)) {
       return c.json({ error: `defaultProvider must be one of ${PROVIDERS.join(", ")}` }, 400);
     }
+    if (body.workflowId !== undefined && typeof body.workflowId !== "number") {
+      return c.json({ error: "workflowId must be a number" }, 400);
+    }
     const project = store.createProject({
       name: body.name,
       ticketPrefix: body.ticketPrefix,
       defaultProvider: body.defaultProvider,
+      workflowId: body.workflowId,
     });
     return c.json(project, 201);
   });
+
+  // A project's workflow selection (ticket 43): forward-acting — the next
+  // claim pins the new head version; running Runs keep theirs. No audit
+  // event by design: the Run's pinned version is the record.
+  app.patch("/api/projects/:id", async (c) => {
+    const body = await c.req.json<{ workflowId?: number }>();
+    if (typeof body.workflowId !== "number") {
+      return c.json({ error: "workflowId is required" }, 400);
+    }
+    return c.json(store.setProjectWorkflow(Number(c.req.param("id")), body.workflowId));
+  });
+
+  // The app-global Workflow library (ticket 43): identity ops only — content
+  // is immutable versions, and creation is duplicate-only until the editor.
+  app.get("/api/workflows", (c) => c.json(store.listWorkflows()));
+  app.post("/api/workflows/:id/duplicate", (c) =>
+    c.json(store.duplicateWorkflow(Number(c.req.param("id"))), 201),
+  );
+  app.patch("/api/workflows/:id", async (c) => {
+    const body = await c.req.json<{ name?: string }>();
+    if (typeof body.name !== "string") return c.json({ error: "name is required" }, 400);
+    return c.json(store.renameWorkflow(Number(c.req.param("id")), body.name));
+  });
+  app.post("/api/workflows/:id/default", (c) =>
+    c.json(store.setDefaultWorkflow(Number(c.req.param("id")))),
+  );
+  app.post("/api/workflows/:id/archive", async (c) => {
+    const body = await c.req.json<{ successorId?: number }>().catch(() => ({}) as { successorId?: number });
+    if (body.successorId !== undefined && typeof body.successorId !== "number") {
+      return c.json({ error: "successorId must be a number" }, 400);
+    }
+    return c.json(store.archiveWorkflow(Number(c.req.param("id")), body.successorId));
+  });
+  app.post("/api/workflows/:id/unarchive", (c) =>
+    c.json(store.unarchiveWorkflow(Number(c.req.param("id")))),
+  );
 
   app.get("/api/projects", (c) => c.json(store.listProjects()));
 

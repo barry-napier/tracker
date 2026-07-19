@@ -102,6 +102,8 @@ export async function bootWorkspace(
     /** Extra fields for the repo registration (testCommand, previewCommand…). */
     repo?: Record<string, unknown>;
     github?: GitHubPort;
+    /** Workspace surgery (e.g. re-pointing the project's workflow) before the promotion triggers claims. */
+    beforePromote?: (server: TrackerServer, project: any) => Promise<void>;
   } = {},
 ) {
   const dataDir = await mkdtemp(path.join(tmpdir(), "tracker-wf-"));
@@ -112,6 +114,7 @@ export async function bootWorkspace(
     github: options.github,
   });
   const { project, repo } = await seedWorkspace(server, options.repo);
+  await options.beforePromote?.(server, project);
   const ticket = (
     await api(server, "POST", "/api/tickets", {
       projectId: project.id,

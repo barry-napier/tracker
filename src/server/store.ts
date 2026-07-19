@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { EventBus } from "./bus.ts";
 import { withTransaction } from "./db.ts";
+import { walkPhases } from "./graph.ts";
 import { branchNameFor, type WorktreeResult } from "./worktrees.ts";
 import type { CheckRegistration } from "./checks.ts";
 import type {
@@ -26,7 +27,11 @@ import type {
   Ticket,
   TicketWithAcs,
   TreeState,
+  Workflow,
+  WorkflowEdge,
   WorkflowGraph,
+  WorkflowListing,
+  WorkflowNode,
 } from "./types.ts";
 
 export type { TicketWithAcs } from "./types.ts";
@@ -60,13 +65,27 @@ export class Store {
     name: string;
     ticketPrefix?: string;
     defaultProvider?: ProviderName;
+    /** Selection at creation (CONTEXT.md: Workflow); omitted = the Default Workflow. */
+    workflowId?: number;
   }): Project {
+    const workflow =
+      input.workflowId === undefined ? this.defaultWorkflow() : this.getWorkflow(input.workflowId);
+    if (!workflow) throw new NotFoundError(`workflow ${input.workflowId} not found`);
+    if (workflow.archived) {
+      throw new ValidationError(`workflow "${workflow.name}" is archived and cannot be selected`);
+    }
     const { project, audit } = withTransaction(this.db, () => {
       const result = this.db
         .prepare(
-          "INSERT INTO projects (name, ticket_prefix, default_provider, created_at) VALUES (?, ?, ?, ?)",
+          "INSERT INTO projects (name, ticket_prefix, default_provider, workflow_id, created_at) VALUES (?, ?, ?, ?, ?)",
         )
-        .run(input.name, input.ticketPrefix ?? "TRK", input.defaultProvider ?? "claude-code", nowIso());
+        .run(
+          input.name,
+          input.ticketPrefix ?? "TRK",
+          input.defaultProvider ?? "claude-code",
+          workflow.id,
+          nowIso(),
+        );
       const project = this.getProject(Number(result.lastInsertRowid));
       if (!project) throw new Error("project vanished after insert");
       const audit = this.insertAudit({
@@ -74,7 +93,7 @@ export class Store {
         ticketId: null,
         actor: "human",
         type: "project.created",
-        detail: { name: project.name },
+        detail: { name: project.name, workflowId: workflow.id },
       });
       return { project, audit };
     });
@@ -337,9 +356,16 @@ export class Store {
       this.db
         .prepare("UPDATE tickets SET state = 'in_progress', branch = ?, updated_at = ? WHERE id = ?")
         .run(branch, now, existing.id);
+      // Resolve project → workflow head version and pin it on the Run
+      // (ADR-0004): editing the library or the selection affects future
+      // claims, never this attempt.
+      const project = this.getProject(existing.projectId)!;
+      const workflowVersionId = this.headVersionId(project.workflowId);
       const runResult = this.db
-        .prepare("INSERT INTO runs (ticket_id, state, created_at) VALUES (?, 'running', ?)")
-        .run(existing.id, now);
+        .prepare(
+          "INSERT INTO runs (ticket_id, state, workflow_version_id, created_at) VALUES (?, 'running', ?, ?)",
+        )
+        .run(existing.id, workflowVersionId, now);
       const resetAcIds = this.db
         .prepare(
           `UPDATE acceptance_criteria SET status = 'pending', provenance = NULL, updated_at = ?
@@ -356,7 +382,7 @@ export class Store {
         ticketId: ticket.id,
         actor: "agent",
         type: "ticket.claimed",
-        detail: { runId: run.id, branch, repoId: repo.id, resetAcIds },
+        detail: { runId: run.id, branch, repoId: repo.id, workflowVersionId, resetAcIds },
       });
       return { ticket, run, repo, resetAcIds, audit };
     });
@@ -1044,39 +1070,207 @@ export class Store {
       .map(phaseFromRow);
   }
 
-  /** The seeded graph every ticket runs until workflows become assignable. */
-  getDefaultWorkflow(): WorkflowGraph {
-    const workflow = this.db.prepare("SELECT * FROM workflows ORDER BY id LIMIT 1").get();
-    if (!workflow) throw new Error("no workflow seeded");
-    const id = Number(workflow.id);
+  /** One immutable version's content — what a Run's pinned id resolves to. */
+  getWorkflowGraph(versionId: number): WorkflowGraph {
+    const row = this.db
+      .prepare(
+        `SELECT v.id AS version_id, v.workflow_id, v.version, w.name
+         FROM workflow_versions v JOIN workflows w ON w.id = v.workflow_id
+         WHERE v.id = ?`,
+      )
+      .get(versionId);
+    if (!row) throw new NotFoundError(`workflow version ${versionId} not found`);
     return {
-      id,
-      name: String(workflow.name),
+      versionId: Number(row.version_id),
+      workflowId: Number(row.workflow_id),
+      version: Number(row.version),
+      name: String(row.name),
       nodes: this.db
-        .prepare("SELECT * FROM workflow_nodes WHERE workflow_id = ? ORDER BY id")
-        .all(id)
-        .map((row) => ({
-          id: Number(row.id),
-          workflowId: Number(row.workflow_id),
-          type: String(row.type) as "trigger" | "agent_phase",
-          name: String(row.name),
-          promptTemplate: row.prompt_template === null ? null : String(row.prompt_template),
-          emitsChecks: Number(row.emits_checks) === 1,
-          gateRequirements:
-            row.gate_requirements === null
-              ? []
-              : (JSON.parse(String(row.gate_requirements)) as string[]),
-        })),
+        .prepare("SELECT * FROM workflow_nodes WHERE workflow_version_id = ? ORDER BY id")
+        .all(versionId)
+        .map(workflowNodeFromRow),
       edges: this.db
-        .prepare("SELECT * FROM workflow_edges WHERE workflow_id = ? ORDER BY id")
-        .all(id)
-        .map((row) => ({
-          id: Number(row.id),
-          workflowId: Number(row.workflow_id),
-          fromNodeId: Number(row.from_node_id),
-          toNodeId: Number(row.to_node_id),
-          conditionLabel: row.condition_label === null ? null : String(row.condition_label),
-        })),
+        .prepare("SELECT * FROM workflow_edges WHERE workflow_version_id = ? ORDER BY id")
+        .all(versionId)
+        .map(workflowEdgeFromRow),
+    };
+  }
+
+  getWorkflow(id: number): Workflow | undefined {
+    const row = this.db.prepare("SELECT * FROM workflows WHERE id = ?").get(id);
+    return row === undefined ? undefined : workflowFromRow(row);
+  }
+
+  /** The whole library, archived rows included — the listing shows them dimmed. */
+  listWorkflows(): WorkflowListing[] {
+    return this.db
+      .prepare("SELECT * FROM workflows ORDER BY id")
+      .all()
+      .map((row) => this.listingFor(workflowFromRow(row)));
+  }
+
+  /**
+   * Create-by-duplicate (the only creation path until the editor ticket):
+   * the head version's graph becomes the new workflow's own version 1 —
+   * fresh node rows, so no future edit can ever touch the source.
+   */
+  duplicateWorkflow(id: number): WorkflowListing {
+    const source = this.getWorkflow(id);
+    if (!source) throw new NotFoundError(`workflow ${id} not found`);
+    const graph = this.getWorkflowGraph(this.headVersionId(id));
+    const copy = withTransaction(this.db, () => {
+      const now = nowIso();
+      const inserted = this.db
+        .prepare(
+          "INSERT INTO workflows (name, archived, is_default, created_at) VALUES (?, 0, 0, ?)",
+        )
+        .run(`${source.name} (copy)`, now);
+      const workflowId = Number(inserted.lastInsertRowid);
+      const versionResult = this.db
+        .prepare("INSERT INTO workflow_versions (workflow_id, version, created_at) VALUES (?, 1, ?)")
+        .run(workflowId, now);
+      const versionId = Number(versionResult.lastInsertRowid);
+      const nodeIds = new Map<number, number>();
+      const insertNode = this.db.prepare(
+        "INSERT INTO workflow_nodes (workflow_version_id, type, name, prompt_template, gate_requirements, emits_checks) VALUES (?, ?, ?, ?, ?, ?)",
+      );
+      for (const node of graph.nodes) {
+        const nodeResult = insertNode.run(
+          versionId,
+          node.type,
+          node.name,
+          node.promptTemplate,
+          node.gateRequirements.length === 0 ? null : JSON.stringify(node.gateRequirements),
+          node.emitsChecks ? 1 : 0,
+        );
+        nodeIds.set(node.id, Number(nodeResult.lastInsertRowid));
+      }
+      const insertEdge = this.db.prepare(
+        "INSERT INTO workflow_edges (workflow_version_id, from_node_id, to_node_id, condition_label) VALUES (?, ?, ?, ?)",
+      );
+      for (const edge of graph.edges) {
+        insertEdge.run(
+          versionId,
+          nodeIds.get(edge.fromNodeId)!,
+          nodeIds.get(edge.toNodeId)!,
+          edge.conditionLabel,
+        );
+      }
+      return this.getWorkflow(workflowId)!;
+    });
+    return this.listingFor(copy);
+  }
+
+  /** Rename edits identity only — every version, past pin, and project follows. */
+  renameWorkflow(id: number, name: string): WorkflowListing {
+    const workflow = this.getWorkflow(id);
+    if (!workflow) throw new NotFoundError(`workflow ${id} not found`);
+    const trimmed = name.trim();
+    if (trimmed === "") throw new ValidationError("a workflow needs a name");
+    this.db.prepare("UPDATE workflows SET name = ? WHERE id = ?").run(trimmed, id);
+    return this.listingFor(this.getWorkflow(id)!);
+  }
+
+  /** Exactly one active default at all times; the swap is one transaction. */
+  setDefaultWorkflow(id: number): WorkflowListing {
+    const workflow = this.getWorkflow(id);
+    if (!workflow) throw new NotFoundError(`workflow ${id} not found`);
+    if (workflow.archived) {
+      throw new ValidationError(`workflow "${workflow.name}" is archived and cannot be the default`);
+    }
+    withTransaction(this.db, () => {
+      this.db.prepare("UPDATE workflows SET is_default = 0 WHERE is_default = 1").run();
+      this.db.prepare("UPDATE workflows SET is_default = 1 WHERE id = ?").run(id);
+    });
+    return this.listingFor(this.getWorkflow(id)!);
+  }
+
+  /**
+   * Archiving removes a workflow from selection but never from duty — its
+   * projects keep claiming against it (CONTEXT.md: archived, never
+   * hard-deleted). Archiving the default demands a successor in the same
+   * call, so the one-active-default invariant moves atomically.
+   */
+  archiveWorkflow(id: number, successorId?: number): WorkflowListing {
+    const workflow = this.getWorkflow(id);
+    if (!workflow) throw new NotFoundError(`workflow ${id} not found`);
+    if (workflow.archived) return this.listingFor(workflow);
+    if (!workflow.isDefault) {
+      this.db.prepare("UPDATE workflows SET archived = 1 WHERE id = ?").run(id);
+      return this.listingFor(this.getWorkflow(id)!);
+    }
+    if (successorId === undefined) {
+      throw new StateError(
+        `"${workflow.name}" is the Default Workflow — archiving it requires naming a successor`,
+      );
+    }
+    const successor = this.getWorkflow(successorId);
+    if (!successor) throw new NotFoundError(`workflow ${successorId} not found`);
+    if (successor.id === workflow.id) {
+      throw new ValidationError("the successor must be a different workflow");
+    }
+    if (successor.archived) {
+      throw new ValidationError(`successor "${successor.name}" is archived — the default must be active`);
+    }
+    withTransaction(this.db, () => {
+      this.db.prepare("UPDATE workflows SET archived = 1, is_default = 0 WHERE id = ?").run(id);
+      this.db.prepare("UPDATE workflows SET is_default = 1 WHERE id = ?").run(successor.id);
+    });
+    return this.listingFor(this.getWorkflow(id)!);
+  }
+
+  /** Reversible by design; the default designation does not come back with it. */
+  unarchiveWorkflow(id: number): WorkflowListing {
+    const workflow = this.getWorkflow(id);
+    if (!workflow) throw new NotFoundError(`workflow ${id} not found`);
+    this.db.prepare("UPDATE workflows SET archived = 0 WHERE id = ?").run(id);
+    return this.listingFor(this.getWorkflow(id)!);
+  }
+
+  /**
+   * Change a project's selection. Takes effect at the next claim — running
+   * Runs keep their pin. Deliberately no audit event: the Run's pinned
+   * version is the record (ticket 43).
+   */
+  setProjectWorkflow(projectId: number, workflowId: number): Project {
+    const project = this.getProject(projectId);
+    if (!project) throw new NotFoundError(`project ${projectId} not found`);
+    const workflow = this.getWorkflow(workflowId);
+    if (!workflow) throw new NotFoundError(`workflow ${workflowId} not found`);
+    if (workflow.archived) {
+      throw new ValidationError(`workflow "${workflow.name}" is archived and cannot be selected`);
+    }
+    this.db.prepare("UPDATE projects SET workflow_id = ? WHERE id = ?").run(workflowId, projectId);
+    return this.getProject(projectId)!;
+  }
+
+  private defaultWorkflow(): Workflow {
+    const row = this.db.prepare("SELECT * FROM workflows WHERE is_default = 1").get();
+    if (!row) throw new Error("no default workflow — the invariant is broken");
+    return workflowFromRow(row);
+  }
+
+  /** What a claim pins: the workflow's newest version. */
+  private headVersionId(workflowId: number): number {
+    const row = this.db
+      .prepare(
+        "SELECT id FROM workflow_versions WHERE workflow_id = ? ORDER BY version DESC LIMIT 1",
+      )
+      .get(workflowId);
+    if (!row) throw new Error(`workflow ${workflowId} has no versions`);
+    return Number(row.id);
+  }
+
+  private listingFor(workflow: Workflow): WorkflowListing {
+    const graph = this.getWorkflowGraph(this.headVersionId(workflow.id));
+    const usedBy = this.db
+      .prepare("SELECT COUNT(*) AS n FROM projects WHERE workflow_id = ?")
+      .get(workflow.id)!;
+    return {
+      ...workflow,
+      version: graph.version,
+      phases: walkPhases(graph).map((node) => node.name),
+      usedByProjects: Number(usedBy.n),
     };
   }
 
@@ -1215,6 +1409,7 @@ function runFromRow(row: Row): Run {
     id: Number(row.id),
     ticketId: Number(row.ticket_id),
     state: String(row.state) as Run["state"],
+    workflowVersionId: Number(row.workflow_version_id),
     worktreePath: row.worktree_path === null ? null : String(row.worktree_path),
     crashReason: row.crash_reason === null ? null : String(row.crash_reason),
     createdAt: String(row.created_at),
@@ -1338,6 +1533,40 @@ function projectFromRow(row: Row): Project {
     name: String(row.name),
     ticketPrefix: String(row.ticket_prefix),
     defaultProvider: String(row.default_provider) as Project["defaultProvider"],
+    workflowId: Number(row.workflow_id),
     createdAt: String(row.created_at),
+  };
+}
+
+function workflowFromRow(row: Row): Workflow {
+  return {
+    id: Number(row.id),
+    name: String(row.name),
+    archived: Number(row.archived) === 1,
+    isDefault: Number(row.is_default) === 1,
+    createdAt: String(row.created_at),
+  };
+}
+
+function workflowNodeFromRow(row: Row): WorkflowNode {
+  return {
+    id: Number(row.id),
+    workflowVersionId: Number(row.workflow_version_id),
+    type: String(row.type) as WorkflowNode["type"],
+    name: String(row.name),
+    promptTemplate: row.prompt_template === null ? null : String(row.prompt_template),
+    emitsChecks: Number(row.emits_checks) === 1,
+    gateRequirements:
+      row.gate_requirements === null ? [] : (JSON.parse(String(row.gate_requirements)) as string[]),
+  };
+}
+
+function workflowEdgeFromRow(row: Row): WorkflowEdge {
+  return {
+    id: Number(row.id),
+    workflowVersionId: Number(row.workflow_version_id),
+    fromNodeId: Number(row.from_node_id),
+    toNodeId: Number(row.to_node_id),
+    conditionLabel: row.condition_label === null ? null : String(row.condition_label),
   };
 }
