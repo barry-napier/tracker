@@ -6,7 +6,7 @@ Glossary for Tracker's core loop. Terms only — no implementation details.
 
 ### Home
 
-Tracker's entry surface: what a fresh window or new tab shows. Offers exactly two paths onto a board — open a Recent Project, or clone a repo from GitHub (which creates a new Project). Each opened Project occupies one tab; open tabs survive an app restart. Every Project is a Recent Project: existing in Tracker means it was worked on. Home lists them ordered by most recent board activity — "opened" is not a recorded event. Tabs from different Projects coexist in one window; opening a Project that is already open focuses its existing tab, never a duplicate.
+Tracker's entry surface: what a fresh window or new tab shows. Offers exactly two paths onto a board — open a Recent Project, or clone a repo from GitHub (which creates a new Project) — and hosts the app-global Workflow library as a view. Each opened Project occupies one tab; open tabs survive an app restart. Every Project is a Recent Project: existing in Tracker means it was worked on. Home lists them ordered by most recent board activity — "opened" is not a recorded event. Tabs from different Projects coexist in one window; opening a Project that is already open focuses its existing tab, never a duplicate.
 
 ### Project
 
@@ -31,6 +31,14 @@ A machine check the orchestrator runs against a Run before a Ticket may leave Ve
 ### External Reference
 
 An optional link from a Ticket to the same work item in an outside tracker (Jira, Linear, GitHub Issues, markdown). Purely a reference — a Ticket's identity is always Tracker's own immutable id.
+
+### Workflow
+
+A named graph of phases defining *how* work on a Ticket gets done — never *whether* it gets checked (verification is the orchestrator's, always). Workflows live in a single app-level library shared across all Projects. A Project selects exactly one Workflow by reference — one Workflow may drive many Projects — chosen at Project creation and changeable later; every Ticket on the board runs the Project's Workflow. A Workflow's content is versioned and versions are immutable; a Project follows the head version, while a Run pins the version current at claim — editing a Workflow or changing a Project's selection affects future claims, never a running or past attempt. A Workflow is archived, never hard-deleted: archiving removes it from selection but it keeps driving Projects that already reference it, and is reversible.
+
+### Default Workflow
+
+The one Workflow the library designates as preselected when a Project is created. Exactly one active Workflow holds the designation at all times; archiving it requires naming a successor in the same action. The first Default Workflow is RPIRD — the standard research → plan → implement → review → document graph.
 
 ### Run
 

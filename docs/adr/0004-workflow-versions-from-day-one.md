@@ -1,0 +1,5 @@
+# Runs pin workflow versions; versions exist before the editor does
+
+A Workflow is split into identity (`workflows`: name, archived, default flag — what Projects reference) and immutable content (`workflow_versions`, which nodes and edges hang off). A Project follows a workflow's head version; a Run pins the version current at claim, so `phase_executions.node_id` always points into a graph that can never change under it. We build this before any editor exists — while create-by-duplicate makes rows effectively immutable anyway — because retrofitting versioning under live FK'd history is exactly the migration ADR-0001 was written to avoid, and the editor ticket inherits "editing appends a version" as a given instead of a design problem.
+
+Considered: plain `run.workflow_id` reference with versioning deferred to the editor ticket (rejected — the immutability that makes it safe is an accident of v1 scope, not a structural guarantee); JSON graph blob snapshotted onto each Run (rejected — severs the `node_id` FK the phase history and engine already key on).
