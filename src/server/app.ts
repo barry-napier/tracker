@@ -4,11 +4,12 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import type { BusEvent, EventBus } from "./bus.ts";
+import { GitHubUnavailableError, type Home } from "./home.ts";
 import type { Reviews } from "./reviews.ts";
 import type { RunLogRegistry } from "./runlog.ts";
 import { NotFoundError, StateError, ValidationError, type Store } from "./store.ts";
 import { isProvider, PROVIDERS, type PreviewKind } from "./types.ts";
-import type { Verdicts } from "./verdicts.ts";
+import { DriftError, type Verdicts } from "./verdicts.ts";
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
@@ -37,6 +38,7 @@ export function createApp(
   runLogs: RunLogRegistry,
   verdicts: Verdicts,
   reviews: Reviews,
+  home: Home,
   /** Where the ArtifactStore blobbed run evidence; content serves from here. */
   dataDir: string,
 ): Hono {
@@ -80,6 +82,23 @@ export function createApp(
   });
 
   app.get("/api/projects", (c) => c.json(store.listProjects()));
+
+  // Home's clone pane (ticket A): the user's own+org repos, tracked ones flagged.
+  // GitHub being unreachable disables cloning, never the recents list — the
+  // error body is the message the pane shows.
+  app.get("/api/github/repos", async (c) => {
+    try {
+      return c.json({ repos: await home.listGitHubRepos() });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 502);
+    }
+  });
+
+  app.post("/api/github/clone", async (c) => {
+    const result = await home.clone(await c.req.json());
+    if (result.alreadyTracked) return c.json({ alreadyTracked: true, project: result.project });
+    return c.json({ project: result.project, repo: result.repo }, 201);
+  });
 
   app.get("/api/projects/:id", (c) => {
     const project = store.getProject(Number(c.req.param("id")));
@@ -253,16 +272,30 @@ export function createApp(
     return c.json(ticket);
   });
 
-  // The verdict action (ticket 31): pass merges the PR through the
-  // GitHubPort and moves the Ticket to Done. Fail arrives with the review
-  // wizard (slice 33) — until then it is refused, not silently accepted.
+  // The verdict actions (tickets 31 + 33): pass merges through the
+  // GitHubPort (force waives recorded drift, audited); fail bounces with the
+  // reviewer's noted steps; reverify is the drift choice that buys a fresh
+  // battery run instead of waiving.
   app.post("/api/tickets/:id/verdict", async (c) => {
-    const body = await c.req.json<{ outcome?: string }>();
-    if (body.outcome !== "pass") {
-      return c.json({ error: 'outcome must be "pass" (fail verdicts arrive with the review wizard)' }, 400);
+    const body = await c.req.json<{ outcome?: string; force?: boolean; steps?: unknown }>();
+    const ticketId = Number(c.req.param("id"));
+    if (body.outcome === "pass") {
+      return c.json(await verdicts.pass(ticketId, { force: body.force === true }));
     }
-    return c.json(await verdicts.pass(Number(c.req.param("id"))));
+    if (body.outcome === "fail") return c.json(await verdicts.fail(ticketId, body.steps));
+    if (body.outcome === "reverify") return c.json(await verdicts.reverify(ticketId));
+    return c.json({ error: 'outcome must be "pass", "fail", or "reverify"' }, 400);
   });
+
+  // The Manual Walkthrough's human verdicts on individual ACs (ticket 33):
+  // verified or failed with human provenance. Like waiving, legal in any
+  // state — a human observation is never illegal, merely forward-acting.
+  app.post("/api/acs/:id/verify", (c) =>
+    c.json(store.settleAcByHuman(Number(c.req.param("id")), "verified")),
+  );
+  app.post("/api/acs/:id/fail", (c) =>
+    c.json(store.settleAcByHuman(Number(c.req.param("id")), "failed")),
+  );
 
   // Waiving is human-only with a mandatory reason, legal in any state —
   // retiring an aspirational AC before it burns a bounce cycle is legitimate.
@@ -319,8 +352,14 @@ export function createApp(
 
   app.onError((error, c) => {
     if (error instanceof NotFoundError) return c.json({ error: error.message }, 404);
+    // Structured so the wizard can offer re-verify / force-merge without
+    // parsing prose; still a 409 StateError to every other caller.
+    if (error instanceof DriftError) {
+      return c.json({ error: error.message, drift: error.reasons }, 409);
+    }
     if (error instanceof StateError) return c.json({ error: error.message }, 409);
     if (error instanceof ValidationError) return c.json({ error: error.message }, 400);
+    if (error instanceof GitHubUnavailableError) return c.json({ error: error.message }, 502);
     if (error instanceof SyntaxError) return c.json({ error: "invalid JSON body" }, 400);
     console.error(error);
     return c.json({ error: "internal error" }, 500);

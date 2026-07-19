@@ -1,4 +1,4 @@
-const { contextBridge } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('tracker', {
   versions: {
@@ -6,4 +6,6 @@ contextBridge.exposeInMainWorld('tracker', {
     chrome: process.versions.chrome,
     node: process.versions.node,
   },
+  // Native parent-folder picker for Home's clone flow; resolves null on cancel.
+  pickFolder: () => ipcRenderer.invoke('tracker:pick-folder'),
 });

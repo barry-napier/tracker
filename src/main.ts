@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
 import path from "node:path";
 import { demoProviders } from "./server/providers/demo.ts";
 import { startServer, type TrackerServer } from "./server/index.ts";
@@ -34,6 +34,16 @@ app.on("second-instance", () => {
     if (win.isMinimized()) win.restore();
     win.focus();
   }
+});
+
+// Home's clone flow picks the parent folder natively; null = user cancelled.
+ipcMain.handle("tracker:pick-folder", async () => {
+  const result = await dialog.showOpenDialog({
+    title: "Clone into…",
+    buttonLabel: "Clone here",
+    properties: ["openDirectory", "createDirectory"],
+  });
+  return result.canceled ? null : (result.filePaths[0] ?? null);
 });
 
 void app.whenReady().then(async () => {

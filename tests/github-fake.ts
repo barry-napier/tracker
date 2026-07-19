@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import type { GitHubPort, Mergeability, PullRequestRef } from "../src/server/github.ts";
+import type { AffiliatedRepo, GitHubPort, Mergeability, PullRequestRef } from "../src/server/github.ts";
 
 interface FakePr {
   number: number;
@@ -23,12 +23,28 @@ interface FakePr {
 export class FakeGitHub implements GitHubPort {
   /** remote url → local repo path standing in for GitHub's copy. */
   #remotes = new Map<string, string>();
+  #affiliated: AffiliatedRepo[] = [];
   #prs: FakePr[] = [];
   #nextNumber = 1;
   #mergeability = new Map<number, Mergeability>();
 
   registerRemote(remote: string, localPath: string): void {
     this.#remotes.set(remote, localPath);
+  }
+
+  /** Make a repo show up in the user's own+org listing (Home, ticket A). */
+  registerAffiliatedRepo(repo: AffiliatedRepo): void {
+    this.#affiliated.push(repo);
+  }
+
+  async listAffiliatedRepos(): Promise<AffiliatedRepo[]> {
+    return [...this.#affiliated];
+  }
+
+  async clone(remote: string, destination: string): Promise<void> {
+    // A real clone from the local repo playing GitHub's copy — the checkout
+    // lands on that repo's HEAD branch, exactly as `gh repo clone` would.
+    git(process.cwd(), "clone", this.#remotePath(remote), destination);
   }
 
   /** Force the next mergeability answer for a PR (default: "mergeable"). */

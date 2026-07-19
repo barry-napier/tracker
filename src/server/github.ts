@@ -20,7 +20,20 @@ export interface PullRequestRef {
 /** GitHub computes mergeability async, so "unknown" is a real answer, not an error. */
 export type Mergeability = "mergeable" | "conflicting" | "unknown";
 
+/** A repo affiliated with the authenticated user — their own or an org's (Home, ticket A). */
+export interface AffiliatedRepo {
+  nameWithOwner: string;
+  description: string | null;
+  defaultBranch: string;
+  /** In the `git@github.com:owner/repo.git` shape Repo rows record. */
+  sshUrl: string;
+}
+
 export interface GitHubPort {
+  /** Every repo the user could start a Project from: own + org affiliations. */
+  listAffiliatedRepos(): Promise<AffiliatedRepo[]>;
+  /** Clone the remote into `destination` (which must not exist yet). */
+  clone(remote: string, destination: string): Promise<void>;
   /** Is the branch recorded on the remote? (`branch-recorded`, ticket 06.) */
   branchExists(remote: string, branch: string): Promise<boolean>;
   /** The branch's tip SHA on the remote, null if unresolvable (staleness, ticket 32). */
@@ -44,6 +57,14 @@ export interface GitHubPort {
  * claim evidence that doesn't exist), and the merge path refuses loudly.
  */
 export class NullGitHub implements GitHubPort {
+  async listAffiliatedRepos(): Promise<AffiliatedRepo[]> {
+    throw new Error("no GitHub backing configured");
+  }
+
+  async clone(): Promise<void> {
+    throw new Error("no GitHub backing configured");
+  }
+
   async branchExists(): Promise<boolean> {
     return false;
   }
@@ -87,6 +108,28 @@ export function repoSlug(remote: string): string {
  * merge, so the branch's whole story lands as a single commit on the target.
  */
 export class GhGitHub implements GitHubPort {
+  async listAffiliatedRepos(): Promise<AffiliatedRepo[]> {
+    // --paginate --slurp: every page, wrapped in one outer array — so the
+    // whole affiliation is searchable, not just the most recent hundred.
+    const stdout = await gh(
+      "api", "--paginate", "--slurp",
+      "user/repos?affiliation=owner,organization_member&sort=pushed&per_page=100",
+    );
+    const pages = JSON.parse(stdout) as Array<
+      Array<{ full_name: string; description: string | null; default_branch: string; ssh_url: string }>
+    >;
+    return pages.flat().map((repo) => ({
+      nameWithOwner: repo.full_name,
+      description: repo.description,
+      defaultBranch: repo.default_branch,
+      sshUrl: repo.ssh_url,
+    }));
+  }
+
+  async clone(remote: string, destination: string): Promise<void> {
+    await gh("repo", "clone", repoSlug(remote), destination);
+  }
+
   async branchExists(remote: string, branch: string): Promise<boolean> {
     try {
       await gh("api", `repos/${repoSlug(remote)}/branches/${branch}`, "--silent");

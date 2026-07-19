@@ -9,32 +9,48 @@ import {
 } from "../server/types.ts";
 import { apiGet, apiPost } from "./api.ts";
 import { PROVIDER_LABELS, repoName } from "./format.ts";
+import { Home } from "./Home.tsx";
 import { useBoard } from "./useBoard.ts";
 import { ReviewWizard } from "./ReviewWizard.tsx";
 import { TicketDetail } from "./TicketDetail.tsx";
 import { STATES } from "./ticketStates.ts";
 
 /**
- * Project + Repo registration state. Single-project workspace for now: the
- * first project wins; creating one is the empty-state setup step.
+ * Workspace state: Home (no open project) or one open Project's board.
+ * Opening is explicit — the app always starts on Home (CONTEXT.md), and the
+ * brand in the topbar is the way back. Ticket B layers tabs onto this.
  */
 function useWorkspace() {
+  const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState<Project | null>(null);
   const [repos, setRepos] = useState<Repo[]>([]);
-  const [loaded, setLoaded] = useState(false);
 
+  // Refetched on every return to Home so recents reorder by latest activity.
   useEffect(() => {
-    void apiGet<Project[]>("/api/projects").then(async (projects) => {
-      const first = projects[0] ?? null;
-      setProject(first);
-      if (first) setRepos(await apiGet<Repo[]>(`/api/repos?projectId=${first.id}`));
-      setLoaded(true);
-    });
-  }, []);
+    if (project !== null) return;
+    void apiGet<Project[]>("/api/projects").then(setProjects);
+  }, [project]);
 
-  const createProject = useCallback(async (name: string, defaultProvider: ProviderName) => {
-    setProject(await apiPost<Project>("/api/projects", { name, defaultProvider }));
-  }, []);
+  const openProject = useCallback(
+    (opened: Project) => {
+      setProject(opened);
+      setRepos([]);
+      void apiGet<Repo[]>(`/api/repos?projectId=${opened.id}`).then(setRepos);
+    },
+    [],
+  );
+
+  // Fetch fallback: an "already tracked" click must open its Project even
+  // when the recents list is stale or still in flight.
+  const openProjectById = useCallback(
+    async (id: number) => {
+      const known = projects.find((p) => p.id === id);
+      openProject(known ?? (await apiGet<Project>(`/api/projects/${id}`)));
+    },
+    [projects, openProject],
+  );
+
+  const goHome = useCallback(() => setProject(null), []);
 
   const createRepo = useCallback(
     async (input: { path: string; githubRemote: string; targetBranch: string }) => {
@@ -45,37 +61,55 @@ function useWorkspace() {
     [project],
   );
 
-  return { project, repos, loaded, createProject, createRepo };
+  return { projects, project, repos, openProject, openProjectById, goHome, createRepo };
 }
 
 export default function App() {
   const { board, error, loadAudit, loadRuns } = useBoard();
-  const { project, repos, loaded, createProject, createRepo } = useWorkspace();
+  const { projects, project, repos, openProject, openProjectById, goHome, createRepo } =
+    useWorkspace();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const selected = board.tickets.find((t) => t.id === selectedId) ?? null;
   const [reviewId, setReviewId] = useState<number | null>(null);
   // Live row from board state, so SSE updates keep the wizard chrome honest.
   const reviewing = board.tickets.find((t) => t.id === reviewId) ?? null;
+  // The stream carries every project; the board shows only the open one.
+  const tickets = project ? board.tickets.filter((t) => t.projectId === project.id) : [];
 
   return (
     <div className="app">
       <header className="topbar">
-        <b>Tracker</b>
-        {project && <span className="dim">/ {project.name}</span>}
-        {project && <RepoBar repos={repos} onCreate={createRepo} />}
+        {project ? (
+          <>
+            <button type="button" className="brand" onClick={goHome} title="Back to Home">
+              Tracker
+            </button>
+            <span className="dim">/ {project.name}</span>
+            <RepoBar repos={repos} onCreate={createRepo} />
+          </>
+        ) : (
+          <b>Tracker</b>
+        )}
         <ThemeToggle />
       </header>
       {error && <p className="banner error">Can't reach the Tracker server: {error}</p>}
-      {loaded && !project && <ProjectSetup onCreate={createProject} />}
+      {!project && (
+        <Home
+          projects={projects}
+          onOpen={(id) => void openProjectById(id)}
+          onCreated={openProject}
+        />
+      )}
+      {project && (
       <div className="board">
         {STATES.map(({ key, label }) => {
-          const column = board.tickets.filter((t) => t.state === key);
+          const column = tickets.filter((t) => t.state === key);
           return (
             <section key={key} className="column">
               <h3>
                 {label} <span className="dim">{column.length}</span>
               </h3>
-              {key === "backlog" && project && <NewTicketForm projectId={project.id} />}
+              {key === "backlog" && <NewTicketForm projectId={project.id} />}
               {column.map((ticket) => (
                 <TicketCard
                   key={ticket.id}
@@ -92,7 +126,8 @@ export default function App() {
           );
         })}
       </div>
-      {selected && (
+      )}
+      {project && selected && (
         <TicketDetail
           ticket={selected}
           repos={repos}
@@ -103,7 +138,9 @@ export default function App() {
           onClose={() => setSelectedId(null)}
         />
       )}
-      {reviewing && <ReviewWizard ticket={reviewing} onClose={() => setReviewId(null)} />}
+      {project && reviewing && (
+        <ReviewWizard ticket={reviewing} onClose={() => setReviewId(null)} />
+      )}
     </div>
   );
 }
@@ -269,46 +306,6 @@ function ProviderSelect({
         </option>
       ))}
     </select>
-  );
-}
-
-function ProjectSetup({
-  onCreate,
-}: {
-  onCreate: (name: string, defaultProvider: ProviderName) => Promise<void>;
-}) {
-  const [name, setName] = useState("");
-  const [provider, setProvider] = useState<ProviderName>("claude-code");
-  const [error, setError] = useState<string | null>(null);
-
-  return (
-    <form
-      className="newform setup"
-      onSubmit={(e) => {
-        e.preventDefault();
-        onCreate(name.trim(), provider).catch((err: unknown) => {
-          setError(err instanceof Error ? err.message : String(err));
-        });
-      }}
-    >
-      <h3>Register a project</h3>
-      <input
-        autoFocus
-        placeholder="Project name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
-      <label>
-        Default provider
-        <ProviderSelect value={provider} onChange={setProvider} />
-      </label>
-      {error && <p className="error">{error}</p>}
-      <div className="formrow">
-        <button type="submit" disabled={name.trim() === ""}>
-          Create project
-        </button>
-      </div>
-    </form>
   );
 }
 

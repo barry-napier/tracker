@@ -7,6 +7,7 @@ import { createApp } from "./app.ts";
 import { WorkflowEngine } from "./engine.ts";
 import { GateBattery } from "./gates.ts";
 import { GhGitHub, type GitHubPort } from "./github.ts";
+import { Home } from "./home.ts";
 import type { ProviderRegistry } from "./provider.ts";
 import { Reviews } from "./reviews.ts";
 import { RunLogRegistry } from "./runlog.ts";
@@ -36,23 +37,27 @@ export async function startServer(options: {
   const store = new Store(db, bus);
   const runLogs = new RunLogRegistry();
   const github = options.github ?? new GhGitHub();
+  const artifacts = new ArtifactStore(options.dataDir, store);
+  // One Bouncer serves both bounce triggers: the battery's (WorkerPool) and
+  // the reviewer's (Verdicts) — same machinery, same report shape.
+  const bouncer = new Bouncer(store, artifacts);
   const app = createApp(
     store,
     bus,
     runLogs,
-    new Verdicts(store, github),
+    new Verdicts(store, github, bouncer),
     new Reviews(store, github),
+    new Home(store, github),
     options.dataDir,
   );
   const engine = new WorkflowEngine(store, options.providers ?? {}, runLogs);
-  const artifacts = new ArtifactStore(options.dataDir, store);
   const pool = new WorkerPool(
     store,
     new WorktreeManager(options.dataDir),
     engine,
     artifacts,
     new GateBattery(store, github),
-    new Bouncer(store, artifacts),
+    bouncer,
     options.workers ?? 3,
   );
   pool.start(bus);
