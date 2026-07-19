@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { getThemePref, setThemePref, type ThemePref } from "./theme.ts";
 import {
   PROVIDERS,
   type Project,
@@ -62,6 +63,7 @@ export default function App() {
         <b>Tracker</b>
         {project && <span className="dim">/ {project.name}</span>}
         {project && <RepoBar repos={repos} onCreate={createRepo} />}
+        <ThemeToggle />
       </header>
       {error && <p className="banner error">Can't reach the Tracker server: {error}</p>}
       {loaded && !project && <ProjectSetup onCreate={createProject} />}
@@ -103,6 +105,36 @@ export default function App() {
       )}
       {reviewing && <ReviewWizard ticket={reviewing} onClose={() => setReviewId(null)} />}
     </div>
+  );
+}
+
+const THEME_CYCLE: Record<ThemePref, ThemePref> = {
+  system: "light",
+  light: "dark",
+  dark: "system",
+};
+const THEME_LABELS: Record<ThemePref, string> = {
+  system: "Auto",
+  light: "Light",
+  dark: "Dark",
+};
+
+function ThemeToggle() {
+  const [pref, setPref] = useState<ThemePref>(getThemePref);
+  const cycle = () => {
+    const next = THEME_CYCLE[pref];
+    setThemePref(next);
+    setPref(next);
+  };
+  return (
+    <button
+      type="button"
+      className="themebtn"
+      onClick={cycle}
+      title="Cycle color scheme (auto / light / dark)"
+    >
+      ◐ {THEME_LABELS[pref]}
+    </button>
   );
 }
 
