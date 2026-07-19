@@ -42,7 +42,7 @@ export class Bouncer {
     const treeState = await readTreeState(ctx.worktreePath, ctx.repo.targetBranch);
     const followUps = failures
       .filter((result) => result.acId === null)
-      .map((result) => ({ gate: result.gate, text: followUpText(result) }));
+      .flatMap((result) => followUpSeeds(result));
 
     // Snapshot fresh: the claim-time ticket predates the battery's AC settling.
     const ticket = this.store.getTicket(ctx.ticket.id)!;
@@ -126,6 +126,26 @@ export class Bouncer {
 }
 
 /**
+ * The follow-up criteria a failed gate contributes to the bounce batch. Most
+ * gates yield one, phrased as the state the next Run must reach. dogfood-green
+ * is the exception (ticket 37): each failing scenario row becomes its own
+ * follow-up AC, so the next Run earns each journey back independently — the
+ * whole batch still rides one bounce.
+ */
+function followUpSeeds(result: GateResult): FollowUpSeed[] {
+  if (result.gate === "dogfood-green" && Array.isArray(result.detail.failing)) {
+    const failing = result.detail.failing as Array<Record<string, unknown>>;
+    if (failing.length > 0) {
+      return failing.map((row) => ({
+        gate: result.gate,
+        text: `Dogfood scenario ${String(row.id)} reaches pass, fixed, or waived (was ${String(row.status)}): ${String(row.journey)}`,
+      }));
+    }
+  }
+  return [{ gate: result.gate, text: followUpText(result) }];
+}
+
+/**
  * A follow-up criterion's text, generated from the gate's detail (ticket 06
  * §5) — phrased as the state the next Run must reach, not as a complaint.
  */
@@ -160,7 +180,9 @@ async function readTreeState(
 /** What each gate verifies, for the report's "the check" line (ticket 06). */
 const GATE_CHECKS: Record<string, string> = {
   artifact: "every artifact the workflow's nodes owe exists in the worktree",
-  "artifact-lint": "kb/recap.html is self-contained and ends with review notes",
+  "artifact-lint":
+    "kb/recap.html is self-contained and ends with review notes; kb/dogfood-results.json conforms to the matrix schema",
+  "dogfood-green": "every dogfood scenario reached pass, fixed, or waived",
   "branch-recorded": "the branch is recorded on the ticket and exists on the GitHub remote",
   suite: "the repo's test suite exits 0 in the worktree",
   "pr-fresh": "the PR head SHA matches the branch tip",

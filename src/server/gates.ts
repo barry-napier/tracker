@@ -3,6 +3,12 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { DEMO_ARTIFACT_KIND, demoExpectation, type DemoOutcome } from "./demos.ts";
+import {
+  DOGFOOD_GREEN_STATUSES,
+  DOGFOOD_RESULTS_PATH,
+  evaluateDogfoodGreen,
+  lintDogfoodResults,
+} from "./dogfood.ts";
 import type { GitHubPort } from "./github.ts";
 import type { Store } from "./store.ts";
 import type { AcceptanceCriterion, Artifact, GateStatus, Repo, Run, TicketWithAcs } from "./types.ts";
@@ -53,6 +59,7 @@ export class GateBattery {
     const gates: Array<[string, () => Promise<GateOutcome> | GateOutcome]> = [
       ["artifact", () => this.#artifact(ctx)],
       ["artifact-lint", () => this.#artifactLint(ctx)],
+      ["dogfood-green", () => this.#dogfoodGreen(ctx)],
       ["branch-recorded", () => this.#branchRecorded(ticket, ctx.repo)],
       ["suite", () => this.#suite(ctx)],
       ["pr-fresh", () => this.#prFresh(ticket, ctx)],
@@ -109,17 +116,79 @@ export class GateBattery {
     };
   }
 
-  /** The recap obeys its hard rules; everything else is the reviewer's call. */
+  /**
+   * The recap obeys its hard rules and, when the workflow owes it, the dogfood
+   * results file conforms to the vendored matrix schema (ticket 37). The report
+   * itself stays existence-only — the artifact gate covers that; its structure
+   * is prompt-enforced, not re-parsed. Everything softer is the reviewer's call.
+   */
   #artifactLint(ctx: BatteryContext): GateOutcome {
+    const problems: string[] = [];
     const recap = path.join(ctx.worktreePath, "kb", "recap.html");
-    const problems = existsSync(recap)
-      ? lintRecap(readFileSync(recap, "utf8"))
-      : ["kb/recap.html missing — nothing to lint"];
+    problems.push(
+      ...(existsSync(recap)
+        ? lintRecap(readFileSync(recap, "utf8"))
+        : ["kb/recap.html missing — nothing to lint"]),
+    );
+    if (this.#owesDogfood(ctx)) {
+      const results = path.join(ctx.worktreePath, DOGFOOD_RESULTS_PATH);
+      problems.push(
+        ...(existsSync(results)
+          ? lintDogfoodResults(readFileSync(results, "utf8"))
+          : ["kb/dogfood-results.json missing — nothing to lint"]),
+      );
+    }
     return {
       gate: "artifact-lint",
       status: problems.length === 0 ? "pass" : "fail",
       detail: { problems },
     };
+  }
+
+  /**
+   * The dogfood teeth (ticket 37): every scenario must have reached pass, fixed,
+   * or waived. Any un-green row fails the gate and rides into the bounce as one
+   * follow-up AC (bounce.ts). Skip is fact-driven — a workflow without a dogfood
+   * phase owes no results — never agent-declared. Open "Decisions for a human"
+   * are deliberately not read here: they never gate, they surface at the wizard.
+   */
+  #dogfoodGreen(ctx: BatteryContext): GateOutcome {
+    if (!this.#owesDogfood(ctx)) {
+      return {
+        gate: "dogfood-green",
+        status: "skip",
+        detail: { reason: "workflow has no dogfood phase" },
+      };
+    }
+    const file = path.join(ctx.worktreePath, DOGFOOD_RESULTS_PATH);
+    if (!existsSync(file)) {
+      return {
+        gate: "dogfood-green",
+        status: "fail",
+        detail: { reason: "kb/dogfood-results.json missing" },
+      };
+    }
+    const evaluation = evaluateDogfoodGreen(readFileSync(file, "utf8"));
+    if (evaluation.error !== undefined) {
+      return { gate: "dogfood-green", status: "fail", detail: { reason: evaluation.error } };
+    }
+    return {
+      gate: "dogfood-green",
+      status: evaluation.ok ? "pass" : "fail",
+      detail: {
+        total: evaluation.total,
+        greenStatuses: [...DOGFOOD_GREEN_STATUSES],
+        failing: evaluation.failing,
+      },
+    };
+  }
+
+  /** Does the pinned workflow's graph owe the dogfood results file? Facts only. */
+  #owesDogfood(ctx: BatteryContext): boolean {
+    return this.store
+      .getWorkflowGraph(ctx.run.workflowVersionId)
+      .nodes.flatMap((node) => node.gateRequirements)
+      .includes(DOGFOOD_RESULTS_PATH);
   }
 
   /** Branch on the ticket row AND on the GitHub remote (ticket 06 mechanics). */

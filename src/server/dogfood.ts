@@ -189,8 +189,151 @@ export const MATRIX_SCHEMA = {
         },
       },
     },
+    decisions: {
+      description:
+        "Open questions for a human (ticket 37): observed behavior, options with costs, a recommendation. Never gate — the wizard surfaces each for the reviewer to answer, and the answer lands in the Audit Trail.",
+      type: "array",
+      items: {
+        type: "object",
+        required: ["id", "observed", "options", "recommendation"],
+        properties: {
+          id: { type: "string", pattern: "^D[0-9]+$" },
+          observed: {
+            type: "string",
+            description: "What happens, with the evidence — the governor's first line",
+          },
+          options: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["label", "cost"],
+              properties: { label: { type: "string" }, cost: { type: "string" } },
+            },
+          },
+          recommendation: { type: "string" },
+        },
+      },
+    },
   },
 } as const;
+
+/** The statuses the `dogfood-green` gate treats as green (ticket 37). */
+export const DOGFOOD_GREEN_STATUSES = ["pass", "fixed", "waived"] as const;
+
+/**
+ * The scenario enums artifact-lint checks against — derived from MATRIX_SCHEMA
+ * so the allowed values live in exactly one place (the schema is the authority).
+ */
+const SCENARIO_STATUSES: readonly string[] =
+  MATRIX_SCHEMA.properties.scenarios.items.properties.status.enum;
+const SCENARIO_KINDS: readonly string[] =
+  MATRIX_SCHEMA.properties.scenarios.items.properties.kind.enum;
+
+/**
+ * artifact-lint's dogfood arm (ticket 37): the results file must be valid JSON,
+ * carry the required top-level keys, and hold at least one well-formed scenario
+ * (id like "S1", a known kind and status) within the 12-cap. The report itself
+ * stays existence-only — its structure is enforced by the prompt template, not
+ * re-parsed here. Returns the list of problems; empty = clean.
+ */
+export function lintDogfoodResults(raw: string): string[] {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(raw);
+  } catch (error) {
+    return [`kb/dogfood-results.json is not valid JSON: ${messageOf(error)}`];
+  }
+  if (typeof doc !== "object" || doc === null || Array.isArray(doc)) {
+    return ["kb/dogfood-results.json must be a JSON object"];
+  }
+  const results = doc as Record<string, unknown>;
+  const problems: string[] = [];
+  for (const key of ["ticket", "frozen_sha", "base"]) {
+    if (typeof results[key] !== "string" || (results[key] as string) === "") {
+      problems.push(`results missing required string "${key}"`);
+    }
+  }
+  const scenarios = results.scenarios;
+  if (!Array.isArray(scenarios) || scenarios.length === 0) {
+    problems.push("results need at least one scenario");
+    return problems;
+  }
+  if (scenarios.length > 12) {
+    problems.push(`results carry ${scenarios.length} scenarios — the matrix cap is 12`);
+  }
+  scenarios.forEach((scenario, index) => {
+    const where = `scenario ${index + 1}`;
+    if (typeof scenario !== "object" || scenario === null) {
+      problems.push(`${where} is not an object`);
+      return;
+    }
+    const s = scenario as Record<string, unknown>;
+    if (typeof s.id !== "string" || !/^S[0-9]+$/.test(s.id)) {
+      problems.push(`${where} needs an id like "S1"`);
+    }
+    if (typeof s.journey !== "string" || s.journey === "") {
+      problems.push(`${where} needs a journey`);
+    }
+    if (!SCENARIO_KINDS.includes(s.kind as string)) {
+      problems.push(`${where} kind must be one of ${SCENARIO_KINDS.join(", ")}`);
+    }
+    if (!SCENARIO_STATUSES.includes(s.status as string)) {
+      problems.push(`${where} status must be one of ${SCENARIO_STATUSES.join(", ")}`);
+    }
+  });
+  return problems;
+}
+
+/** One scenario the `dogfood-green` gate found un-green, for the follow-up AC. */
+export interface DogfoodScenarioOutcome {
+  id: string;
+  journey: string;
+  status: string;
+  flowRef: string | null;
+}
+
+export interface DogfoodGreenEvaluation {
+  ok: boolean;
+  failing: DogfoodScenarioOutcome[];
+  total: number;
+  /** Set when the file can't be read as scenarios at all — an honest fail. */
+  error?: string;
+}
+
+/**
+ * The `dogfood-green` gate's core (ticket 37): every scenario must have reached
+ * pass, fixed, or waived. Anything else — pending, fail, parked — is a failing
+ * row the bounce machinery turns into one follow-up AC. An unreadable or
+ * empty-scenario file is a fail carrying its own reason (artifact-lint states
+ * the structural detail; the gate need only refuse to green a file it can't read).
+ */
+export function evaluateDogfoodGreen(raw: string): DogfoodGreenEvaluation {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(raw);
+  } catch (error) {
+    return { ok: false, failing: [], total: 0, error: `unreadable results file: ${messageOf(error)}` };
+  }
+  const scenarios = (doc as { scenarios?: unknown } | null)?.scenarios;
+  if (!Array.isArray(scenarios) || scenarios.length === 0) {
+    return { ok: false, failing: [], total: 0, error: "results carry no scenarios to green" };
+  }
+  const green = DOGFOOD_GREEN_STATUSES as readonly string[];
+  const failing = scenarios
+    .map((scenario) => (typeof scenario === "object" && scenario !== null ? (scenario as Record<string, unknown>) : {}))
+    .filter((scenario) => !green.includes(String(scenario.status)))
+    .map((scenario) => ({
+      id: typeof scenario.id === "string" ? scenario.id : "S?",
+      journey: typeof scenario.journey === "string" ? scenario.journey : "",
+      status: typeof scenario.status === "string" ? scenario.status : "unknown",
+      flowRef: typeof scenario.flow_ref === "string" ? scenario.flow_ref : null,
+    }));
+  return { ok: failing.length === 0, failing, total: scenarios.length };
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 /** The schema as the agent sees it, pretty-printed into the prompt. */
 export const MATRIX_SCHEMA_JSON = JSON.stringify(MATRIX_SCHEMA, null, 2);

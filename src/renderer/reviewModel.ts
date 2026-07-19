@@ -12,6 +12,58 @@ import type {
 /** Artifact names with dedicated wizard steps (ticket 11 formats). */
 export const RECAP_NAME = "recap.html";
 export const DOGFOOD_REPORT_NAME = "dogfood-report.md";
+/** The machine-readable results file the Dogfood step reads decisions from. */
+export const DOGFOOD_RESULTS_NAME = "dogfood-results.json";
+
+/** One open "Decision for a human" (ticket 37), as the Dogfood step renders it. */
+export interface DogfoodDecisionOption {
+  label: string;
+  cost: string;
+}
+export interface DogfoodDecision {
+  id: string;
+  observed: string;
+  options: DogfoodDecisionOption[];
+  recommendation: string;
+}
+
+/**
+ * The decisions in a dogfood results file, defensively parsed: malformed or
+ * absent decisions yield an empty list rather than throwing — a broken results
+ * file never breaks the wizard, and the report markdown remains the reviewer's
+ * fallback. Only entries carrying an id survive.
+ */
+export function parseDogfoodDecisions(text: string): DogfoodDecision[] {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  const decisions = (doc as { decisions?: unknown } | null)?.decisions;
+  if (!Array.isArray(decisions)) return [];
+  return decisions.flatMap((entry) => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const rec = entry as Record<string, unknown>;
+    if (typeof rec.id !== "string") return [];
+    const options = Array.isArray(rec.options)
+      ? rec.options.flatMap((option) => {
+          const opt = option as Record<string, unknown>;
+          return typeof opt?.label === "string"
+            ? [{ label: opt.label, cost: typeof opt.cost === "string" ? opt.cost : "" }]
+            : [];
+        })
+      : [];
+    return [
+      {
+        id: rec.id,
+        observed: typeof rec.observed === "string" ? rec.observed : "",
+        options,
+        recommendation: typeof rec.recommendation === "string" ? rec.recommendation : "",
+      },
+    ];
+  });
+}
 
 /** The wizard's step vocabulary is the server's — verdicts validate against it. */
 export type WizardStepKey = ReviewStepKey;

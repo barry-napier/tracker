@@ -4,6 +4,7 @@ import type { ReviewPayload } from "../server/reviews.ts";
 import type {
   AcStatus,
   Artifact,
+  AuditEvent,
   GateStatus,
   RunWithPhases,
   TicketWithAcs,
@@ -19,15 +20,18 @@ import {
   demoVideoArtifact,
   docsArtifacts,
   DOGFOOD_REPORT_NAME,
+  DOGFOOD_RESULTS_NAME,
   failVerdictProblems,
   findArtifact,
   MARKABLE_STEPS,
   mergeProblems,
   missingArtifactLabel,
+  parseDogfoodDecisions,
   RECAP_NAME,
   verdictSteps,
   walkthroughItems,
   WIZARD_STEPS,
+  type DogfoodDecision,
   type ReviewMarks,
   type StepMark,
 } from "./reviewModel.ts";
@@ -300,9 +304,132 @@ function RecapStep({ ticket, run }: { ticket: TicketWithAcs; run: RunWithPhases 
 }
 
 function DogfoodStep({ ticket, run }: { ticket: TicketWithAcs; run: RunWithPhases | null }) {
-  const artifact = findArtifact(run, DOGFOOD_REPORT_NAME);
-  if (!artifact) return <Placeholder label={missingArtifactLabel(ticket, DOGFOOD_REPORT_NAME)} />;
-  return <MarkdownArtifact artifactId={artifact.id} />;
+  const report = findArtifact(run, DOGFOOD_REPORT_NAME);
+  const results = findArtifact(run, DOGFOOD_RESULTS_NAME);
+  return (
+    <div className="dogfoodstep">
+      {report ? (
+        <MarkdownArtifact artifactId={report.id} />
+      ) : (
+        <Placeholder label={missingArtifactLabel(ticket, DOGFOOD_REPORT_NAME)} />
+      )}
+      {results && (
+        <DogfoodDecisions ticketId={ticket.id} artifactId={results.id} updatedAt={ticket.updatedAt} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The "Decisions for a human" surface (ticket 37): open questions the dogfood
+ * phase parked never gate — they land here for the reviewer to answer, and each
+ * answer is recorded in the Audit Trail. Prior answers are read back from the
+ * trail so a reopened wizard shows what's already been decided.
+ */
+function DogfoodDecisions({
+  ticketId,
+  artifactId,
+  updatedAt,
+}: {
+  ticketId: number;
+  artifactId: number;
+  updatedAt: string;
+}) {
+  const { text, error } = useArtifactText(artifactId);
+  const [answered, setAnswered] = useState<Record<string, string>>({});
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [postError, setPostError] = useState<string | null>(null);
+
+  const loadAnswers = useCallback(() => {
+    apiGet<AuditEvent[]>(`/api/tickets/${ticketId}/audit`)
+      .then((events) => {
+        const latest: Record<string, string> = {};
+        for (const event of events) {
+          if (event.type !== "dogfood.decision_answered") continue;
+          const id = event.detail.decisionId;
+          const answer = event.detail.answer;
+          if (typeof id === "string" && typeof answer === "string") latest[id] = answer;
+        }
+        setAnswered(latest);
+      })
+      .catch(() => {});
+  }, [ticketId]);
+  useEffect(loadAnswers, [loadAnswers, updatedAt]);
+
+  // A broken or missing results file never breaks the step — the report above
+  // stands on its own. Only real, parseable decisions render here.
+  if (error) return null;
+  if (text === null) return <p className="dim">Loading decisions…</p>;
+  const decisions = parseDogfoodDecisions(text);
+  if (decisions.length === 0) return null;
+
+  const submit = async (decision: DogfoodDecision) => {
+    const answer = (drafts[decision.id] ?? answered[decision.id] ?? "").trim();
+    if (answer === "") return;
+    setBusy(decision.id);
+    setPostError(null);
+    try {
+      await apiPost(`/api/tickets/${ticketId}/dogfood-decisions`, {
+        decisionId: decision.id,
+        question: decision.observed,
+        answer,
+      });
+      setAnswered({ ...answered, [decision.id]: answer });
+      setDrafts({ ...drafts, [decision.id]: "" });
+    } catch (e: unknown) {
+      setPostError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div className="decisions">
+      <h4>Decisions for a human</h4>
+      <p className="dim">
+        These never block the merge — answer each one; your answer lands in the audit trail.
+      </p>
+      {decisions.map((decision) => (
+        <div key={decision.id} className="decision">
+          <p className="decision-observed">
+            <span className="dim">{decision.id} · observed</span> {decision.observed}
+          </p>
+          {decision.options.length > 0 && (
+            <ul className="decision-options">
+              {decision.options.map((option, index) => (
+                <li key={index}>
+                  <strong>{option.label}</strong>
+                  {option.cost !== "" && <span className="dim"> — {option.cost}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+          {decision.recommendation !== "" && (
+            <p className="decision-rec">
+              <span className="dim">recommendation</span> {decision.recommendation}
+            </p>
+          )}
+          {answered[decision.id] !== undefined && (
+            <p className="decision-answered mark-pass">✓ answered: {answered[decision.id]}</p>
+          )}
+          <div className="decision-answer">
+            <input
+              className="marknote"
+              type="text"
+              value={drafts[decision.id] ?? answered[decision.id] ?? ""}
+              placeholder="Your answer — recorded in the audit trail"
+              onChange={(event) => setDrafts({ ...drafts, [decision.id]: event.target.value })}
+            />
+            <button disabled={busy === decision.id} onClick={() => void submit(decision)}>
+              Record answer
+            </button>
+          </div>
+        </div>
+      ))}
+      {postError && <p className="error">{postError}</p>}
+    </div>
+  );
 }
 
 function MarkdownArtifact({ artifactId }: { artifactId: number }) {

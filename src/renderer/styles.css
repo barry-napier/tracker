@@ -1495,6 +1495,62 @@ body {
   color: var(--warn-fg);
 }
 
+/* Dogfood step — the "Decisions for a human" surface (ticket 37). */
+.dogfoodstep {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.decisions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 0.75rem;
+}
+
+.decisions h4 {
+  margin: 0;
+}
+
+.decision {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.75rem;
+}
+
+.decision p {
+  margin: 0;
+}
+
+.decision-options {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.decision-answered {
+  color: var(--ok-fg);
+  font-size: var(--fs-sm);
+}
+
+.decision-answer {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.decision-answer .marknote {
+  border-color: var(--border-subtle);
+}
+
 .verdictstep h4 {
   margin: 0.6rem 0 0.2rem;
   font-size: var(--fs-sm);

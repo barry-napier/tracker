@@ -857,6 +857,30 @@ export class Store {
   }
 
   /**
+   * A reviewer answers an open "Decision for a human" from the dogfood phase
+   * (ticket 37). Decisions never gate — the answer changes no Ticket state; it
+   * lands in the Audit Trail as a human event so the reasoning survives. The
+   * decision's id and the observed-behavior question travel with the answer so
+   * the trail reads on its own.
+   */
+  answerDogfoodDecision(
+    ticketId: number,
+    input: { decisionId: string; question: string; answer: string },
+  ): AuditEvent {
+    const ticket = this.getTicket(ticketId);
+    if (!ticket) throw new NotFoundError(`ticket ${ticketId} not found`);
+    const audit = this.insertAudit({
+      projectId: ticket.projectId,
+      ticketId: ticket.id,
+      actor: "human",
+      type: "dogfood.decision_answered",
+      detail: { decisionId: input.decisionId, question: input.question, answer: input.answer },
+    });
+    this.bus.emit("audit.appended", audit);
+    return audit;
+  }
+
+  /**
    * A human settles an AC from the Manual Walkthrough (ticket 33): verified
    * or failed, provenance human. Like waiveAc, legal in any state — the
    * walkthrough happens at Human Review, but a human observation is never

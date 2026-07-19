@@ -11,6 +11,7 @@ import {
   MARKABLE_STEPS,
   mergeProblems,
   missingArtifactLabel,
+  parseDogfoodDecisions,
   unmetAcs,
   verdictSteps,
   walkthroughItems,
@@ -106,6 +107,51 @@ describe("graceful degradation", () => {
     expect(missingArtifactLabel(normal, "dogfood-report.md")).toBe(
       "dogfood-report.md was not produced by this run",
     );
+  });
+});
+
+describe("dogfood decisions parsing (ticket 37)", () => {
+  test("well-formed decisions parse with options and recommendation", () => {
+    const decisions = parseDogfoodDecisions(
+      JSON.stringify({
+        scenarios: [],
+        decisions: [
+          {
+            id: "D1",
+            observed: "Dates reformat without warning",
+            options: [
+              { label: "Keep US order", cost: "surprises non-US users" },
+              { label: "Match locale", cost: "one config read" },
+            ],
+            recommendation: "Match locale",
+          },
+        ],
+      }),
+    );
+    expect(decisions).toEqual([
+      {
+        id: "D1",
+        observed: "Dates reformat without warning",
+        options: [
+          { label: "Keep US order", cost: "surprises non-US users" },
+          { label: "Match locale", cost: "one config read" },
+        ],
+        recommendation: "Match locale",
+      },
+    ]);
+  });
+
+  test("a broken, decision-less, or non-JSON file degrades to an empty list", () => {
+    expect(parseDogfoodDecisions("{not json")).toEqual([]);
+    expect(parseDogfoodDecisions(JSON.stringify({ scenarios: [] }))).toEqual([]);
+    expect(parseDogfoodDecisions(JSON.stringify({ decisions: [{ observed: "no id" }] }))).toEqual([]);
+  });
+
+  test("missing option/recommendation fields fall back to empty strings", () => {
+    const [decision] = parseDogfoodDecisions(
+      JSON.stringify({ decisions: [{ id: "D2", options: [{ cost: "no label" }] }] }),
+    );
+    expect(decision).toEqual({ id: "D2", observed: "", options: [], recommendation: "" });
   });
 });
 

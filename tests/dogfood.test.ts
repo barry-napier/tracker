@@ -3,8 +3,10 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import {
   DOGFOOD_GUIDE,
+  evaluateDogfoodGreen,
   GOVERNOR_FIXES_PER_RUN,
   GOVERNOR_FIXES_PER_SCENARIO,
+  lintDogfoodResults,
   MATRIX_SCHEMA,
 } from "../src/server/dogfood.ts";
 import { FakeGitHub } from "./github-fake.ts";
@@ -140,9 +142,10 @@ describe("the dogfood phase (ticket 36)", () => {
   test("an honest red dogfood report still completes the phase and persists both artifacts (AC5)", async () => {
     const github = new FakeGitHub();
     const calls: PhaseCall[] = [];
-    // The agent walks a scenario that fails and parks it. No dogfood-green gate
-    // exists yet (slice 37), so the run proceeds; the point is that a red
-    // report is not a hollow phase — the contract + both artifacts exist.
+    // The agent walks a scenario that fails and parks it. The dogfood-green gate
+    // (slice 37) now bounces such a run, so the ticket lands at Human Review by
+    // bounce cap — but the point stands: a red report is not a hollow phase, the
+    // contract + both artifacts exist on every attempt.
     const provider = scriptedProvider(calls, {
       onPhase: async (ctx) => {
         if (ctx.phase === "dogfood") writeDogfood(ctx.cwd, { status: "fail" });
@@ -151,7 +154,8 @@ describe("the dogfood phase (ticket 36)", () => {
     });
     const { server, ticket } = await bootWorkspace(provider, { github, repo: { testCommand: "true" } });
 
-    await waitForTicketState(server, ticket.id, "human_review", 30_000);
+    const parked = await waitForTicketState(server, ticket.id, "human_review", 40_000);
+    expect(parked.arrivedByCap).toBe(true);
     const run = (await api(server, "GET", `/api/tickets/${ticket.id}/runs`)).json[0];
     const dogfoodPhase = run.phases.find((p: any) => p.phase === "dogfood");
     expect(dogfoodPhase.state).toBe("completed");
@@ -162,5 +166,106 @@ describe("the dogfood phase (ticket 36)", () => {
     ).json();
     expect(results.scenarios[0].status).toBe("fail");
     expect(run.artifacts.some((a: any) => a.name === "dogfood-report.md")).toBe(true);
-  }, 30_000);
+  }, 40_000);
+});
+
+/** A schema-conforming results object; override to probe a single failure. */
+function results(overrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    ticket: "TRK-1",
+    frozen_sha: "abc123",
+    base: "main",
+    scenarios: [{ id: "S1", journey: "Use the widget past its endpoint", kind: "browser", status: "pass" }],
+    ...overrides,
+  });
+}
+
+describe("lintDogfoodResults (ticket 37, AC2)", () => {
+  test("a schema-conforming file with one scenario is clean", () => {
+    expect(lintDogfoodResults(results())).toEqual([]);
+  });
+
+  test("non-JSON fails with the parse reason", () => {
+    expect(lintDogfoodResults("{not json")[0]).toMatch(/not valid JSON/);
+  });
+
+  test("an empty scenario list fails — at least one is required", () => {
+    expect(lintDogfoodResults(results({ scenarios: [] }))).toEqual([
+      "results need at least one scenario",
+    ]);
+  });
+
+  test("missing top-level keys are each named", () => {
+    const problems = lintDogfoodResults(JSON.stringify({ scenarios: [] }));
+    expect(problems).toContain('results missing required string "ticket"');
+    expect(problems).toContain('results missing required string "frozen_sha"');
+    expect(problems).toContain('results missing required string "base"');
+  });
+
+  test("a malformed scenario (bad id, kind, status) is caught field by field", () => {
+    const problems = lintDogfoodResults(
+      results({ scenarios: [{ id: "1", journey: "", kind: "cli", status: "green" }] }),
+    );
+    expect(problems).toEqual([
+      'scenario 1 needs an id like "S1"',
+      "scenario 1 needs a journey",
+      "scenario 1 kind must be one of browser, http",
+      "scenario 1 status must be one of pending, pass, fail, fixed, parked, waived",
+    ]);
+  });
+
+  test("more than 12 scenarios trips the matrix cap", () => {
+    const many = Array.from({ length: 13 }, (_, i) => ({
+      id: `S${i + 1}`,
+      journey: "j",
+      kind: "http",
+      status: "pass",
+    }));
+    expect(lintDogfoodResults(results({ scenarios: many }))).toContain(
+      "results carry 13 scenarios — the matrix cap is 12",
+    );
+  });
+});
+
+describe("evaluateDogfoodGreen (ticket 37, AC1)", () => {
+  test("all scenarios pass/fixed/waived → green, nothing failing", () => {
+    const evaluation = evaluateDogfoodGreen(
+      results({
+        scenarios: [
+          { id: "S1", journey: "a", kind: "browser", status: "pass" },
+          { id: "S2", journey: "b", kind: "http", status: "fixed" },
+          { id: "S3", journey: "c", kind: "browser", status: "waived" },
+        ],
+      }),
+    );
+    expect(evaluation).toMatchObject({ ok: true, failing: [], total: 3 });
+  });
+
+  test("pending, fail, and parked rows are each failing, carrying id/status/flow_ref", () => {
+    const evaluation = evaluateDogfoodGreen(
+      results({
+        scenarios: [
+          { id: "S1", journey: "happy", kind: "browser", status: "pass" },
+          { id: "S2", journey: "broken export", kind: "browser", status: "fail", flow_ref: "AC-2" },
+          { id: "S3", journey: "untested", kind: "http", status: "pending" },
+          { id: "S4", journey: "parked", kind: "http", status: "parked" },
+        ],
+      }),
+    );
+    expect(evaluation.ok).toBe(false);
+    expect(evaluation.total).toBe(4);
+    expect(evaluation.failing).toEqual([
+      { id: "S2", journey: "broken export", status: "fail", flowRef: "AC-2" },
+      { id: "S3", journey: "untested", status: "pending", flowRef: null },
+      { id: "S4", journey: "parked", status: "parked", flowRef: null },
+    ]);
+  });
+
+  test("an unreadable or empty file is an honest fail, never a silent green", () => {
+    expect(evaluateDogfoodGreen("{oops").ok).toBe(false);
+    expect(evaluateDogfoodGreen(results({ scenarios: [] }))).toMatchObject({
+      ok: false,
+      error: "results carry no scenarios to green",
+    });
+  });
 });

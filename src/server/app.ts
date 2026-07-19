@@ -373,6 +373,22 @@ export function createApp(
     c.json(store.settleAcByHuman(Number(c.req.param("id")), "failed")),
   );
 
+  // A reviewer answers an open dogfood "Decision for a human" (ticket 37):
+  // it never gates or moves the ticket — the answer lands in the Audit Trail.
+  app.post("/api/tickets/:id/dogfood-decisions", async (c) => {
+    const body = await c.req.json<{ decisionId?: string; question?: string; answer?: string }>();
+    if (!isNonEmptyString(body.decisionId) || !isNonEmptyString(body.answer)) {
+      return c.json({ error: "a decision answer needs a decisionId and a non-empty answer" }, 400);
+    }
+    return c.json(
+      store.answerDogfoodDecision(Number(c.req.param("id")), {
+        decisionId: body.decisionId,
+        question: typeof body.question === "string" ? body.question : "",
+        answer: body.answer,
+      }),
+    );
+  });
+
   // Waiving is human-only with a mandatory reason, legal in any state —
   // retiring an aspirational AC before it burns a bounce cycle is legitimate.
   app.post("/api/acs/:id/waive", async (c) => {

@@ -454,6 +454,19 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
       WHERE name = 'dogfood';
     `,
   },
+  {
+    version: 13,
+    sql: `
+      -- The dogfood phase grows gate teeth (ticket 37). The node now owes its
+      -- Dogfood Report and machine-readable results file the same way the
+      -- document node owes the recap: gate_requirements drives the artifact
+      -- gate (existence) and marks the file artifact-lint validates against the
+      -- vendored matrix schema and dogfood-green reads for scenario statuses.
+      UPDATE workflow_nodes
+        SET gate_requirements = '["kb/dogfood-report.md","kb/dogfood-results.json"]'
+        WHERE name = 'dogfood';
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

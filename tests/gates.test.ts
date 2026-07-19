@@ -45,6 +45,8 @@ describe("the gate battery at Verifying", () => {
     expect(gateStatuses(runs[0])).toEqual({
       artifact: "pass",
       "artifact-lint": "pass",
+      // The dogfood phase greened its one scenario (ticket 37).
+      "dogfood-green": "pass",
       "branch-recorded": "pass",
       suite: "pass",
       "pr-fresh": "pass",
@@ -73,10 +75,11 @@ describe("the gate battery at Verifying", () => {
     expect(passedAudit.detail).toMatchObject({ runId: runs[0].id });
 
     // Every result streamed over SSE as it landed.
-    const streamed = await client.waitFor("gate.result", 7);
+    const streamed = await client.waitFor("gate.result", 8);
     expect(streamed.map((m) => m.data.gate)).toEqual([
       "artifact",
       "artifact-lint",
+      "dogfood-green",
       "branch-recorded",
       "suite",
       "pr-fresh",
@@ -112,6 +115,8 @@ describe("the gate battery at Verifying", () => {
     expect(gateStatuses(firstRun)).toEqual({
       artifact: "pass",
       "artifact-lint": "fail",
+      // The default dogfood fixture greens its scenario — the recap is what fails here.
+      "dogfood-green": "pass",
       "branch-recorded": "fail",
       suite: "skip",
       "pr-fresh": "fail",
