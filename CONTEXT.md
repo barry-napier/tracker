@@ -4,13 +4,17 @@ Glossary for Tracker's core loop. Terms only — no implementation details.
 
 ## Terms
 
+### Home
+
+Tracker's entry surface: what a fresh window or new tab shows. Offers exactly two paths onto a board — open a Recent Project, or clone a repo from GitHub (which creates a new Project). Each opened Project occupies one tab; open tabs survive an app restart. Every Project is a Recent Project: existing in Tracker means it was worked on. Home lists them ordered by most recent board activity — "opened" is not a recorded event. Tabs from different Projects coexist in one window; opening a Project that is already open focuses its existing tab, never a duplicate.
+
 ### Project
 
 An application being worked on through Tracker. Owns a board of Tickets and spans one or more Repos. Carries project-level defaults (e.g. default provider).
 
 ### Repo
 
-A git repository belonging to a Project. Knows its local path, GitHub remote, target branch, and how to run itself (command, port, readiness check) for Preview Environments. A Project has many Repos.
+A git repository belonging to a Project. Knows its local path, GitHub remote, target branch, and how to run itself (command, port, readiness check) for Preview Environments. A Project has many Repos, but a GitHub remote belongs to at most one Repo across all of Tracker — cloning an already-tracked repo from Home opens its existing Project rather than creating a duplicate.
 
 ### Ticket
 
