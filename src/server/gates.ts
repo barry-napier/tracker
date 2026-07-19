@@ -161,6 +161,10 @@ export class GateBattery {
         detail: { branch: ticket.branch, reason: "no PR recorded for branch" },
       };
     }
+    // The orchestrator just observed the branch's PR on the remote — record
+    // it on the Ticket (ticket 31: the PR belongs to the Ticket, stable
+    // across bounces). Idempotent: only a change writes anything.
+    this.store.recordPr(ticket.id, { number: pr.number, url: pr.url });
     const branchTip = await git(ctx.worktreePath, "rev-parse", "HEAD");
     return {
       gate: "pr-fresh",

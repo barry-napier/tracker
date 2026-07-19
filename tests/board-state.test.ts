@@ -47,6 +47,8 @@ function ticket(overrides: Partial<TicketWithAcs> & { id: number }): TicketWithA
     provider: null,
     externalRef: null,
     branch: null,
+    prNumber: null,
+    prUrl: null,
     bounceCount: 0,
     arrivedByCap: false,
     createdAt: "2026-07-18T00:00:00.000Z",

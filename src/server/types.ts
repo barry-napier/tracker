@@ -56,6 +56,12 @@ export interface Ticket {
    * the branch-name string, is the source of identity.
    */
   branch: string | null;
+  /**
+   * The branch's PR, recorded when the orchestrator first observes it on the
+   * remote (never self-reported by the agent). Stable across bounces.
+   */
+  prNumber: number | null;
+  prUrl: string | null;
   /** Failed battery cycles so far; the third parks the ticket (ticket 06 §6). */
   bounceCount: number;
   /** True when the ticket reached Human Review by bounce cap, not by passing gates. */

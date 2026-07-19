@@ -127,13 +127,27 @@ export async function bootWorkspace(
   return { dataDir, server, ticket, repo };
 }
 
-/** The agent's production job at the end of a run: push the branch, open the PR. */
-export function pushesToGitHub(github: FakeGitHub): (ctx: PhaseCall) => void {
-  return (ctx) => {
+/**
+ * The agent's production job at the end of a run: really push the branch
+ * (the worktree's origin is the repo standing in for GitHub's copy), then
+ * open the PR through the port — or leave the existing one alone, its head
+ * moved by the push, exactly as GitHub would (ticket 31: one Ticket = one
+ * branch = one PR, stable across bounces).
+ */
+export function pushesToGitHub(github: FakeGitHub): (ctx: PhaseCall) => Promise<void> {
+  return async (ctx) => {
     if (ctx.phase !== "document") return;
     const branch = git(ctx.cwd, "branch", "--show-current");
-    github.recordBranch(FIXTURE_REMOTE, branch);
-    github.openPr(FIXTURE_REMOTE, branch, git(ctx.cwd, "rev-parse", "HEAD"));
+    github.registerRemote(FIXTURE_REMOTE, git(ctx.cwd, "remote", "get-url", "origin"));
+    git(ctx.cwd, "push", "--quiet", "origin", branch);
+    if ((await github.findPr(FIXTURE_REMOTE, branch)) === null) {
+      await github.createPr(FIXTURE_REMOTE, {
+        branch,
+        targetBranch: "main",
+        title: `Ship it: ${branch}`,
+        body: "Opened by the scripted agent.",
+      });
+    }
   };
 }
 

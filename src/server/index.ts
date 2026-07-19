@@ -6,10 +6,11 @@ import { openDatabase } from "./db.ts";
 import { createApp } from "./app.ts";
 import { WorkflowEngine } from "./engine.ts";
 import { GateBattery } from "./gates.ts";
-import { NullGitHub, type GitHubPort } from "./github.ts";
+import { GhGitHub, type GitHubPort } from "./github.ts";
 import type { ProviderRegistry } from "./provider.ts";
 import { RunLogRegistry } from "./runlog.ts";
 import { Store } from "./store.ts";
+import { Verdicts } from "./verdicts.ts";
 import { WorkerPool } from "./workers.ts";
 import { WorktreeManager } from "./worktrees.ts";
 
@@ -26,14 +27,15 @@ export async function startServer(options: {
   workers?: number;
   /** Provider adapters by name; a claim on an unregistered provider crashes its run. */
   providers?: ProviderRegistry;
-  /** GitHub seam for the battery's gates; defaults to the pre-slice-31 stand-in. */
+  /** GitHub seam for the battery's gates and the merge path; defaults to `gh`. */
   github?: GitHubPort;
 }): Promise<TrackerServer> {
   const db = openDatabase(options.dataDir);
   const bus = new EventBus();
   const store = new Store(db, bus);
   const runLogs = new RunLogRegistry();
-  const app = createApp(store, bus, runLogs);
+  const github = options.github ?? new GhGitHub();
+  const app = createApp(store, bus, runLogs, new Verdicts(store, github));
   const engine = new WorkflowEngine(store, options.providers ?? {}, runLogs);
   const artifacts = new ArtifactStore(options.dataDir, store);
   const pool = new WorkerPool(
@@ -41,7 +43,7 @@ export async function startServer(options: {
     new WorktreeManager(options.dataDir),
     engine,
     artifacts,
-    new GateBattery(store, options.github ?? new NullGitHub()),
+    new GateBattery(store, github),
     new Bouncer(store, artifacts),
     options.workers ?? 3,
   );

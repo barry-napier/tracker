@@ -728,6 +728,74 @@ export class Store {
   }
 
   /**
+   * The orchestrator observed the branch's PR on the remote (never
+   * self-reported): record it on the Ticket, where it lives alongside the
+   * branch, stable across bounces. Idempotent — the battery re-observes the
+   * same PR every cycle, and only a change is worth a row or an event.
+   */
+  recordPr(ticketId: number, pr: { number: number; url: string }): TicketWithAcs {
+    const existing = this.getTicket(ticketId);
+    if (!existing) throw new NotFoundError(`ticket ${ticketId} not found`);
+    if (existing.prNumber === pr.number && existing.prUrl === pr.url) return existing;
+    const { ticket, audit } = withTransaction(this.db, () => {
+      this.db
+        .prepare("UPDATE tickets SET pr_number = ?, pr_url = ?, updated_at = ? WHERE id = ?")
+        .run(pr.number, pr.url, nowIso(), ticketId);
+      const ticket = this.getTicket(ticketId)!;
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "agent",
+        type: "pr.recorded",
+        detail: { prNumber: pr.number, prUrl: pr.url, branch: ticket.branch },
+      });
+      return { ticket, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    this.bus.emit("ticket.updated", ticket);
+    return ticket;
+  }
+
+  /**
+   * The pass verdict's landing (ticket 31): the PR is already merged through
+   * the GitHubPort by the caller — this records the verdict and moves the
+   * Ticket to Done. State re-checked here so a racing mutation can't Done a
+   * ticket that left Human Review mid-merge.
+   */
+  mergeTicket(ticketId: number): TicketWithAcs {
+    const existing = this.getTicket(ticketId);
+    if (!existing) throw new NotFoundError(`ticket ${ticketId} not found`);
+    if (existing.state !== "human_review") {
+      throw new StateError(`ticket ${existing.displayKey} is ${existing.state}, not human_review`);
+    }
+    const { ticket, verdictAudit, mergedAudit } = withTransaction(this.db, () => {
+      this.db
+        .prepare("UPDATE tickets SET state = 'done', updated_at = ? WHERE id = ?")
+        .run(nowIso(), ticketId);
+      const ticket = this.getTicket(ticketId)!;
+      const verdictAudit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "human",
+        type: "verdict.recorded",
+        detail: { outcome: "pass", prNumber: ticket.prNumber },
+      });
+      const mergedAudit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "human",
+        type: "ticket.merged",
+        detail: { prNumber: ticket.prNumber, prUrl: ticket.prUrl, branch: ticket.branch },
+      });
+      return { ticket, verdictAudit, mergedAudit };
+    });
+    this.bus.emit("audit.appended", verdictAudit);
+    this.bus.emit("audit.appended", mergedAudit);
+    this.bus.emit("ticket.updated", ticket);
+    return ticket;
+  }
+
+  /**
    * Human-only, reason mandatory, legal in any state (pre-waiving an
    * aspirational AC is legitimate — ticket 06). Forward-acting: the battery
    * reads statuses at its start, so a mid-flight waive takes effect next
@@ -923,6 +991,8 @@ function ticketFromRow(row: Row): Ticket {
     provider: row.provider === null ? null : (String(row.provider) as Ticket["provider"]),
     externalRef: row.external_ref === null ? null : String(row.external_ref),
     branch: row.branch === null ? null : String(row.branch),
+    prNumber: row.pr_number === null ? null : Number(row.pr_number),
+    prUrl: row.pr_url === null ? null : String(row.pr_url),
     bounceCount: Number(row.bounce_count),
     arrivedByCap: Number(row.arrived_by_cap) === 1,
     createdAt: String(row.created_at),

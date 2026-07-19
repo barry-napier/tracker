@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { GitHubPort } from "../src/server/github.ts";
+import { NullGitHub, type GitHubPort } from "../src/server/github.ts";
 import type { ProviderRegistry } from "../src/server/provider.ts";
 import { startServer, type TrackerServer } from "../src/server/index.ts";
 import { initScratchRepo } from "./git-helpers.ts";
@@ -14,13 +14,15 @@ export async function bootServer(
 ): Promise<TrackerServer> {
   const dir = dataDir ?? (await mkdtemp(path.join(tmpdir(), "tracker-test-")));
   // Workers default off: earlier-slice tests register repos at fake paths
-  // and must not have the factory try to clone them.
+  // and must not have the factory try to clone them. GitHub defaults to the
+  // null backing — production's default is the real `gh` CLI, which a test
+  // must never reach implicitly.
   const server = await startServer({
     dataDir: dir,
     port: 0,
     workers: options.workers ?? 0,
     providers: options.providers,
-    github: options.github,
+    github: options.github ?? new NullGitHub(),
   });
   cleanups.push(async () => {
     await server.close();

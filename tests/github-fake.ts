@@ -1,37 +1,120 @@
-import type { GitHubPort, PullRequestRef } from "../src/server/github.ts";
+import { execFileSync } from "node:child_process";
+import type { GitHubPort, Mergeability, PullRequestRef } from "../src/server/github.ts";
+
+interface FakePr {
+  number: number;
+  url: string;
+  remote: string;
+  branch: string;
+  targetBranch: string;
+  title: string;
+  state: "open" | "merged";
+}
 
 /**
- * The GitHubPort's test backing (spec 21, Testing Decisions): in-memory
- * branch and PR state, keyed by remote. Tests (or scripted provider phases,
- * standing in for the agent that pushes and opens the PR) declare what
- * "GitHub" knows; the battery reads it through the same seam production
- * will back with `gh` in slice 31.
+ * The GitHubPort's test backing (spec 21, Testing Decisions): a local git
+ * repo stands in for GitHub's copy of each remote — so branchExists and PR
+ * head SHAs are real refs, proving the agent actually pushed — while PR
+ * state lives in memory. Head SHAs resolve live from the local remote,
+ * mirroring how GitHub moves a PR's head when its branch is pushed again;
+ * mergePr performs a real merge in the local remote, so "merged" is
+ * verifiable from the repo, not just from this fake's memory.
  */
 export class FakeGitHub implements GitHubPort {
-  #branches = new Set<string>();
-  #prs = new Map<string, PullRequestRef>();
+  /** remote url → local repo path standing in for GitHub's copy. */
+  #remotes = new Map<string, string>();
+  #prs: FakePr[] = [];
   #nextNumber = 1;
+  #mergeability = new Map<number, Mergeability>();
 
-  recordBranch(remote: string, branch: string): void {
-    this.#branches.add(key(remote, branch));
+  registerRemote(remote: string, localPath: string): void {
+    this.#remotes.set(remote, localPath);
   }
 
-  openPr(remote: string, branch: string, headSha: string): PullRequestRef {
-    const number = this.#nextNumber++;
-    const pr = { number, url: `https://github.test/pr/${number}`, headSha };
-    this.#prs.set(key(remote, branch), pr);
-    return pr;
+  /** Force the next mergeability answer for a PR (default: "mergeable"). */
+  setMergeability(prNumber: number, value: Mergeability): void {
+    this.#mergeability.set(prNumber, value);
   }
 
   async branchExists(remote: string, branch: string): Promise<boolean> {
-    return this.#branches.has(key(remote, branch));
+    return this.#branchSha(remote, branch) !== null;
   }
 
   async findPr(remote: string, branch: string): Promise<PullRequestRef | null> {
-    return this.#prs.get(key(remote, branch)) ?? null;
+    const pr = this.#prs.find(
+      (candidate) =>
+        candidate.remote === remote && candidate.branch === branch && candidate.state === "open",
+    );
+    if (!pr) return null;
+    return { number: pr.number, url: pr.url, headSha: this.#branchSha(remote, branch) ?? "" };
+  }
+
+  async createPr(
+    remote: string,
+    input: { branch: string; targetBranch: string; title: string; body: string },
+  ): Promise<PullRequestRef> {
+    const headSha = this.#branchSha(remote, input.branch);
+    if (headSha === null) {
+      throw new Error(`cannot open PR: branch ${input.branch} was never pushed to ${remote}`);
+    }
+    const number = this.#nextNumber++;
+    const pr: FakePr = {
+      number,
+      url: `https://github.test/pr/${number}`,
+      remote,
+      branch: input.branch,
+      targetBranch: input.targetBranch,
+      title: input.title,
+      state: "open",
+    };
+    this.#prs.push(pr);
+    return { number, url: pr.url, headSha };
+  }
+
+  async mergeability(remote: string, prNumber: number): Promise<Mergeability> {
+    this.#requireOpenPr(remote, prNumber);
+    return this.#mergeability.get(prNumber) ?? "mergeable";
+  }
+
+  async mergePr(remote: string, prNumber: number): Promise<void> {
+    const pr = this.#requireOpenPr(remote, prNumber);
+    if ((this.#mergeability.get(prNumber) ?? "mergeable") === "conflicting") {
+      throw new Error(`PR #${prNumber} is not mergeable`);
+    }
+    // A real merge in the local remote: its target branch is checked out
+    // there (the repo plays the user's checkout). Squash, like production's
+    // `gh pr merge --squash`, down to gh's default commit subject — the fake
+    // must not pass tests the real merge shape would fail.
+    const path = this.#remotePath(remote);
+    git(path, "merge", "--squash", `refs/heads/${pr.branch}`);
+    git(path, "commit", "-m", `${pr.title} (#${pr.number})`);
+    pr.state = "merged";
+  }
+
+  #requireOpenPr(remote: string, prNumber: number): FakePr {
+    const pr = this.#prs.find((candidate) => candidate.remote === remote && candidate.number === prNumber);
+    if (!pr) throw new Error(`no PR #${prNumber} on ${remote}`);
+    if (pr.state !== "open") throw new Error(`PR #${prNumber} is already ${pr.state}`);
+    return pr;
+  }
+
+  #remotePath(remote: string): string {
+    const path = this.#remotes.get(remote);
+    if (path === undefined) throw new Error(`remote ${remote} is not registered with FakeGitHub`);
+    return path;
+  }
+
+  #branchSha(remote: string, branch: string): string | null {
+    const path = this.#remotes.get(remote);
+    if (path === undefined) return null;
+    try {
+      return git(path, "rev-parse", "--verify", "--quiet", `refs/heads/${branch}`);
+    } catch {
+      return null;
+    }
   }
 }
 
-function key(remote: string, branch: string): string {
-  return `${remote}#${branch}`;
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 }

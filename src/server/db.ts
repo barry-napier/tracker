@@ -317,6 +317,16 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       WHERE type = 'agent_phase';
     `,
   },
+  {
+    version: 9,
+    sql: `
+      -- GitHub for real (ticket 31): the PR belongs to the Ticket, like the
+      -- branch — recorded once the orchestrator observes it on the remote,
+      -- stable across bounces (one Ticket = one branch = one PR).
+      ALTER TABLE tickets ADD COLUMN pr_number INTEGER;
+      ALTER TABLE tickets ADD COLUMN pr_url TEXT;
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

@@ -5,12 +5,18 @@ import type { BusEvent, EventBus } from "./bus.ts";
 import type { RunLogRegistry } from "./runlog.ts";
 import { NotFoundError, StateError, ValidationError, type Store } from "./store.ts";
 import { isProvider, PROVIDERS, type PreviewKind } from "./types.ts";
+import type { Verdicts } from "./verdicts.ts";
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
 }
 
-export function createApp(store: Store, bus: EventBus, runLogs: RunLogRegistry): Hono {
+export function createApp(
+  store: Store,
+  bus: EventBus,
+  runLogs: RunLogRegistry,
+  verdicts: Verdicts,
+): Hono {
   const app = new Hono();
 
   // The renderer calls from a non-http origin (file:// in the packaged app
@@ -197,6 +203,17 @@ export function createApp(store: Store, bus: EventBus, runLogs: RunLogRegistry):
       provider: body.provider,
     });
     return c.json(ticket);
+  });
+
+  // The verdict action (ticket 31): pass merges the PR through the
+  // GitHubPort and moves the Ticket to Done. Fail arrives with the review
+  // wizard (slice 33) — until then it is refused, not silently accepted.
+  app.post("/api/tickets/:id/verdict", async (c) => {
+    const body = await c.req.json<{ outcome?: string }>();
+    if (body.outcome !== "pass") {
+      return c.json({ error: 'outcome must be "pass" (fail verdicts arrive with the review wizard)' }, 400);
+    }
+    return c.json(await verdicts.pass(Number(c.req.param("id"))));
   });
 
   // Waiving is human-only with a mandatory reason, legal in any state —

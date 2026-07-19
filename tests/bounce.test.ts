@@ -156,6 +156,12 @@ describe("the bounce machinery", () => {
       status: "pass",
       detail: { scriptPath: `checks/ac-${originalAcId}.sh`, exitCode: 0 },
     });
+
+    // The PR belongs to the Ticket, stable across the bounce: run 2 pushed
+    // to the same branch and found the same PR — recorded exactly once.
+    expect(detail.prNumber).toBe(1);
+    const audit = (await api(server, "GET", `/api/tickets/${ticket.id}/audit`)).json;
+    expect(audit.filter((event: any) => event.type === "pr.recorded")).toHaveLength(1);
   }, 30_000);
 
   test("the third failed cycle parks the ticket in Human Review, flagged arrived-by-cap", async () => {
