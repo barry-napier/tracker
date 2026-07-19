@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getThemePref, setThemePref, type ThemePref } from "./theme.ts";
 import {
   PROVIDERS,
@@ -14,6 +14,7 @@ import { useBoard } from "./useBoard.ts";
 import { ReviewWizard } from "./ReviewWizard.tsx";
 import { TicketDetail } from "./TicketDetail.tsx";
 import { STATES } from "./ticketStates.ts";
+import { loadTabs, saveTabs } from "./tabsState.ts";
 import { Icon } from "./icons.tsx";
 
 /**
@@ -29,11 +30,39 @@ function useWorkspace() {
   const project = tabs.find((t) => t.id === activeId) ?? null;
   const [repos, setRepos] = useState<Repo[]>([]);
 
+  // The first fetch also restores last session's tabs — ids rehydrate from
+  // live rows, so vanished projects drop instead of resurrecting.
+  const restoredRef = useRef(false);
+  const [fetchTick, setFetchTick] = useState(0);
+
   // Refetched on every return to Home so recents reorder by latest activity.
   useEffect(() => {
     if (project !== null) return;
-    void apiGet<Project[]>("/api/projects").then(setProjects);
-  }, [project]);
+    void apiGet<Project[]>("/api/projects")
+      .then((rows) => {
+        setProjects(rows);
+        if (restoredRef.current) return;
+        restoredRef.current = true;
+        const saved = loadTabs(rows);
+        setTabs(saved.tabs);
+        setActiveId(saved.activeId);
+        // Write back now: restore may have dropped vanished projects, and a
+        // no-op setState won't re-fire the save effect below.
+        saveTabs(saved.tabs, saved.activeId);
+      })
+      .catch(() => {
+        // Boot race with the server: retry shortly. Persistence stays off
+        // until a fetch lands, so a stale save can't clobber good storage.
+        window.setTimeout(() => setFetchTick((tick) => tick + 1), 2000);
+      });
+  }, [project, fetchTick]);
+
+  // Saves only after restore has run, so boot's empty state can't clobber
+  // what the last session left behind.
+  useEffect(() => {
+    if (!restoredRef.current) return;
+    saveTabs(tabs, activeId);
+  }, [tabs, activeId]);
 
   // Repos follow the active tab.
   useEffect(() => {
