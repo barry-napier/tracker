@@ -4,10 +4,12 @@
 
 **Blocked by:** 31 — GitHub for real; 32 — Wizard read-only.
 
-**Status:** ready-for-agent
+**Status:** done (2026-07-19)
 
-- [ ] Fail without a note is impossible; the note reaches the follow-up AC and Bounce Report verbatim
-- [ ] Walkthrough verify/fail/waive updates AC rows with human provenance (waive: mandatory reason)
-- [ ] Done requires every AC ∈ {verified, waived}; the verdict UI makes an unmet AC visible before merge
-- [ ] Freshness re-check at Final Verdict; drift → re-verify or force-merge, both audited
-- [ ] Failed review → bounce with follow-ups; passed review → PR merged, Ticket Done — both drivable through the UI and asserted through the API
+- [x] Fail without a note is impossible; the note reaches the follow-up AC and Bounce Report verbatim
+- [x] Walkthrough verify/fail/waive updates AC rows with human provenance (waive: mandatory reason)
+- [x] Done requires every AC ∈ {verified, waived}; the verdict UI makes an unmet AC visible before merge
+- [x] Freshness re-check at Final Verdict; drift → re-verify or force-merge, both audited
+- [x] Failed review → bounce with follow-ups; passed review → PR merged, Ticket Done — both drivable through the UI and asserted through the API
+
+**Resolution notes (2026-07-19):** The verdict route grew three outcomes. `{outcome:"fail", steps:[…]}` validates marks against the wizard's roster (`REVIEW_STEP_KEYS` in server types — the API can't mint follow-ups under unknown step names), refuses any failed step without a written note at the seam, and bounces through `Bouncer.bounceFromReview`: report first (a `renderReviewBounceReport` with the reviewer's notes **verbatim**, the walkthrough's failed ACs, and shared tree-state/prior-run sections), state move second via `Store.reviewBounceTicket` — follow-up ACs origin `review-fail`, bounce count up, back to In Progress, **never parks** (the cap stops agents looping; this bounce is a human explicitly buying another cycle; `arrivedByCap` resets). A walkthrough that failed ACs is grounds on its own — no step mark must be fabricated, since failing any AC bounces the Ticket. `{outcome:"pass", force?}` keeps ticket 31's guards, then re-runs the cheap subset from the port alone: branch recorded/resolvable, open PR present with head == branch tip, evidence SHA prefix-fresh vs tip, mergeability (conflicts stay un-forceable — force waives freshness, never a merge GitHub refuses). Drift throws a structured `DriftError` (409 with a `drift: string[]` body, ordered before StateError in `onError`); the wizard forks to **Re-verify** (`{outcome:"reverify"}` — a stale-evidence bounce carrying the drift reasons into audit + report, no follow-ups) or **Force merge** (drift lands as `freshnessWaived` on the `verdict.recorded` audit event). Unknowable stays non-drift (gh hiccup ≠ staleness), but a definitely-vanished PR is drift. Walkthrough settling is `Store.settleAcByHuman` (`POST /api/acs/:id/verify|fail`, audit `ac.verified`/`ac.failed`, human provenance, clears stale waive reasons); human-failed ACs reset to pending on re-claim like any failure. Renderer: marks live in `reviewModel` (`MARKABLE_STEPS` excludes the verdict step; `failVerdictProblems`/`mergeProblems` drive enablement with visible reasons; unmet ACs listed before merge), the mark bar sits under every step body with the note field opening on fail, and `ApiError` (api.ts) carries the server's error body so drift is read structurally, not parsed from prose. Proven end-to-end twice: API tests (fail→bounce→converge→merge, drift 409→force-merge audited, reverify bounce) and the full loop driven in the browser — fail with note → bounce → run 2 converges → follow-up AC verified → Merge & Done, board landing the card in Done.
