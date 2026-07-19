@@ -8,6 +8,7 @@ import { WorkflowEngine } from "./engine.ts";
 import { GateBattery } from "./gates.ts";
 import { GhGitHub, type GitHubPort } from "./github.ts";
 import { Home } from "./home.ts";
+import { PreviewManager } from "./previews.ts";
 import type { ProviderRegistry } from "./provider.ts";
 import { Reviews } from "./reviews.ts";
 import { RunLogRegistry } from "./runlog.ts";
@@ -41,6 +42,9 @@ export async function startServer(options: {
   // One Bouncer serves both bounce triggers: the battery's (WorkerPool) and
   // the reviewer's (Verdicts) — same machinery, same report shape.
   const bouncer = new Bouncer(store, artifacts);
+  // No process survives a restart: rows still claiming live catch up first.
+  store.sweepOrphanedPreviews();
+  const previews = new PreviewManager(options.dataDir, store);
   const app = createApp(
     store,
     bus,
@@ -48,6 +52,7 @@ export async function startServer(options: {
     new Verdicts(store, github, bouncer),
     new Reviews(store, github),
     new Home(store, github),
+    previews,
     options.dataDir,
   );
   const engine = new WorkflowEngine(store, options.providers ?? {}, runLogs);
@@ -71,6 +76,7 @@ export async function startServer(options: {
           port: info.port,
           close: async () => {
             await pool.stop();
+            await previews.stopAll();
             await new Promise<void>((resolveClose, rejectClose) => {
               server.close((error) => (error ? rejectClose(error) : resolveClose()));
               // SSE clients hold connections open; drop them so close() returns.

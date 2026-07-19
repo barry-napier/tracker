@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
 import { demoProviders } from "./server/providers/demo.ts";
 import { startServer, type TrackerServer } from "./server/index.ts";
@@ -21,6 +21,14 @@ function createWindow(apiBase: string): void {
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  // Every target=_blank link — the preview's localhost URL, the PR — opens
+  // in the system browser (ticket 34: no embedded webview), never a bare
+  // Electron child window.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    void shell.openExternal(url);
+    return { action: "deny" };
   });
 
   void win.loadFile(path.join(app.getAppPath(), "build", "renderer", "index.html"), {

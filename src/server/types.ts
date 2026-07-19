@@ -25,9 +25,32 @@ export interface Repo {
   previewCommand: string | null;
   previewKind: PreviewKind | null;
   previewReadinessPath: string | null;
+  /** Readiness deadline override in ms; null = the 60s default (ticket 10). */
+  previewReadinessTimeoutMs: number | null;
   /** What the suite gate runs in the worktree; null = no suite → skip. */
   testCommand: string | null;
   createdAt: string;
+}
+
+/**
+ * Where a Ticket's preview process stands. Starting and ready describe a
+ * live process; failed keeps the log pointer so the wizard can surface the
+ * captured output; stopped is both "never started" after a sweep and the
+ * clean end of a verdict or app quit.
+ */
+export type PreviewStatus = "starting" | "ready" | "failed" | "stopped";
+
+/** The per-Ticket preview record (ticket 34): port, status, log pointer. */
+export interface PreviewRecord {
+  id: number;
+  ticketId: number;
+  /** The actually-bound port — the deterministic preference may be taken. */
+  port: number | null;
+  status: PreviewStatus;
+  /** Combined stdout+stderr, relative to the app-data directory. */
+  logPath: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type TicketState =
@@ -41,6 +64,9 @@ export type TicketState =
 export interface Ticket {
   id: number;
   projectId: number;
+  /** The immutable per-project number behind displayKey (ADR-0002); also
+   * seeds the deterministic preview port (ticket 34). */
+  number: number;
   displayKey: string;
   title: string;
   description: string;

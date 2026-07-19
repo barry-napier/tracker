@@ -5,6 +5,7 @@ import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import type { BusEvent, EventBus } from "./bus.ts";
 import { GitHubUnavailableError, type Home } from "./home.ts";
+import type { PreviewManager } from "./previews.ts";
 import type { Reviews } from "./reviews.ts";
 import type { RunLogRegistry } from "./runlog.ts";
 import { NotFoundError, StateError, ValidationError, type Store } from "./store.ts";
@@ -39,6 +40,7 @@ export function createApp(
   verdicts: Verdicts,
   reviews: Reviews,
   home: Home,
+  previews: PreviewManager,
   /** Where the ArtifactStore blobbed run evidence; content serves from here. */
   dataDir: string,
 ): Hono {
@@ -121,6 +123,7 @@ export function createApp(
       previewCommand?: string;
       previewKind?: string;
       previewReadinessPath?: string;
+      previewReadinessTimeoutMs?: number;
       testCommand?: string;
     }>();
     if (typeof body.projectId !== "number") return c.json({ error: "projectId is required" }, 400);
@@ -131,6 +134,12 @@ export function createApp(
     if (body.previewKind !== undefined && body.previewKind !== "ui" && body.previewKind !== "api") {
       return c.json({ error: "previewKind must be ui or api" }, 400);
     }
+    if (
+      body.previewReadinessTimeoutMs !== undefined &&
+      (typeof body.previewReadinessTimeoutMs !== "number" || body.previewReadinessTimeoutMs <= 0)
+    ) {
+      return c.json({ error: "previewReadinessTimeoutMs must be a positive number" }, 400);
+    }
     const repo = store.createRepo({
       projectId: body.projectId,
       path: body.path,
@@ -139,6 +148,7 @@ export function createApp(
       previewCommand: body.previewCommand,
       previewKind: body.previewKind as PreviewKind | undefined,
       previewReadinessPath: body.previewReadinessPath,
+      previewReadinessTimeoutMs: body.previewReadinessTimeoutMs,
       testCommand: body.testCommand,
     });
     return c.json(repo, 201);
@@ -272,6 +282,19 @@ export function createApp(
     return c.json(ticket);
   });
 
+  // The wizard's Manual Walkthrough preview (ticket 34): status/link view,
+  // on-demand start when the wizard opens, and restart. No stop route — the
+  // lifecycle is deliberate (ticket 10): the process stops on verdict submit
+  // and app quit, nothing else. A repo without preview config answers
+  // configured:false, never an error — the step degrades, the review goes on.
+  app.get("/api/tickets/:id/preview", (c) => c.json(previews.view(Number(c.req.param("id")))));
+  app.post("/api/tickets/:id/preview/start", async (c) =>
+    c.json(await previews.start(Number(c.req.param("id")))),
+  );
+  app.post("/api/tickets/:id/preview/restart", async (c) =>
+    c.json(await previews.restart(Number(c.req.param("id")))),
+  );
+
   // The verdict actions (tickets 31 + 33): pass merges through the
   // GitHubPort (force waives recorded drift, audited); fail bounces with the
   // reviewer's noted steps; reverify is the drift choice that buys a fresh
@@ -279,12 +302,20 @@ export function createApp(
   app.post("/api/tickets/:id/verdict", async (c) => {
     const body = await c.req.json<{ outcome?: string; force?: boolean; steps?: unknown }>();
     const ticketId = Number(c.req.param("id"));
+    let result: unknown;
     if (body.outcome === "pass") {
-      return c.json(await verdicts.pass(ticketId, { force: body.force === true }));
+      result = await verdicts.pass(ticketId, { force: body.force === true });
+    } else if (body.outcome === "fail") {
+      result = await verdicts.fail(ticketId, body.steps);
+    } else if (body.outcome === "reverify") {
+      result = await verdicts.reverify(ticketId);
+    } else {
+      return c.json({ error: 'outcome must be "pass", "fail", or "reverify"' }, 400);
     }
-    if (body.outcome === "fail") return c.json(await verdicts.fail(ticketId, body.steps));
-    if (body.outcome === "reverify") return c.json(await verdicts.reverify(ticketId));
-    return c.json({ error: 'outcome must be "pass", "fail", or "reverify"' }, 400);
+    // The review is over either way — the preview stops with it (ticket 34).
+    // Best-effort: a stop hiccup must not turn a landed verdict into an error.
+    await previews.stop(ticketId).catch(() => {});
+    return c.json(result);
   });
 
   // The Manual Walkthrough's human verdicts on individual ACs (ticket 33):

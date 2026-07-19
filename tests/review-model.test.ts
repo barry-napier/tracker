@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { parseMarkdown } from "../src/renderer/markdown.ts";
 import {
   badgeRow,
+  demoTranscriptArtifact,
   docsArtifacts,
   DOGFOOD_REPORT_NAME,
   failVerdictProblems,
@@ -72,6 +73,13 @@ describe("step artifact selection", () => {
       "bounce-report.md",
     ]);
     expect(docsArtifacts(null)).toEqual([]);
+  });
+
+  test("the api walkthrough's transcript is the demo-kind artifact, by kind not name", () => {
+    const transcript = { ...artifact(5, "curl-transcript.txt"), kind: "demo" };
+    expect(demoTranscriptArtifact(run([recap, transcript]))).toEqual(transcript);
+    expect(demoTranscriptArtifact(run([recap]))).toBeNull();
+    expect(demoTranscriptArtifact(null)).toBeNull();
   });
 });
 

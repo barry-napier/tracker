@@ -1587,3 +1587,91 @@ body {
   color: var(--warn-fg);
   box-shadow: 0 0 0 1px var(--warn-border);
 }
+
+/* -- live preview in the Manual Walkthrough (ticket 34) -- */
+
+.previewpanel {
+  border: 1px solid var(--border-muted);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.7rem;
+  margin-bottom: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: var(--fs-sm);
+}
+
+.previewrow {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.previewrow a {
+  color: var(--text-accent);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+
+.previewrow button {
+  margin-left: auto;
+  background: var(--surface-raised);
+  border: none;
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-button);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0.15rem 0.6rem;
+  cursor: pointer;
+}
+
+.previewrow button:hover:not(:disabled) {
+  background: var(--surface-raised-hover);
+  color: var(--text-base);
+}
+
+.previewstatus {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  border-radius: var(--radius-full);
+  padding: 0.1rem 0.5rem;
+}
+
+.previewstatus.preview-ready {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  box-shadow: 0 0 0 1px var(--ok-border);
+}
+
+.previewstatus.preview-starting {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  box-shadow: 0 0 0 1px var(--warn-border);
+}
+
+.previewstatus.preview-failed {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  box-shadow: 0 0 0 1px var(--danger-border);
+}
+
+.previewstatus.preview-stopped {
+  color: var(--text-faint);
+  box-shadow: 0 0 0 1px var(--border-base);
+}
+
+/* The failure's log tail: the captured output, scrollable, never a blank. */
+.previewlog {
+  margin: 0;
+  max-height: 10rem;
+  overflow: auto;
+  background: var(--surface-sunken);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.6rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+}

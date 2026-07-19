@@ -39,6 +39,7 @@ function ac(overrides: Partial<AcceptanceCriterion> & { id: number }): Acceptanc
 function ticket(overrides: Partial<TicketWithAcs> & { id: number }): TicketWithAcs {
   return {
     projectId: 1,
+    number: overrides.id,
     displayKey: `TRK-${overrides.id}`,
     title: `Ticket ${overrides.id}`,
     description: "",

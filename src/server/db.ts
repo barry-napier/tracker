@@ -327,6 +327,28 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       ALTER TABLE tickets ADD COLUMN pr_url TEXT;
     `,
   },
+  {
+    version: 10,
+    sql: `
+      -- Preview environments (ticket 34): the record follows the worktree —
+      -- one row per Ticket, created at first use, reaped by the same sweep
+      -- that reaps the worktree. The process itself is in-memory only; the
+      -- row holds the bound port, last observed status, and the log pointer.
+      CREATE TABLE previews (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL UNIQUE REFERENCES tickets(id),
+        port INTEGER,
+        status TEXT NOT NULL DEFAULT 'stopped',
+        log_path TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      -- Per-repo readiness override for frameworks that bind early and serve
+      -- late (ticket 10); null = the ~60s default.
+      ALTER TABLE repos ADD COLUMN preview_readiness_timeout_ms INTEGER;
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

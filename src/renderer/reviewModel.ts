@@ -36,6 +36,15 @@ export function docsArtifacts(run: RunWithPhases | null): Artifact[] {
 }
 
 /**
+ * The api-kind walkthrough's transcript (ticket 10): for `api` repos the
+ * demo artifact IS the curl transcript, so the walkthrough presents it
+ * beside the base URL. Null until the demo recorder lands (slice 35).
+ */
+export function demoTranscriptArtifact(run: RunWithPhases | null): Artifact | null {
+  return run?.artifacts.find((artifact) => artifact.kind === "demo") ?? null;
+}
+
+/**
  * Absent evidence never renders a blank panel (ticket 32): a park-by-cap
  * arrival says exactly why it is missing; ordinary absence stays plain.
  */

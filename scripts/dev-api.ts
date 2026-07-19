@@ -10,3 +10,11 @@ const server = await startServer({
   providers: demoProviders(),
 });
 console.log(`Tracker API listening at ${server.url}`);
+
+// Previews are detached process groups; a bare kill would orphan them.
+// Electron's before-quit runs close() — the dev server must match it.
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    void server.close().finally(() => process.exit(0));
+  });
+}

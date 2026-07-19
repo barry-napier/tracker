@@ -13,6 +13,8 @@ import type {
   GateStatus,
   PhaseExecution,
   PreviewKind,
+  PreviewRecord,
+  PreviewStatus,
   Project,
   ProviderName,
   Repo,
@@ -109,6 +111,7 @@ export class Store {
     previewCommand?: string;
     previewKind?: PreviewKind;
     previewReadinessPath?: string;
+    previewReadinessTimeoutMs?: number;
     testCommand?: string;
   }): Repo {
     const project = this.getProject(input.projectId);
@@ -116,7 +119,7 @@ export class Store {
     const { repo, audit } = withTransaction(this.db, () => {
       const result = this.db
         .prepare(
-          "INSERT INTO repos (project_id, path, github_remote, target_branch, preview_command, preview_kind, preview_readiness_path, test_command, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO repos (project_id, path, github_remote, target_branch, preview_command, preview_kind, preview_readiness_path, preview_readiness_timeout_ms, test_command, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .run(
           input.projectId,
@@ -126,6 +129,7 @@ export class Store {
           input.previewCommand ?? null,
           input.previewKind ?? null,
           input.previewReadinessPath ?? null,
+          input.previewReadinessTimeoutMs ?? null,
           input.testCommand ?? null,
           nowIso(),
         );
@@ -963,6 +967,74 @@ export class Store {
     return ac;
   }
 
+  getPreview(ticketId: number): PreviewRecord | undefined {
+    const row = this.db.prepare("SELECT * FROM previews WHERE ticket_id = ?").get(ticketId);
+    return row === undefined ? undefined : previewFromRow(row);
+  }
+
+  /**
+   * One preview transition lands (ticket 34): the per-Ticket row (created at
+   * first use) and its audit event commit together. Actor is human — the
+   * preview exists for the Manual Walkthrough, and every transition traces
+   * back to the reviewer's session (start, verdict stop, app quit).
+   */
+  upsertPreview(
+    ticketId: number,
+    input: {
+      status: PreviewStatus;
+      port?: number | null;
+      logPath?: string | null;
+      detail?: Record<string, unknown>;
+    },
+  ): PreviewRecord {
+    const ticket = this.getTicket(ticketId);
+    if (!ticket) throw new NotFoundError(`ticket ${ticketId} not found`);
+    const { record, audit } = withTransaction(this.db, () => {
+      const now = nowIso();
+      const existing = this.getPreview(ticketId);
+      if (existing) {
+        this.db
+          .prepare("UPDATE previews SET port = ?, status = ?, log_path = ?, updated_at = ? WHERE ticket_id = ?")
+          .run(
+            input.port !== undefined ? input.port : existing.port,
+            input.status,
+            input.logPath !== undefined ? input.logPath : existing.logPath,
+            now,
+            ticketId,
+          );
+      } else {
+        this.db
+          .prepare(
+            "INSERT INTO previews (ticket_id, port, status, log_path, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+          )
+          .run(ticketId, input.port ?? null, input.status, input.logPath ?? null, now, now);
+      }
+      const record = this.getPreview(ticketId)!;
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId,
+        actor: "human",
+        type: `preview.${input.status === "starting" ? "started" : input.status}`,
+        detail: { port: record.port, ...input.detail },
+      });
+      return { record, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    return record;
+  }
+
+  /**
+   * Boot honesty: no preview process survives an app restart, so any row
+   * still claiming starting/ready is a leftover from a crashed or quit
+   * session. Silent — the processes died with the app; there is no
+   * transition worth an audit event, just a record catching up to reality.
+   */
+  sweepOrphanedPreviews(): void {
+    this.db
+      .prepare("UPDATE previews SET status = 'stopped', updated_at = ? WHERE status IN ('starting', 'ready')")
+      .run(nowIso());
+  }
+
   listPhaseExecutions(runId: number): PhaseExecution[] {
     return this.db
       .prepare("SELECT * FROM phase_executions WHERE run_id = ? ORDER BY id")
@@ -1118,6 +1190,7 @@ function ticketFromRow(row: Row): Ticket {
   return {
     id: Number(row.id),
     projectId: Number(row.project_id),
+    number: Number(row.number),
     displayKey: String(row.display_key),
     title: String(row.title),
     description: String(row.description),
@@ -1185,8 +1258,22 @@ function repoFromRow(row: Row): Repo {
     previewKind: row.preview_kind === null ? null : (String(row.preview_kind) as Repo["previewKind"]),
     previewReadinessPath:
       row.preview_readiness_path === null ? null : String(row.preview_readiness_path),
+    previewReadinessTimeoutMs:
+      row.preview_readiness_timeout_ms === null ? null : Number(row.preview_readiness_timeout_ms),
     testCommand: row.test_command === null ? null : String(row.test_command),
     createdAt: String(row.created_at),
+  };
+}
+
+function previewFromRow(row: Row): PreviewRecord {
+  return {
+    id: Number(row.id),
+    ticketId: Number(row.ticket_id),
+    port: row.port === null ? null : Number(row.port),
+    status: String(row.status) as PreviewRecord["status"],
+    logPath: row.log_path === null ? null : String(row.log_path),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
   };
 }
 

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { PreviewView } from "../server/previews.ts";
 import type { ReviewPayload } from "../server/reviews.ts";
 import type {
   AcStatus,
@@ -14,6 +15,7 @@ import { Markdown } from "./Markdown.tsx";
 import {
   absenceLabel,
   badgeRow,
+  demoTranscriptArtifact,
   docsArtifacts,
   DOGFOOD_REPORT_NAME,
   failVerdictProblems,
@@ -45,6 +47,9 @@ export function ReviewWizard({ ticket, onClose }: { ticket: TicketWithAcs; onClo
   const [drift, setDrift] = useState<string[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  // Lives at wizard level so the process starts on wizard open (ticket 34).
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const preview = usePreview(ticket.id, setPreviewError);
 
   const refetch = useCallback(() => {
     apiGet<ReviewPayload>(`/api/tickets/${ticket.id}/review`)
@@ -157,7 +162,13 @@ export function ReviewWizard({ ticket, onClose }: { ticket: TicketWithAcs; onClo
           {payload && stepKey === "pr" && <PrStep ticket={ticket} payload={payload} />}
           {payload && stepKey === "docs" && <DocsStep ticket={ticket} run={run} />}
           {payload && stepKey === "walkthrough" && (
-            <WalkthroughStep ticket={ticket} onSettled={refetch} />
+            <WalkthroughStep
+              ticket={ticket}
+              run={run}
+              preview={preview}
+              previewError={previewError}
+              onSettled={refetch}
+            />
           )}
           {payload && stepKey === "verdict" && (
             <VerdictStep
@@ -372,20 +383,159 @@ function DocPreview({ artifact }: { artifact: Artifact }) {
   return <pre className="docraw">{text}</pre>;
 }
 
+export interface PreviewController {
+  view: PreviewView | null;
+  busy: boolean;
+  restart: () => Promise<void>;
+}
+
+/**
+ * The wizard's preview lifecycle (ticket 34): the process starts on demand
+ * when the wizard opens on a configured repo — not when the reviewer reaches
+ * the walkthrough, so readiness has the earlier steps to settle in — and the
+ * view refreshes on a short poll (readiness lands server-side in the
+ * background; only the record knows when). Start/restart answers update the
+ * view immediately.
+ */
+function usePreview(ticketId: number, onError: (message: string) => void): PreviewController {
+  const [view, setView] = useState<PreviewView | null>(null);
+  const [busy, setBusy] = useState(false);
+  const autoStarted = useRef(false);
+
+  useEffect(() => {
+    let disposed = false;
+    const refresh = () =>
+      apiGet<PreviewView>(`/api/tickets/${ticketId}/preview`)
+        .then((data) => {
+          if (disposed) return;
+          setView(data);
+          const status = data.record?.status;
+          if (data.configured && !autoStarted.current && status !== "starting" && status !== "ready") {
+            autoStarted.current = true;
+            apiPost<PreviewView>(`/api/tickets/${ticketId}/preview/start`, {})
+              .then((started) => !disposed && setView(started))
+              .catch((e: unknown) => onError(e instanceof Error ? e.message : String(e)));
+          }
+        })
+        .catch((e: unknown) => onError(e instanceof Error ? e.message : String(e)));
+    void refresh();
+    const timer = setInterval(refresh, 1000);
+    return () => {
+      disposed = true;
+      clearInterval(timer);
+    };
+  }, [ticketId, onError]);
+
+  const restart = async () => {
+    setBusy(true);
+    try {
+      setView(await apiPost<PreviewView>(`/api/tickets/${ticketId}/preview/restart`, {}));
+    } catch (e: unknown) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return { view, busy, restart };
+}
+
+const PREVIEW_STATUS_LABELS = {
+  starting: "starting…",
+  ready: "ready",
+  failed: "failed",
+  stopped: "stopped",
+} as const;
+
+function PreviewGate({
+  ticket,
+  run,
+  preview,
+  error,
+}: {
+  ticket: TicketWithAcs;
+  run: RunWithPhases | null;
+  preview: PreviewController;
+  error: string | null;
+}) {
+  const { view, busy, restart } = preview;
+  if (!view) return <p className="dim">Loading preview…</p>;
+  if (!view.configured) {
+    return (
+      <p className="dim">
+        No preview configured for this repo — walk the change by hand, leaning on the demo and the
+        diff.
+      </p>
+    );
+  }
+  const status = view.record?.status ?? "stopped";
+  const transcript = view.kind === "api" ? demoTranscriptArtifact(run) : null;
+  return (
+    <div className="previewpanel">
+      <div className="previewrow">
+        <span className={`previewstatus preview-${status}`}>
+          preview {PREVIEW_STATUS_LABELS[status]}
+        </span>
+        {view.record !== null && view.record.port !== null && (
+          <span className="dim">port {view.record.port}</span>
+        )}
+        {view.url && (
+          <a href={view.url} target="_blank" rel="noreferrer" title="Opens in your browser">
+            {view.url} ↗
+          </a>
+        )}
+        <button disabled={busy} onClick={() => void restart()}>
+          {status === "ready" || status === "starting" ? "Restart" : "Start"}
+        </button>
+      </div>
+      {view.kind === "api" && (
+        <>
+          {view.url && (
+            <p className="dim">
+              API preview — base URL <code>{view.url}</code>
+            </p>
+          )}
+          {transcript ? (
+            <DocPreview artifact={transcript} />
+          ) : (
+            <p className="dim">
+              {absenceLabel(
+                ticket,
+                "No curl transcript recorded",
+                "No curl transcript recorded for this run",
+              )}
+            </p>
+          )}
+        </>
+      )}
+      {status === "failed" && view.logTail !== null && (
+        <pre className="previewlog">{view.logTail}</pre>
+      )}
+      {error && <p className="error">{error}</p>}
+    </div>
+  );
+}
+
 function WalkthroughStep({
   ticket,
+  run,
+  preview,
+  previewError,
   onSettled,
 }: {
   ticket: TicketWithAcs;
+  run: RunWithPhases | null;
+  preview: PreviewController;
+  previewError: string | null;
   onSettled: () => void;
 }) {
   const items = walkthroughItems(ticket);
   return (
     <div className="walkthrough">
+      <PreviewGate ticket={ticket} run={run} preview={preview} error={previewError} />
       <p className="dim">
-        No preview configured — preview environments arrive in a later slice. Walk the change by
-        hand, then settle each criterion: verify and fail land with human provenance; a failed AC
-        resets to pending on the next run.
+        Walk the change, then settle each criterion: verify and fail land with human provenance; a
+        failed AC resets to pending on the next run.
       </p>
       {items.length === 0 && <p className="dim">No acceptance criteria filed.</p>}
       <ul className="aclist">

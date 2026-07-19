@@ -4,10 +4,12 @@
 
 **Blocked by:** 32 — Wizard read-only.
 
-**Status:** ready-for-agent
+**Status:** done (2026-07-19)
 
-- [ ] Scratch `ui` and scratch `api` repo each: start, report ready, serve, restart, stop cleanly; port-conflict case falls back and stores the actual port
-- [ ] Readiness timeout or process exit → `failed` with captured output surfaced in the wizard
-- [ ] Process starts on demand (wizard open), stops on verdict submit and app quit; re-entering the wizard restarts it
-- [ ] Preview record (port, status, log pointer) created at first use, keyed to the ticket
-- [ ] Repo without preview config still shows the graceful degraded step
+- [x] Scratch `ui` and scratch `api` repo each: start, report ready, serve, restart, stop cleanly; port-conflict case falls back and stores the actual port
+- [x] Readiness timeout or process exit → `failed` with captured output surfaced in the wizard
+- [x] Process starts on demand (wizard open), stops on verdict submit and app quit; re-entering the wizard restarts it
+- [x] Preview record (port, status, log pointer) created at first use, keyed to the ticket
+- [x] Repo without preview config still shows the graceful degraded step
+
+**Resolution notes (2026-07-19):** `PreviewManager` (src/server/previews.ts) owns the processes: spawn `/bin/sh -c <previewCommand>` from the latest Run's worktree, detached into its own process group with the bound port injected as `$PORT`; deterministic port `4000 + number % 1000` probed upward with the actual port stored on the record; readiness watched in the background — TCP-open by default, the repo's HTTP path (2xx/3xx) when set, every probe capped at 2s so a server that accepts-but-never-answers still hits the deadline; timeout or process exit lands `failed` with combined stdout+stderr in `<data>/previews/ticket-<id>.log`, tailed into the wizard. The per-Ticket record (migration 10: `previews`, `ticket_id UNIQUE`; plus `repos.preview_readiness_timeout_ms`) transitions through `Store.upsertPreview`, each move an audit event (`preview.started/ready/failed/stopped`); boot sweeps orphaned starting/ready rows to stopped since no process survives a restart. Routes: `GET /preview` (view: configured, kind, record, url, logTail), `POST /preview/start` (idempotent on a live process), `POST /preview/restart` — no stop route by design; the verdict route stops the preview after any outcome and `server.close()` stops all (dev-api now traps SIGINT/SIGTERM to match Electron's before-quit). Wizard: `usePreview` lives at wizard level so the process starts on wizard open; the Walkthrough shows the status pill, `localhost:<port>` link (`setWindowOpenHandler` → `shell.openExternal`, so links open in the system browser), Restart, log tail on failure, and for `api` repos the base URL plus the demo-kind artifact as the curl transcript (honest absence label until slice 35 records one). Known consequence, proven in the endpoint test: a preview-configured `feat/` ticket now owes a demo, so demo-fresh fails every cycle and tickets arrive at Human Review by bounce cap until slice 35 lands the recorder. 10 new tests (manager lifecycle both kinds, port fallback, both failure modes, HTTP-override red/green, guards, wizard flow end-to-end, degraded), 125/125 green; verified live in the dev app against DEMO-1.
