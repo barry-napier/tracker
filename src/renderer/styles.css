@@ -1957,3 +1957,59 @@ body {
   opacity: 0.5;
   cursor: default;
 }
+
+/* -- workflow picker + project settings (ticket 45) -- */
+
+.wf-options label {
+  align-items: flex-start;
+}
+
+.wf-options input[type="radio"] {
+  margin-top: 0.25rem;
+}
+
+.wf-option-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.wf-option-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-weight: 500;
+  color: var(--text-base);
+}
+
+.wf-option-phases {
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-section-title {
+  margin: 0 0 0.25rem;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.wf-dialog section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.icon-btn:disabled:hover {
+  background: none;
+  color: var(--text-muted);
+}

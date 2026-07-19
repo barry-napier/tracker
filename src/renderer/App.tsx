@@ -10,6 +10,7 @@ import {
 import { apiGet, apiPost } from "./api.ts";
 import { PROVIDER_LABELS, repoName } from "./format.ts";
 import { avatarColor, Home } from "./Home.tsx";
+import { ProjectSettings } from "./ProjectSettings.tsx";
 import { WorkflowLibrary } from "./WorkflowLibrary.tsx";
 import { useBoard } from "./useBoard.ts";
 import { ReviewWizard } from "./ReviewWizard.tsx";
@@ -129,6 +130,7 @@ export default function App() {
   // Home hosts two views (CONTEXT.md): Recent Projects and the app-global
   // Workflow library. Pure view state — the tab model never hears about it.
   const [homeView, setHomeView] = useState<"projects" | "workflows">("projects");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // The stream carries every project; the board shows only the active tab's.
   const tickets = project ? board.tickets.filter((t) => t.projectId === project.id) : [];
   // Scoped to the active tab, so switching tabs drops another board's overlays.
@@ -181,7 +183,13 @@ export default function App() {
         ))}
         <span className="topbar-actions">
           <ThemeToggle />
-          <button type="button" className="icon-btn" title="Settings">
+          <button
+            type="button"
+            className="icon-btn"
+            title={project ? `${project.name} settings` : "Open a project to edit its settings"}
+            disabled={!project}
+            onClick={() => setSettingsOpen(true)}
+          >
             <Icon name="settings-gear" />
           </button>
           <button type="button" className="icon-btn" title="Help">
@@ -254,6 +262,13 @@ export default function App() {
       )}
       {project && reviewing && (
         <ReviewWizard ticket={reviewing} onClose={() => setReviewId(null)} />
+      )}
+      {project && settingsOpen && (
+        <ProjectSettings
+          key={project.id}
+          project={project}
+          onClose={() => setSettingsOpen(false)}
+        />
       )}
     </div>
   );

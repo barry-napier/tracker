@@ -4,10 +4,12 @@
 
 **Blocked by:** 43 — workflow versions store.
 
-**Status:** ready-for-agent
+**Status:** in-review — settings surface done; add-flow picker blocked on the Home add-local rework
 
-- [ ] Clone flow shows the picker with the default preselected; cloning without touching it assigns the Default Workflow
-- [ ] Settings gear opens project settings for the active project tab; workflow section shows the current selection
-- [ ] Picker lists active workflows only; a project sitting on an archived workflow displays it with an archived label
-- [ ] Changing the selection affects the next claim only — a running Run finishes on its pinned version (endpoint-level test)
-- [ ] Both surfaces use the same picker component and read correctly in both color schemes
+- [ ] Clone flow shows the picker with the default preselected; cloning without touching it assigns the Default Workflow — *second half holds and is tested (creation falls back to the default, ticket 43); the picker step itself waits for the in-flight Home add-local rework to land, then drops in as `WorkflowPicker`*
+- [x] Settings gear opens project settings for the active project tab; workflow section shows the current selection
+- [x] Picker lists active workflows only; a project sitting on an archived workflow displays it with an archived label
+- [x] Changing the selection affects the next claim only — a running Run finishes on its pinned version (endpoint-level test)
+- [x] Both surfaces use the same picker component and read correctly in both color schemes — *the shared component (`ProjectSettings.tsx` exports `WorkflowPicker`) drives settings today; the add-project flow reuses it when it lands*
+
+**Resolution notes (partial):** Gear is disabled with no project tab; with one it opens `ProjectSettings`, which fetches the live project row (the cached tab row can be stale) plus the library, and applies picks immediately via `PATCH /api/projects/:id` — forward-acting, no audit event, with rollback on error. An archived current selection renders checked + "Archived" and is inert as a new choice. The next-claim-only behavior is `tests/workflow-library.test.ts` ("mid-flight selection change"). Verified live in both color schemes.
