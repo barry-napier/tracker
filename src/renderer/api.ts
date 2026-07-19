@@ -40,3 +40,13 @@ export async function apiPost<T>(route: string, body: unknown): Promise<T> {
   if (!res.ok) await throwApiError("POST", route, res);
   return (await res.json()) as T;
 }
+
+export async function apiPatch<T>(route: string, body: unknown): Promise<T> {
+  const res = await fetch(`${apiBase}${route}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await throwApiError("PATCH", route, res);
+  return (await res.json()) as T;
+}

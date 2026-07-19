@@ -4,11 +4,13 @@
 
 **Blocked by:** 43 — workflow versions store.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Home offers navigation between Recent Projects and Workflows without touching the tab model (tabs remain project-ids-only)
-- [ ] List renders live data: names, default badge, phase preview, used-by counts, archived state
-- [ ] Duplicate creates "X (copy)" and it appears immediately; rename edits identity only
-- [ ] Archive toggle hides the workflow from selection surfaces but keeps the row (and its projects) working; unarchive restores it
-- [ ] Archiving the default forces choosing a successor in the same dialog; cancel leaves both untouched
-- [ ] View is correct in both color schemes and matches the oc-2 look of Home
+- [x] Home offers navigation between Recent Projects and Workflows without touching the tab model (tabs remain project-ids-only)
+- [x] List renders live data: names, default badge, phase preview, used-by counts, archived state
+- [x] Duplicate creates "X (copy)" and it appears immediately; rename edits identity only
+- [x] Archive toggle hides the workflow from selection surfaces but keeps the row (and its projects) working; unarchive restores it
+- [x] Archiving the default forces choosing a successor in the same dialog; cancel leaves both untouched
+- [x] View is correct in both color schemes and matches the oc-2 look of Home
+
+**Resolution notes:** `WorkflowLibrary.tsx` is fully self-contained (fetches `/api/workflows`, refetches after every action since default/archive move flags across rows). The Home↔Workflows switch lives in App.tsx as pure view state (`homeView`) with a bottom-center segmented `home-nav` — Home.tsx untouched, tab model untouched. Row actions surface on hover (plus `:focus-visible`); the archived state is a `role="switch"` toggle; archiving the default routes through `SuccessorDialog` client-side instead of letting the server 409. Styles are the `wf-*` section appended to styles.css, tokens only. Verified live against the migrated dev DB in both schemes; behavior ACs (atomic handover, duplicate independence) are covered by `tests/workflow-library.test.ts` from ticket 43.

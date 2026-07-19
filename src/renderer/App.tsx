@@ -10,6 +10,7 @@ import {
 import { apiGet, apiPost } from "./api.ts";
 import { PROVIDER_LABELS, repoName } from "./format.ts";
 import { avatarColor, Home } from "./Home.tsx";
+import { WorkflowLibrary } from "./WorkflowLibrary.tsx";
 import { useBoard } from "./useBoard.ts";
 import { ReviewWizard } from "./ReviewWizard.tsx";
 import { TicketDetail } from "./TicketDetail.tsx";
@@ -125,6 +126,9 @@ export default function App() {
   } = useWorkspace();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [reviewId, setReviewId] = useState<number | null>(null);
+  // Home hosts two views (CONTEXT.md): Recent Projects and the app-global
+  // Workflow library. Pure view state — the tab model never hears about it.
+  const [homeView, setHomeView] = useState<"projects" | "workflows">("projects");
   // The stream carries every project; the board shows only the active tab's.
   const tickets = project ? board.tickets.filter((t) => t.projectId === project.id) : [];
   // Scoped to the active tab, so switching tabs drops another board's overlays.
@@ -187,12 +191,27 @@ export default function App() {
       </header>
       <main className="main">
         {error && <p className="banner error">Can't reach the Tracker server: {error}</p>}
-        {!project && (
+        {!project && homeView === "projects" && (
           <Home
             projects={projects}
             onOpen={(id) => void openProjectById(id)}
             onCreated={openProject}
           />
+        )}
+        {!project && homeView === "workflows" && <WorkflowLibrary />}
+        {!project && (
+          <nav className="home-nav">
+            {(["projects", "workflows"] as const).map((view) => (
+              <button
+                key={view}
+                type="button"
+                className={homeView === view ? "active" : undefined}
+                onClick={() => setHomeView(view)}
+              >
+                {view === "projects" ? "Projects" : "Workflows"}
+              </button>
+            ))}
+          </nav>
         )}
         {project && (
         <div className="board">

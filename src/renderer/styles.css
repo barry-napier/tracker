@@ -1675,3 +1675,285 @@ body {
   font-size: var(--fs-xs);
   white-space: pre-wrap;
 }
+
+/* -- workflow library: Home-hosted list, identity ops only (ticket 44) -- */
+
+.home-nav {
+  align-self: center;
+  margin: 0 auto 1.1rem;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-full);
+}
+
+.home-nav button {
+  background: none;
+  border: none;
+  border-radius: var(--radius-full);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0.25rem 0.85rem;
+  cursor: pointer;
+}
+
+.home-nav button:hover {
+  color: var(--text-base);
+}
+
+.home-nav button.active {
+  background: var(--surface-raised);
+  color: var(--text-base);
+  box-shadow: var(--shadow-raised);
+}
+
+.wf-picker {
+  width: min(560px, 100%);
+}
+
+.wf-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 52vh;
+  overflow-y: auto;
+}
+
+.wf-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius-md);
+}
+
+.wf-row:hover {
+  background: var(--overlay-hover);
+}
+
+.wf-row.archived .wf-main {
+  opacity: 0.5;
+}
+
+.wf-main {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.wf-titleline {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.wf-name {
+  font-weight: 600;
+  color: var(--text-base);
+}
+
+.wf-rename {
+  background: var(--surface-input);
+  border: 1px solid var(--border-focus);
+  border-radius: var(--radius-md);
+  color: var(--text-base);
+  font: inherit;
+  font-weight: 600;
+  padding: 0.05rem 0.35rem;
+}
+
+.wf-version {
+  font-size: var(--fs-xs);
+}
+
+.wf-badge {
+  font-size: var(--fs-xs);
+  border-radius: var(--radius-full);
+  padding: 0.05rem 0.5rem;
+  border: 1px solid;
+}
+
+.wf-badge.default {
+  color: var(--info-fg);
+  background: var(--info-bg);
+  border-color: var(--info-border);
+}
+
+.wf-badge.archived {
+  color: var(--text-faint);
+  background: var(--surface-sunken);
+  border-color: var(--border-muted);
+}
+
+.wf-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.wf-phases {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-used {
+  flex: none;
+  color: var(--text-faint);
+}
+
+/* Row actions surface on hover, lindy-style; the toggle is always visible. */
+.wf-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.wf-action {
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-accent);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0.2rem 0.45rem;
+  cursor: pointer;
+  visibility: hidden;
+}
+
+.wf-row:hover .wf-action,
+.wf-action:focus-visible {
+  visibility: visible;
+}
+
+.wf-action:hover {
+  background: var(--overlay-hover);
+  color: var(--text-accent-hover);
+}
+
+/* Archived state as an enabled-style switch: on = active, off = archived. */
+.wf-toggle {
+  flex: none;
+  width: 30px;
+  height: 18px;
+  border: none;
+  border-radius: var(--radius-full);
+  padding: 2px;
+  cursor: pointer;
+  display: inline-flex;
+  transition: background 120ms ease;
+}
+
+.wf-toggle.on {
+  background: var(--contrast-bg);
+  justify-content: flex-end;
+}
+
+.wf-toggle.off {
+  background: var(--border-strong);
+  justify-content: flex-start;
+}
+
+.wf-knob {
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  background: #fff;
+}
+
+/* On-track is --contrast-bg (light in dark mode): the knob must invert with it. */
+.wf-toggle.on .wf-knob {
+  background: var(--contrast-fg);
+}
+
+.wf-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.wf-dialog {
+  width: min(420px, calc(100% - 2rem));
+  background: var(--surface-panel);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
+  padding: 1.1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.wf-dialog h3 {
+  margin: 0;
+}
+
+.wf-dialog p {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.wf-successors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.wf-successors label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.wf-successors label:hover {
+  background: var(--overlay-hover);
+}
+
+.wf-dialog .formrow button {
+  background: var(--surface-raised);
+  border: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-button);
+  color: var(--text-base);
+  font: inherit;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+}
+
+.wf-dialog .formrow button:first-child:not(:disabled) {
+  background: var(--contrast-bg);
+  color: var(--contrast-fg);
+}
+
+.wf-dialog .formrow button:hover:not(:disabled) {
+  background: var(--surface-raised-hover);
+}
+
+.wf-dialog .formrow button:first-child:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--contrast-bg) 88%, var(--contrast-fg));
+}
+
+.wf-dialog .formrow button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
