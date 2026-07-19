@@ -30,6 +30,8 @@ function artifactContentType(name: string): string {
   if (name.endsWith(".html")) return "text/html; charset=utf-8";
   if (name.endsWith(".md")) return "text/markdown; charset=utf-8";
   if (name.endsWith(".json")) return "application/json; charset=utf-8";
+  // The demo recorder's video (ticket 35) — what the walkthrough's player loads.
+  if (name.endsWith(".webm")) return "video/webm";
   return "text/plain; charset=utf-8";
 }
 

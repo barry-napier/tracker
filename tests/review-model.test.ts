@@ -3,6 +3,7 @@ import { parseMarkdown } from "../src/renderer/markdown.ts";
 import {
   badgeRow,
   demoTranscriptArtifact,
+  demoVideoArtifact,
   docsArtifacts,
   DOGFOOD_REPORT_NAME,
   failVerdictProblems,
@@ -66,8 +67,9 @@ describe("step artifact selection", () => {
     expect(findArtifact(null, "recap.html")).toBeNull();
   });
 
-  test("docs step excludes the dogfood report — it has its own step", () => {
-    expect(docsArtifacts(run([recap, dogfood, research, bounce])).map((a) => a.name)).toEqual([
+  test("docs step excludes the dogfood report and the demo — each shows elsewhere", () => {
+    const video = { ...artifact(6, "demo.webm"), kind: "demo" };
+    expect(docsArtifacts(run([recap, dogfood, research, bounce, video])).map((a) => a.name)).toEqual([
       "recap.html",
       "research.md",
       "bounce-report.md",
@@ -80,6 +82,14 @@ describe("step artifact selection", () => {
     expect(demoTranscriptArtifact(run([recap, transcript]))).toEqual(transcript);
     expect(demoTranscriptArtifact(run([recap]))).toBeNull();
     expect(demoTranscriptArtifact(null)).toBeNull();
+  });
+
+  test("the ui walkthrough's video is the webm demo artifact; the transcript never claims it", () => {
+    const video = { ...artifact(6, "demo.webm"), kind: "demo" };
+    expect(demoVideoArtifact(run([recap, video]))).toEqual(video);
+    expect(demoVideoArtifact(run([recap]))).toBeNull();
+    expect(demoVideoArtifact(null)).toBeNull();
+    expect(demoTranscriptArtifact(run([recap, video]))).toBeNull();
   });
 });
 

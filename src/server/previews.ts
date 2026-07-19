@@ -3,10 +3,11 @@ import { createWriteStream, existsSync, mkdirSync, readFileSync } from "node:fs"
 import { connect, createServer } from "node:net";
 import path from "node:path";
 import { NotFoundError, StateError, type Store } from "./store.ts";
-import type { PreviewKind, PreviewRecord } from "./types.ts";
+import type { Actor, PreviewKind, PreviewRecord } from "./types.ts";
 
-/** Readiness deadline when the repo doesn't override it (ticket 10). */
-const DEFAULT_READINESS_TIMEOUT_MS = 60_000;
+/** Readiness deadline when the repo doesn't override it (ticket 10); the
+ * demo recorder waits out the same deadline. */
+export const DEFAULT_READINESS_TIMEOUT_MS = 60_000;
 /** How far past the deterministic preference the port probe walks. */
 const PORT_PROBE_SPAN = 100;
 const READINESS_POLL_MS = 100;
@@ -36,6 +37,14 @@ interface LiveProcess {
   generation: number;
   /** True once a deliberate stop owns the exit — the handler stands down. */
   stopping: boolean;
+  /** Who started this process — its later transitions audit as the same actor. */
+  actor: Actor;
+}
+
+/** Who drives a lifecycle call: the wizard's reviewer (default) or the
+ * orchestrator's demo phase (ticket 35). */
+interface LifecycleOpts {
+  actor?: Actor;
 }
 
 /**
@@ -43,7 +52,7 @@ interface LiveProcess {
  * with the bound port injected as $PORT, watch readiness (TCP-open, or the
  * repo's HTTP path), and keep the per-Ticket record honest through every
  * transition. Two consumers by design (ticket 10): the wizard's Manual
- * Walkthrough now, the demo-recording phase in slice 35. Processes are
+ * Walkthrough and the orchestrator's demo phase (ticket 35). Processes are
  * in-memory only — the record is what survives.
  */
 export class PreviewManager {
@@ -76,7 +85,8 @@ export class PreviewManager {
    * fresh. The deterministic port preference mirrors the prototype's
    * ticket-derived ports; the record stores what was actually bound.
    */
-  async start(ticketId: number): Promise<PreviewView> {
+  async start(ticketId: number, opts: LifecycleOpts = {}): Promise<PreviewView> {
+    const actor = opts.actor ?? "human";
     const ticket = this.store.getTicket(ticketId);
     if (!ticket) throw new NotFoundError(`ticket ${ticketId} not found`);
     const repo = ticket.repoId === null ? undefined : this.store.getRepo(ticket.repoId);
@@ -113,9 +123,9 @@ export class PreviewManager {
     child.stderr!.pipe(log);
 
     const generation = ++this.#generation;
-    const live: LiveProcess = { child, generation, stopping: false };
+    const live: LiveProcess = { child, generation, stopping: false, actor };
     this.#live.set(ticketId, live);
-    this.store.upsertPreview(ticketId, { status: "starting", port, logPath: logRelative });
+    this.store.upsertPreview(ticketId, { status: "starting", port, logPath: logRelative, actor });
 
     child.once("exit", (code, signal) => {
       log.end();
@@ -126,6 +136,7 @@ export class PreviewManager {
       if (!live.stopping && this.#isLiveStatus(ticketId)) {
         this.store.upsertPreview(ticketId, {
           status: "failed",
+          actor: live.actor,
           detail: { reason: `process exited (${signal ?? `code ${code}`})` },
         });
       }
@@ -135,14 +146,14 @@ export class PreviewManager {
     return this.view(ticketId);
   }
 
-  /** The wizard's restart action: always a fresh process. */
-  async restart(ticketId: number): Promise<PreviewView> {
-    await this.stop(ticketId);
-    return this.start(ticketId);
+  /** The wizard's restart action (and the demo phase's boot): always a fresh process. */
+  async restart(ticketId: number, opts: LifecycleOpts = {}): Promise<PreviewView> {
+    await this.stop(ticketId, opts);
+    return this.start(ticketId, opts);
   }
 
-  /** Clean stop (verdict submit, app quit): SIGTERM, grace, SIGKILL. */
-  async stop(ticketId: number): Promise<void> {
+  /** Clean stop (verdict submit, demo recorded, app quit): SIGTERM, grace, SIGKILL. */
+  async stop(ticketId: number, opts: LifecycleOpts = {}): Promise<void> {
     const live = this.#live.get(ticketId);
     if (live) {
       live.stopping = true;
@@ -150,7 +161,7 @@ export class PreviewManager {
       this.#live.delete(ticketId);
     }
     if (this.#isLiveStatus(ticketId)) {
-      this.store.upsertPreview(ticketId, { status: "stopped" });
+      this.store.upsertPreview(ticketId, { status: "stopped", actor: opts.actor ?? "human" });
     }
   }
 
@@ -170,7 +181,7 @@ export class PreviewManager {
     while (this.#live.get(ticketId) === live && !live.stopping) {
       if (await isReady(port, readinessPath)) {
         if (this.#live.get(ticketId) === live && !live.stopping) {
-          this.store.upsertPreview(ticketId, { status: "ready" });
+          this.store.upsertPreview(ticketId, { status: "ready", actor: live.actor });
         }
         return;
       }
@@ -183,6 +194,7 @@ export class PreviewManager {
         this.#live.delete(ticketId);
         this.store.upsertPreview(ticketId, {
           status: "failed",
+          actor: live.actor,
           detail: { reason: `not ready within ${deadlineMs}ms` },
         });
         return;

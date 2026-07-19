@@ -30,18 +30,36 @@ export function findArtifact(run: RunWithPhases | null, name: string): Artifact 
   return run?.artifacts.find((artifact) => artifact.name === name) ?? null;
 }
 
-/** The Documentation & Artifacts step: everything except the dogfood report — it has its own step. */
+/** The Documentation & Artifacts step: everything except the dogfood report
+ * and the demo — each has its own presentation elsewhere in the wizard. */
 export function docsArtifacts(run: RunWithPhases | null): Artifact[] {
-  return run?.artifacts.filter((artifact) => artifact.name !== DOGFOOD_REPORT_NAME) ?? [];
+  return (
+    run?.artifacts.filter(
+      (artifact) => artifact.name !== DOGFOOD_REPORT_NAME && artifact.kind !== "demo",
+    ) ?? []
+  );
 }
 
 /**
  * The api-kind walkthrough's transcript (ticket 10): for `api` repos the
  * demo artifact IS the curl transcript, so the walkthrough presents it
- * beside the base URL. Null until the demo recorder lands (slice 35).
+ * beside the base URL.
  */
 export function demoTranscriptArtifact(run: RunWithPhases | null): Artifact | null {
-  return run?.artifacts.find((artifact) => artifact.kind === "demo") ?? null;
+  return (
+    run?.artifacts.find(
+      (artifact) => artifact.kind === "demo" && !artifact.name.endsWith(".webm"),
+    ) ?? null
+  );
+}
+
+/** The ui-kind walkthrough's demo video (ticket 35), by kind and extension. */
+export function demoVideoArtifact(run: RunWithPhases | null): Artifact | null {
+  return (
+    run?.artifacts.find(
+      (artifact) => artifact.kind === "demo" && artifact.name.endsWith(".webm"),
+    ) ?? null
+  );
 }
 
 /**

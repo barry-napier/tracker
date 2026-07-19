@@ -1,6 +1,7 @@
 import type { ArtifactStore } from "./artifacts.ts";
 import type { Bouncer } from "./bounce.ts";
 import type { EventBus } from "./bus.ts";
+import type { DemoOutcome, DemoRecorder } from "./demos.ts";
 import { PhaseCancelledError, PhaseFailedError, type WorkflowEngine } from "./engine.ts";
 import type { GateBattery } from "./gates.ts";
 import type { Store } from "./store.ts";
@@ -26,6 +27,7 @@ export class WorkerPool {
     private readonly worktrees: WorktreeManager,
     private readonly engine: WorkflowEngine,
     private readonly artifacts: ArtifactStore,
+    private readonly demos: DemoRecorder,
     private readonly battery: GateBattery,
     private readonly bouncer: Bouncer,
     private readonly capacity: number,
@@ -100,6 +102,14 @@ export class WorkerPool {
       this.store.finishRun(run.id, "completed");
       this.#failures.delete(ticket.id);
       if (this.#stopped) return;
+      // The demo phase (ticket 35): boot the preview from the finished
+      // worktree and record against it. However it ends, it's an outcome the
+      // demo-fresh gate judges — a broken demo bounces the ticket, never
+      // crashes the run.
+      const demo: DemoOutcome = await this.demos
+        .record({ run, ticket, repo, worktreePath, signal: this.#abort.signal })
+        .catch((error: unknown): DemoOutcome => ({ status: "failed", reason: messageOf(error) }));
+      if (this.#stopped) return;
       // The battery judges the Run at Verifying (ADR-0003) — still inside
       // the worker slot, so a claim can't land on an unjudged worktree. A
       // battery blow-up leaves the ticket visibly parked in Verifying with
@@ -107,7 +117,7 @@ export class WorkerPool {
       // crashed run — the work itself completed.
       let verdict: { passed: boolean } | undefined;
       try {
-        verdict = await this.battery.run({ run, ticket, repo, worktreePath });
+        verdict = await this.battery.run({ run, ticket, repo, worktreePath, demo });
       } catch (error) {
         console.error(`run ${run.id}: gate battery crashed mid-flight`, error);
       }

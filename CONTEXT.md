@@ -56,6 +56,10 @@ The dogfood phase's account of actually using what was built: a scenario Matrix 
 
 An optional per-Repo markdown file giving the dogfood phase a user's lens (e.g. a claims adjuster) for judging experience, not just function. No Persona configured → the report says the experiential judge was skipped; the lens is never faked.
 
+### Demo
+
+Recorded proof of the change working, captured against the running Preview Environment during the Run. The agent authors the demo — a Playwright spec for a `ui` Repo, a curl script for an `api` Repo — and the orchestrator executes it, so a demo can never be self-reported. The resulting video or transcript is a Run artifact stamped with the code it was recorded at; the `demo-fresh` Evidence Gate requires that stamp to match the branch tip, and Tickets whose type isn't user-facing owe no demo. The review wizard's Manual Walkthrough plays the video or shows the transcript beside the live preview.
+
 ### Audit Trail
 
 The append-only record of domain events describing everything that happened to a Ticket over its life — promoted, claimed, phase transitions, gate results, bounces, verdicts, merges. Each event has an actor (human or agent worker), an event type, and event-specific detail. Events are never updated or deleted. The activity feed in the ticket detail view is the rendered form of the Audit Trail.

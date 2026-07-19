@@ -225,8 +225,8 @@ describe("preview endpoints in the wizard flow (ticket 34)", () => {
         previewKind: "ui",
       },
     });
-    // A preview-configured repo owes a demo the workflow can't record until
-    // slice 35, so demo-fresh fails every cycle and the ticket arrives at
+    // A preview-configured repo owes a demo this scripted agent never
+    // authors, so demo-fresh fails every cycle and the ticket arrives at
     // Human Review by bounce cap — exactly the state the wizard opens on.
     const arrived = await waitForTicketState(server, ticket.id, "human_review");
     expect(arrived.arrivedByCap).toBe(true);
@@ -257,7 +257,7 @@ describe("preview endpoints in the wizard flow (ticket 34)", () => {
     const detail = (await api(server, "GET", `/api/tickets/${ticket.id}`)).json;
     for (const ac of detail.acceptanceCriteria) {
       if (ac.status !== "verified" && ac.status !== "waived") {
-        await api(server, "POST", `/api/acs/${ac.id}/waive`, { reason: "demo lands in slice 35" });
+        await api(server, "POST", `/api/acs/${ac.id}/waive`, { reason: "no demo authored here" });
       }
     }
 

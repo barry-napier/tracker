@@ -49,6 +49,24 @@ export class ArtifactStore {
     this.store.recordArtifacts(runId, worktreeHeadSha, [file]);
   }
 
+  /**
+   * Persist evidence produced outside the worktree — the demo recorder's
+   * video/transcript (ticket 35), whose bytes live under app data or only in
+   * memory. The worktree still stamps the HEAD SHA: freshness gates compare
+   * against the code the evidence was recorded at.
+   */
+  async persistContent(
+    runId: number,
+    worktreePath: string,
+    kind: string,
+    name: string,
+    content: Buffer,
+  ): Promise<void> {
+    const worktreeHeadSha = await git(worktreePath, "rev-parse", "HEAD");
+    const file = this.persistBlob(runId, kind, name, content);
+    this.store.recordArtifacts(runId, worktreeHeadSha, [file]);
+  }
+
   /** Blob to disk under the run's artifact dir; returns the Store row input. */
   private persistBlob(
     runId: number,

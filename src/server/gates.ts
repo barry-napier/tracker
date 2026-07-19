@@ -2,9 +2,10 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { DEMO_ARTIFACT_KIND, demoExpectation, type DemoOutcome } from "./demos.ts";
 import type { GitHubPort } from "./github.ts";
 import type { Store } from "./store.ts";
-import type { AcceptanceCriterion, GateStatus, Repo, Run, TicketWithAcs } from "./types.ts";
+import type { AcceptanceCriterion, Artifact, GateStatus, Repo, Run, TicketWithAcs } from "./types.ts";
 import { git } from "./worktrees.ts";
 
 const execFileAsync = promisify(execFile);
@@ -13,9 +14,6 @@ const execFileAsync = promisify(execFile);
 const COMMAND_TIMEOUT_MS = 10 * 60_000;
 /** Full logs live elsewhere; gate detail carries a readable excerpt. */
 const OUTPUT_EXCERPT_CHARS = 2000;
-
-/** Branch prefixes whose tickets aren't user-facing → no demo expected. */
-const NON_USER_FACING_TYPES = new Set(["chore", "refactor", "docs", "test", "ci", "build"]);
 
 type GateOutcome = {
   gate: string;
@@ -29,6 +27,8 @@ export interface BatteryContext {
   ticket: TicketWithAcs;
   repo: Repo;
   worktreePath: string;
+  /** How the demo phase ended (ticket 35) — enriches demo-fresh's detail. */
+  demo?: DemoOutcome;
 }
 
 /**
@@ -56,7 +56,7 @@ export class GateBattery {
       ["branch-recorded", () => this.#branchRecorded(ticket, ctx.repo)],
       ["suite", () => this.#suite(ctx)],
       ["pr-fresh", () => this.#prFresh(ticket, ctx)],
-      ["demo-fresh", () => this.#demoFresh(ticket, ctx.repo)],
+      ["demo-fresh", () => this.#demoFresh(ticket, ctx)],
     ];
 
     const outcomes: GateOutcome[] = [];
@@ -174,28 +174,60 @@ export class GateBattery {
   }
 
   /**
-   * Fact-driven skips only: the ticket type (branch prefix) says no demo is
-   * owed, or the repo offers no preview to demo against. When a demo IS owed
-   * there is no recorder yet (slice 35), and that's a fail — a skip here
-   * would masquerade as "not applicable".
+   * The demo is fresh when it was recorded at the branch tip — like pr-fresh,
+   * a SHA comparison: the reviewer must watch the code under review, not an
+   * earlier cycle's. Skips are fact-driven only (ticket type, repo config,
+   * via demoExpectation — the recorder consults the same facts). No artifact
+   * is a fail carrying the recorder's own reason (preview boot failure, red
+   * demo spec) — never a silent skip.
    */
-  #demoFresh(ticket: TicketWithAcs, repo: Repo): GateOutcome {
-    const type = ticket.branch?.split("/")[0] ?? "";
-    if (NON_USER_FACING_TYPES.has(type)) {
+  async #demoFresh(ticket: TicketWithAcs, ctx: BatteryContext): Promise<GateOutcome> {
+    const expectation = demoExpectation(ticket, ctx.repo);
+    if (!expectation.owed) {
+      return { gate: "demo-fresh", status: "skip", detail: { reason: expectation.reason } };
+    }
+    const demo = this.#latestDemoArtifact(ticket.id);
+    if (demo === undefined) {
       return {
         gate: "demo-fresh",
-        status: "skip",
-        detail: { reason: `ticket type "${type}" is not user-facing` },
+        status: "fail",
+        detail: {
+          reason: ctx.demo?.status === "failed" ? ctx.demo.reason : "no demo artifact recorded",
+        },
       };
     }
-    if (repo.previewCommand === null) {
+    const branchTip = await git(ctx.worktreePath, "rev-parse", "HEAD");
+    if (demo.worktreeHeadSha === branchTip) {
       return {
         gate: "demo-fresh",
-        status: "skip",
-        detail: { reason: "no preview configured — no demo expected" },
+        status: "pass",
+        detail: { artifactId: demo.id, name: demo.name, recordedAtSha: demo.worktreeHeadSha },
       };
     }
-    return { gate: "demo-fresh", status: "fail", detail: { reason: "no demo artifact recorded" } };
+    const thisRun =
+      ctx.demo?.status === "failed" ? `; this run recorded none: ${ctx.demo.reason}` : "";
+    return {
+      gate: "demo-fresh",
+      status: "fail",
+      detail: {
+        artifactId: demo.id,
+        recordedAtSha: demo.worktreeHeadSha,
+        branchTip,
+        reason: `demo artifact predates the branch tip${thisRun}`,
+      },
+    };
+  }
+
+  /** The ticket's newest demo evidence, whichever Run recorded it — a stale
+   * survivor from an earlier cycle must be judged, not overlooked. */
+  #latestDemoArtifact(ticketId: number): Artifact | undefined {
+    for (const run of this.store.listRuns(ticketId)) {
+      const demos = this.store
+        .listArtifacts(run.id)
+        .filter((artifact) => artifact.kind === DEMO_ARTIFACT_KIND);
+      if (demos.length > 0) return demos.at(-1);
+    }
+    return undefined;
   }
 
   /**

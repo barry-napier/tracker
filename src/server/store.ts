@@ -6,6 +6,7 @@ import type { CheckRegistration } from "./checks.ts";
 import type {
   AcceptanceCriterion,
   AcCheck,
+  Actor,
   Artifact,
   AuditEvent,
   FollowUpSeed,
@@ -974,9 +975,9 @@ export class Store {
 
   /**
    * One preview transition lands (ticket 34): the per-Ticket row (created at
-   * first use) and its audit event commit together. Actor is human — the
-   * preview exists for the Manual Walkthrough, and every transition traces
-   * back to the reviewer's session (start, verdict stop, app quit).
+   * first use) and its audit event commit together. Actor says who drove the
+   * transition: the reviewer's wizard session (the default) or the
+   * orchestrator's demo phase (ticket 35).
    */
   upsertPreview(
     ticketId: number,
@@ -984,6 +985,7 @@ export class Store {
       status: PreviewStatus;
       port?: number | null;
       logPath?: string | null;
+      actor?: Actor;
       detail?: Record<string, unknown>;
     },
   ): PreviewRecord {
@@ -1013,7 +1015,7 @@ export class Store {
       const audit = this.insertAudit({
         projectId: ticket.projectId,
         ticketId,
-        actor: "human",
+        actor: input.actor ?? "human",
         type: `preview.${input.status === "starting" ? "started" : input.status}`,
         detail: { port: record.port, ...input.detail },
       });

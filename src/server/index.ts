@@ -3,6 +3,7 @@ import { ArtifactStore } from "./artifacts.ts";
 import { Bouncer } from "./bounce.ts";
 import { EventBus } from "./bus.ts";
 import { openDatabase } from "./db.ts";
+import { DemoRecorder } from "./demos.ts";
 import { createApp } from "./app.ts";
 import { WorkflowEngine } from "./engine.ts";
 import { GateBattery } from "./gates.ts";
@@ -61,6 +62,7 @@ export async function startServer(options: {
     new WorktreeManager(options.dataDir),
     engine,
     artifacts,
+    new DemoRecorder(options.dataDir, store, previews, artifacts),
     new GateBattery(store, github),
     bouncer,
     options.workers ?? 3,

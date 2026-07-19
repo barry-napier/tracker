@@ -16,6 +16,7 @@ import {
   absenceLabel,
   badgeRow,
   demoTranscriptArtifact,
+  demoVideoArtifact,
   docsArtifacts,
   DOGFOOD_REPORT_NAME,
   failVerdictProblems,
@@ -470,6 +471,7 @@ function PreviewGate({
   }
   const status = view.record?.status ?? "stopped";
   const transcript = view.kind === "api" ? demoTranscriptArtifact(run) : null;
+  const video = view.kind === "ui" ? demoVideoArtifact(run) : null;
   return (
     <div className="previewpanel">
       <div className="previewrow">
@@ -488,6 +490,25 @@ function PreviewGate({
           {status === "ready" || status === "starting" ? "Restart" : "Start"}
         </button>
       </div>
+      {view.kind === "ui" &&
+        (video ? (
+          // The run's recorded demo (ticket 35), played straight from the
+          // artifact blob — evidence of the change working, beside the live
+          // preview link.
+          <video
+            controls
+            src={`${apiBase}/api/artifacts/${video.id}/content`}
+            style={{ maxWidth: "100%" }}
+          />
+        ) : (
+          <p className="dim">
+            {absenceLabel(
+              ticket,
+              "No demo video recorded",
+              "No demo video recorded for this run",
+            )}
+          </p>
+        ))}
       {view.kind === "api" && (
         <>
           {view.url && (
