@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ReviewPayload } from "../server/reviews.ts";
 import type {
   AcStatus,
@@ -7,7 +7,7 @@ import type {
   RunWithPhases,
   TicketWithAcs,
 } from "../server/types.ts";
-import { apiBase, apiGet } from "./api.ts";
+import { ApiError, apiBase, apiGet, apiPost } from "./api.ts";
 import { GATE_MARKS } from "./format.ts";
 import { Markdown } from "./Markdown.tsx";
 import {
@@ -15,46 +15,78 @@ import {
   badgeRow,
   docsArtifacts,
   DOGFOOD_REPORT_NAME,
+  failVerdictProblems,
   findArtifact,
+  MARKABLE_STEPS,
+  mergeProblems,
   missingArtifactLabel,
   RECAP_NAME,
+  verdictSteps,
   walkthroughItems,
   WIZARD_STEPS,
+  type ReviewMarks,
+  type StepMark,
 } from "./reviewModel.ts";
 
 /**
- * The six-step review wizard as a centered modal (ticket 12, Variant A),
- * read-only in this slice — verdict actions land with slice 33. Chrome (meta
- * header, badge row, stale banner) renders live from ticket/run/gate data;
- * only the step bodies show agent-authored artifacts, and those come from
- * the blob store of the latest Run.
+ * The six-step review wizard as a centered modal (ticket 12, Variant A) —
+ * the veto point since ticket 33. Chrome (meta header, badge row, stale
+ * banner) renders live from ticket/run/gate data; only the step bodies show
+ * agent-authored artifacts. The reviewer marks each step pass/fail/skip (a
+ * fail demands a written note), settles ACs in the Manual Walkthrough, and
+ * ends at the Final Verdict: merge to Done, or bounce with the notes.
  */
 export function ReviewWizard({ ticket, onClose }: { ticket: TicketWithAcs; onClose: () => void }) {
   const [payload, setPayload] = useState<ReviewPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState(0);
+  const [marks, setMarks] = useState<ReviewMarks>({});
+  const [drift, setDrift] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  // Refetch whenever the board's live ticket row moves (waives, gate
-  // results, bounces all bump updatedAt) so chrome stays drawn from the DB.
-  useEffect(() => {
-    let disposed = false;
+  const refetch = useCallback(() => {
     apiGet<ReviewPayload>(`/api/tickets/${ticket.id}/review`)
       .then((data) => {
-        if (disposed) return;
         setPayload(data);
         setError(null);
       })
-      .catch((e: unknown) => {
-        if (!disposed) setError(e instanceof Error ? e.message : String(e));
-      });
-    return () => {
-      disposed = true;
-    };
-  }, [ticket.id, ticket.updatedAt]);
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  }, [ticket.id]);
+
+  // Refetch whenever the board's live ticket row moves (waives, gate
+  // results, bounces all bump updatedAt) so chrome stays drawn from the DB.
+  useEffect(refetch, [refetch, ticket.updatedAt]);
+
+  const stepKey = WIZARD_STEPS[step]!.key;
+  // The Final Verdict re-runs the cheap freshness subset before offering
+  // merge (ticket 06 §7): arriving on the step refetches PR mergeability and
+  // the branch tip live; the server re-checks again inside the verdict.
+  useEffect(() => {
+    if (stepKey === "verdict") refetch();
+  }, [stepKey, refetch]);
 
   const run = payload?.run ?? null;
   const badges = badgeRow(run);
-  const stepKey = WIZARD_STEPS[step]!.key;
+
+  const submitVerdict = async (body: Record<string, unknown>) => {
+    setBusy(true);
+    setActionError(null);
+    try {
+      await apiPost(`/api/tickets/${ticket.id}/verdict`, body);
+      onClose();
+    } catch (e: unknown) {
+      // Drift is a fork in the road, not a failure: offer the two honest
+      // ways out. Anything else surfaces as the server said it.
+      if (e instanceof ApiError && Array.isArray(e.body.drift)) {
+        setDrift(e.body.drift as string[]);
+      } else {
+        setActionError(e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <>
@@ -108,6 +140,11 @@ export function ReviewWizard({ ticket, onClose }: { ticket: TicketWithAcs; onClo
               onClick={() => setStep(index)}
             >
               <span className="stepnum">{index + 1}</span> {label}
+              {marks[key] && (
+                <span className={`stepmarkchip mark-${marks[key].status}`}>
+                  {GATE_MARKS[marks[key].status]}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -118,9 +155,31 @@ export function ReviewWizard({ ticket, onClose }: { ticket: TicketWithAcs; onClo
           {payload && stepKey === "dogfood" && <DogfoodStep ticket={ticket} run={run} />}
           {payload && stepKey === "pr" && <PrStep ticket={ticket} payload={payload} />}
           {payload && stepKey === "docs" && <DocsStep ticket={ticket} run={run} />}
-          {payload && stepKey === "walkthrough" && <WalkthroughStep ticket={ticket} />}
-          {payload && stepKey === "verdict" && <VerdictStep ticket={ticket} payload={payload} />}
+          {payload && stepKey === "walkthrough" && (
+            <WalkthroughStep ticket={ticket} onSettled={refetch} />
+          )}
+          {payload && stepKey === "verdict" && (
+            <VerdictStep
+              ticket={ticket}
+              payload={payload}
+              marks={marks}
+              busy={busy}
+              drift={drift}
+              actionError={actionError}
+              onMerge={() => submitVerdict({ outcome: "pass" })}
+              onForceMerge={() => submitVerdict({ outcome: "pass", force: true })}
+              onReverify={() => submitVerdict({ outcome: "reverify" })}
+              onFailReview={() => submitVerdict({ outcome: "fail", steps: verdictSteps(marks) })}
+            />
+          )}
         </div>
+
+        {stepKey !== "verdict" && (
+          <MarkBar
+            mark={marks[stepKey]}
+            onChange={(mark) => setMarks({ ...marks, [stepKey]: mark })}
+          />
+        )}
 
         <footer className="wizfoot">
           <button onClick={() => setStep(step - 1)} disabled={step === 0}>
@@ -135,6 +194,45 @@ export function ReviewWizard({ ticket, onClose }: { ticket: TicketWithAcs; onClo
         </footer>
       </div>
     </>
+  );
+}
+
+const MARK_LABELS: Record<GateStatus, string> = { pass: "Pass", fail: "Fail", skip: "Skip" };
+
+/**
+ * The reviewer's mark for the current step. Failing opens the note field —
+ * the note becomes a Follow-up Criterion verbatim, so it is required, and
+ * the Final Verdict refuses a fail verdict until it is written.
+ */
+function MarkBar({
+  mark,
+  onChange,
+}: {
+  mark: StepMark | undefined;
+  onChange: (mark: StepMark) => void;
+}) {
+  return (
+    <div className="markbar">
+      <span className="dim">Mark this step:</span>
+      {(["pass", "fail", "skip"] as const).map((status) => (
+        <button
+          key={status}
+          className={`markbtn mark-${status}${mark?.status === status ? " active" : ""}`}
+          onClick={() => onChange({ status, note: mark?.note ?? "" })}
+        >
+          {GATE_MARKS[status]} {MARK_LABELS[status]}
+        </button>
+      ))}
+      {mark?.status === "fail" && (
+        <input
+          className="marknote"
+          type="text"
+          value={mark.note}
+          placeholder="Why this fails — becomes a follow-up criterion verbatim (required)"
+          onChange={(event) => onChange({ status: "fail", note: event.target.value })}
+        />
+      )}
+    </div>
   );
 }
 
@@ -273,13 +371,34 @@ function DocPreview({ artifact }: { artifact: Artifact }) {
   return <pre className="docraw">{text}</pre>;
 }
 
-function WalkthroughStep({ ticket }: { ticket: TicketWithAcs }) {
+/** One AC action against the store; errors surface, success refreshes chrome. */
+function settleAc(route: string, body: unknown, onSettled: () => void): void {
+  apiPost(route, body)
+    .then(onSettled)
+    .catch((error: unknown) => {
+      window.alert(error instanceof Error ? error.message : String(error));
+    });
+}
+
+function WalkthroughStep({
+  ticket,
+  onSettled,
+}: {
+  ticket: TicketWithAcs;
+  onSettled: () => void;
+}) {
   const items = walkthroughItems(ticket);
+  const waive = (criterionId: number, text: string) => {
+    const reason = window.prompt(`Waive "${text}" — reason (required):`);
+    if (reason === null || reason.trim() === "") return;
+    settleAc(`/api/acs/${criterionId}/waive`, { reason: reason.trim() }, onSettled);
+  };
   return (
     <div className="walkthrough">
       <p className="dim">
-        No preview configured — preview environments arrive in a later slice, so the walkthrough is
-        a read-only checklist for now.
+        No preview configured — preview environments arrive in a later slice. Walk the change by
+        hand, then settle each criterion: verify and fail land with human provenance; a failed AC
+        resets to pending on the next run.
       </p>
       {items.length === 0 && <p className="dim">No acceptance criteria filed.</p>}
       <ul className="aclist">
@@ -292,6 +411,26 @@ function WalkthroughStep({ ticket }: { ticket: TicketWithAcs }) {
               {criterion.provenance && ` · ${criterion.provenance}`}
               {humanReason && ` · routed to human: ${humanReason}`}
             </em>
+            <span className="acactions">
+              <button
+                disabled={criterion.status === "verified" && criterion.provenance === "human"}
+                onClick={() => settleAc(`/api/acs/${criterion.id}/verify`, {}, onSettled)}
+              >
+                ✓ verify
+              </button>
+              <button
+                disabled={criterion.status === "failed" && criterion.provenance === "human"}
+                onClick={() => settleAc(`/api/acs/${criterion.id}/fail`, {}, onSettled)}
+              >
+                ✗ fail
+              </button>
+              <button
+                disabled={criterion.status === "waived"}
+                onClick={() => waive(criterion.id, criterion.text)}
+              >
+                waive…
+              </button>
+            </span>
           </li>
         ))}
       </ul>
@@ -299,11 +438,35 @@ function WalkthroughStep({ ticket }: { ticket: TicketWithAcs }) {
   );
 }
 
-function VerdictStep({ ticket, payload }: { ticket: TicketWithAcs; payload: ReviewPayload }) {
+function VerdictStep({
+  ticket,
+  payload,
+  marks,
+  busy,
+  drift,
+  actionError,
+  onMerge,
+  onForceMerge,
+  onReverify,
+  onFailReview,
+}: {
+  ticket: TicketWithAcs;
+  payload: ReviewPayload;
+  marks: ReviewMarks;
+  busy: boolean;
+  drift: string[] | null;
+  actionError: string | null;
+  onMerge: () => void;
+  onForceMerge: () => void;
+  onReverify: () => void;
+  onFailReview: () => void;
+}) {
   const badges = badgeRow(payload.run);
   const count = (status: GateStatus) => badges.filter((badge) => badge.status === status).length;
   const acs = ticket.acceptanceCriteria;
   const acCount = (status: AcStatus) => acs.filter((ac) => ac.status === status).length;
+  const blockers = mergeProblems(ticket, marks);
+  const failProblems = failVerdictProblems(marks);
   return (
     <div className="verdictstep">
       <ul className="verdictsummary">
@@ -323,9 +486,74 @@ function VerdictStep({ ticket, payload }: { ticket: TicketWithAcs; payload: Revi
         </li>
         <li>Evidence freshness: {payload.freshness}</li>
       </ul>
-      <p className="dim">
-        This wizard is read-only — pass/fail verdicts (merge or bounce) land with the next slice.
-      </p>
+
+      <h4>Step marks</h4>
+      <ul className="marksummary">
+        {MARKABLE_STEPS.map(({ key, label }) => {
+          const mark = marks[key];
+          return (
+            <li key={key} className={mark ? `mark-${mark.status}` : "dim"}>
+              {mark ? GATE_MARKS[mark.status] : "·"} {label}
+              {mark?.status === "fail" && mark.note.trim() !== "" && (
+                <span className="dim"> — {mark.note}</span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+
+      {blockers.length > 0 && (
+        <div className="verdictblockers">
+          <h4>Before a merge</h4>
+          <ul>
+            {blockers.map((blocker) => (
+              <li key={blocker}>{blocker}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {drift !== null && (
+        <div className="driftpanel">
+          <h4>The evidence drifted since this review</h4>
+          <ul>
+            {drift.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+          <div className="verdictactions">
+            <button className="danger" disabled={busy} onClick={onReverify}>
+              Re-verify — bounce for a fresh run
+            </button>
+            <button className="warn" disabled={busy} onClick={onForceMerge}>
+              Force merge — waive the drift (audited)
+            </button>
+          </div>
+        </div>
+      )}
+
+      {actionError && <p className="error">{actionError}</p>}
+
+      {drift === null && (
+        <div className="verdictactions">
+          <button
+            className="danger"
+            disabled={busy || failProblems.length > 0}
+            title={failProblems.join("; ")}
+            onClick={onFailReview}
+          >
+            Fail review — bounce with notes
+          </button>
+          <button
+            className="ok"
+            disabled={busy || blockers.length > 0}
+            title={blockers.join("; ")}
+            onClick={onMerge}
+          >
+            Merge &amp; Done
+          </button>
+        </div>
+      )}
     </div>
   );
 }

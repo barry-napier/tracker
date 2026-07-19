@@ -93,6 +93,61 @@ export function badgeRow(run: RunWithPhases | null): GateBadge[] {
   return badges;
 }
 
+/** One wizard step's mark as the reviewer works (ticket 33), note included. */
+export interface StepMark {
+  status: GateStatus;
+  note: string;
+}
+
+/** The reviewer's marks so far, keyed by step; unmarked steps are absent. */
+export type ReviewMarks = Partial<Record<WizardStepKey, StepMark>>;
+
+/** The steps a reviewer marks — every step except the verdict itself. */
+export const MARKABLE_STEPS = WIZARD_STEPS.filter(({ key }) => key !== "verdict");
+
+/** The fail verdict's payload: every mark as made, notes riding the fails. */
+export function verdictSteps(
+  marks: ReviewMarks,
+): Array<{ step: WizardStepKey; status: GateStatus; note?: string }> {
+  return MARKABLE_STEPS.flatMap(({ key }) => {
+    const mark = marks[key];
+    if (!mark) return [];
+    return [
+      mark.status === "fail"
+        ? { step: key, status: mark.status, note: mark.note }
+        : { step: key, status: mark.status },
+    ];
+  });
+}
+
+/**
+ * Why "Fail review" is not yet possible; empty = enabled. Fail without a
+ * note is impossible — the note becomes a Follow-up Criterion verbatim.
+ */
+export function failVerdictProblems(marks: ReviewMarks): string[] {
+  const failed = MARKABLE_STEPS.filter(({ key }) => marks[key]?.status === "fail");
+  if (failed.length === 0) return ["no step is marked as failed"];
+  return failed
+    .filter(({ key }) => marks[key]!.note.trim() === "")
+    .map(({ label }) => `"${label}" is failed without a note`);
+}
+
+/** ACs Done cannot swallow: neither verified nor waived — visible before merge. */
+export function unmetAcs(ticket: TicketWithAcs): AcceptanceCriterion[] {
+  return ticket.acceptanceCriteria.filter(
+    (ac) => ac.status !== "verified" && ac.status !== "waived",
+  );
+}
+
+/** Why "Merge & Done" is not yet possible; empty = enabled. */
+export function mergeProblems(ticket: TicketWithAcs, marks: ReviewMarks): string[] {
+  const problems = unmetAcs(ticket).map((ac) => `AC-${ac.id} is ${ac.status}`);
+  for (const { key, label } of MARKABLE_STEPS) {
+    if (marks[key]?.status === "fail") problems.push(`step "${label}" is marked as failed`);
+  }
+  return problems;
+}
+
 export interface WalkthroughItem {
   criterion: AcceptanceCriterion;
   /** The plan manifest's reason when this AC is routed to a human. */

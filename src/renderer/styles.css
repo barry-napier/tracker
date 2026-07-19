@@ -5,6 +5,25 @@
  * :root default; dark overrides via [data-color-scheme="dark"] set by theme.ts.
  */
 
+/* Inter variable, latin subset, self-hosted (inter-ui 4.1.1). Bundled so the
+   look doesn't depend on a locally installed copy; swap keeps first paint on
+   the system stack instead of blocking. */
+@font-face {
+  font-family: "Inter";
+  src: url("./fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("./fonts/InterVariable-Italic.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+
 :root {
   /* -- primitives: neutral ramp -- */
   --grey-50: #ffffff;
@@ -96,9 +115,8 @@
   --info-fg: var(--blue-800);
   --info-border: var(--blue-300);
   --shadow-raised:
-    0 2px 4px rgba(0, 0, 0, 0.04),
-    0 1px 2px -1px rgba(0, 0, 0, 0.08),
-    0 0 0 0.5px rgba(0, 0, 0, 0.12);
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 0 0 0.5px rgba(0, 0, 0, 0.1);
   --shadow-floating:
     0 8px 16px rgba(0, 0, 0, 0.04),
     0 4px 8px rgba(0, 0, 0, 0.08),
@@ -227,16 +245,17 @@ body {
   flex: 1;
   display: grid;
   grid-template-columns: repeat(6, minmax(180px, 1fr));
-  gap: 0.6rem;
-  padding: 0.8rem;
+  gap: 0.75rem;
+  padding: 0.9rem;
   overflow-x: auto;
   align-items: start;
 }
 
 .column {
-  background: var(--surface-sunken);
+  background: transparent;
+  border: 1px solid var(--border-muted);
   border-radius: var(--radius-lg);
-  padding: 0.6rem;
+  padding: 0.7rem;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -258,7 +277,7 @@ body {
   border: none;
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-raised);
-  padding: 0.55rem 0.65rem;
+  padding: 0.6rem 0.7rem;
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -1129,4 +1148,380 @@ body {
 
 .verdictstep .dim {
   margin: 0;
+}
+
+/* -- Home: the entry surface (ticket A) — centered picker, opencode-style -- */
+
+.home {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+  padding: 2rem;
+}
+
+.home .wordmark {
+  font-size: 5rem;
+  margin-bottom: 0;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: var(--text-faint);
+  opacity: 0.5;
+  user-select: none;
+}
+
+.home-picker {
+  width: min(480px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.home-search {
+  background: var(--surface-input);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  color: var(--text-base);
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+}
+
+.home-search:focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
+.home-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.home-list > li > button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-base);
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.home-list > li > button:hover:not(:disabled) {
+  background: var(--overlay-hover);
+}
+
+.home-list > li > button:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.home-list .avatar {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  background: var(--contrast-bg);
+  color: var(--contrast-fg);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.home-repo {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-list .pill {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--info-fg);
+  background: var(--info-bg);
+  border: 1px solid var(--info-border);
+  border-radius: var(--radius-full);
+  padding: 0.05rem 0.5rem;
+}
+
+.home-empty {
+  padding: 0.45rem 0.6rem;
+}
+
+.home-link {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-accent);
+  font: inherit;
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+}
+
+.home-link:hover {
+  background: var(--overlay-hover);
+  color: var(--text-accent-hover);
+}
+
+.home-parent {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.2rem 0.6rem 0.5rem 2.4rem;
+}
+
+.home-parent input {
+  flex: 1;
+  background: var(--surface-input);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  color: var(--text-base);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0.3rem 0.5rem;
+}
+
+.home-parent button {
+  background: var(--contrast-bg);
+  color: var(--contrast-fg);
+  border: none;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+}
+
+.home-parent button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* The topbar brand doubles as the way back to Home. */
+.brand {
+  background: none;
+  border: none;
+  color: var(--text-base);
+  font: inherit;
+  font-weight: 700;
+  padding: 0;
+  cursor: pointer;
+}
+
+.brand:hover {
+  color: var(--text-accent);
+}
+
+/* -- wizard verdicts: step marks, walkthrough actions, final verdict (ticket 33) -- */
+
+.markbar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 1.2rem;
+  border-top: 1px solid var(--border-muted);
+  font-size: var(--fs-sm);
+}
+
+.markbtn,
+.acactions button {
+  background: var(--surface-raised);
+  border: none;
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-button);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0.15rem 0.6rem;
+  cursor: pointer;
+}
+
+.markbtn:hover:not(:disabled),
+.acactions button:hover:not(:disabled) {
+  background: var(--surface-raised-hover);
+  color: var(--text-base);
+}
+
+/* The walkthrough's AC rows grow a third column: the settle actions. */
+.walkthrough .aclist li {
+  grid-template-columns: auto 1fr auto;
+}
+
+.acactions {
+  display: flex;
+  gap: 0.3rem;
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+
+.acactions button:disabled {
+  color: var(--text-faint);
+  box-shadow: 0 0 0 0.5px var(--border-base);
+  cursor: default;
+}
+
+.markbtn.active.mark-pass {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  box-shadow: 0 0 0 1px var(--ok-border);
+}
+
+.markbtn.active.mark-fail {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  box-shadow: 0 0 0 1px var(--danger-border);
+}
+
+.markbtn.active.mark-skip {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  box-shadow: 0 0 0 1px var(--warn-border);
+}
+
+.marknote {
+  flex: 1;
+  background: var(--surface-sunken);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-sm);
+  color: var(--text-base);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0.25rem 0.5rem;
+}
+
+.marknote:focus {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--border-focus) 25%, transparent);
+}
+
+.stepmarkchip {
+  margin-left: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.stepmarkchip.mark-pass,
+.marksummary .mark-pass {
+  color: var(--ok-fg);
+}
+
+.stepmarkchip.mark-fail,
+.marksummary .mark-fail {
+  color: var(--danger-fg);
+}
+
+.stepmarkchip.mark-skip,
+.marksummary .mark-skip {
+  color: var(--warn-fg);
+}
+
+.verdictstep h4 {
+  margin: 0.6rem 0 0.2rem;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.marksummary,
+.verdictblockers ul,
+.driftpanel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.verdictblockers {
+  border: 1px solid var(--warn-border);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.7rem;
+  margin-top: 0.6rem;
+}
+
+.verdictblockers h4 {
+  margin-top: 0;
+  color: inherit;
+}
+
+.driftpanel {
+  border: 1px solid var(--danger-border);
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.7rem;
+  margin-top: 0.6rem;
+}
+
+.driftpanel h4 {
+  margin-top: 0;
+  color: inherit;
+}
+
+.verdictactions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.8rem;
+}
+
+.verdictactions button {
+  background: var(--surface-raised);
+  border: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-button);
+  color: var(--text-base);
+  font: inherit;
+  padding: 0.35rem 0.8rem;
+  cursor: pointer;
+}
+
+.verdictactions button:hover:not(:disabled) {
+  background: var(--surface-raised-hover);
+}
+
+.verdictactions button:disabled {
+  color: var(--text-faint);
+  box-shadow: 0 0 0 0.5px var(--border-base);
+  cursor: default;
+}
+
+.verdictactions button.ok:not(:disabled) {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  box-shadow: 0 0 0 1px var(--ok-border);
+}
+
+.verdictactions button.danger:not(:disabled) {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  box-shadow: 0 0 0 1px var(--danger-border);
+}
+
+.verdictactions button.warn:not(:disabled) {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  box-shadow: 0 0 0 1px var(--warn-border);
 }

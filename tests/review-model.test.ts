@@ -4,10 +4,16 @@ import {
   badgeRow,
   docsArtifacts,
   DOGFOOD_REPORT_NAME,
+  failVerdictProblems,
   findArtifact,
+  MARKABLE_STEPS,
+  mergeProblems,
   missingArtifactLabel,
+  unmetAcs,
+  verdictSteps,
   walkthroughItems,
   WIZARD_STEPS,
+  type ReviewMarks,
 } from "../src/renderer/reviewModel.ts";
 import type {
   AcceptanceCriterion,
@@ -128,6 +134,65 @@ describe("walkthrough checklist", () => {
       { criterion: ticket.acceptanceCriteria[0], humanReason: null },
       { criterion: ticket.acceptanceCriteria[1], humanReason: "needs eyes" },
     ]);
+  });
+});
+
+describe("verdict marks (ticket 33)", () => {
+  test("every step except the verdict itself is markable", () => {
+    expect(MARKABLE_STEPS.map((s) => s.key)).toEqual([
+      "recap",
+      "dogfood",
+      "pr",
+      "docs",
+      "walkthrough",
+    ]);
+  });
+
+  test("fail without a note is impossible; a noted fail enables the verdict", () => {
+    expect(failVerdictProblems({})).toEqual(["no step is marked as failed"]);
+    expect(failVerdictProblems({ recap: { status: "pass", note: "" } })).toEqual([
+      "no step is marked as failed",
+    ]);
+    expect(failVerdictProblems({ recap: { status: "fail", note: "  " } })).toEqual([
+      '"Visual Recap" is failed without a note',
+    ]);
+    expect(failVerdictProblems({ recap: { status: "fail", note: "hides the error path" } })).toEqual(
+      [],
+    );
+  });
+
+  test("the payload keeps marks in step order and only fails carry notes", () => {
+    const marks: ReviewMarks = {
+      walkthrough: { status: "skip", note: "stray draft note" },
+      recap: { status: "fail", note: "hides the error path" },
+      dogfood: { status: "pass", note: "" },
+    };
+    expect(verdictSteps(marks)).toEqual([
+      { step: "recap", status: "fail", note: "hides the error path" },
+      { step: "dogfood", status: "pass" },
+      { step: "walkthrough", status: "skip" },
+    ]);
+  });
+
+  test("unmet ACs and failed marks both block the merge, visibly", () => {
+    const ticket = {
+      acceptanceCriteria: [
+        criterion(1, { status: "verified" }),
+        criterion(2, { status: "waived" }),
+        criterion(3, { status: "pending" }),
+        criterion(4, { status: "failed" }),
+      ],
+    } as TicketWithAcs;
+    expect(unmetAcs(ticket).map((ac) => ac.id)).toEqual([3, 4]);
+    expect(mergeProblems(ticket, { pr: { status: "fail", note: "stale diff" } })).toEqual([
+      "AC-3 is pending",
+      "AC-4 is failed",
+      'step "Pull Request" is marked as failed',
+    ]);
+    const settled = {
+      acceptanceCriteria: [criterion(1, { status: "verified" })],
+    } as TicketWithAcs;
+    expect(mergeProblems(settled, { pr: { status: "pass", note: "" } })).toEqual([]);
   });
 });
 

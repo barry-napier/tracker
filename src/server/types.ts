@@ -184,6 +184,20 @@ export interface FollowUpSeed {
   text: string;
 }
 
+/**
+ * One wizard step's mark as submitted with a review verdict (ticket 33).
+ * A "fail" must carry the reviewer's written note — the note becomes a
+ * Follow-up Criterion verbatim, so a fail without one is refused.
+ */
+export interface ReviewStepMark {
+  step: string;
+  status: "pass" | "fail" | "skip";
+  note?: string;
+}
+
+/** Why a Human Review ticket bounced: the review failed, or drifted evidence needs re-earning. */
+export type ReviewBounceReason = "review-fail" | "stale-evidence";
+
 export interface RunWithPhases extends Run {
   phases: PhaseExecution[];
   artifacts: Artifact[];

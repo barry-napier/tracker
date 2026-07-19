@@ -16,6 +16,8 @@ import type {
   Project,
   ProviderName,
   Repo,
+  ReviewBounceReason,
+  ReviewStepMark,
   Run,
   RunWithPhases,
   Ticket,
@@ -82,8 +84,21 @@ export class Store {
     return row === undefined ? undefined : projectFromRow(row);
   }
 
+  /**
+   * Ordered for Home's recents: latest board activity first, read straight
+   * off the Audit Trail — "opened" is not a recorded event (see CONTEXT.md).
+   * Event ids order the same as time and never tie.
+   */
   listProjects(): Project[] {
-    return this.db.prepare("SELECT * FROM projects ORDER BY id").all().map(projectFromRow);
+    return this.db
+      .prepare(
+        `SELECT p.* FROM projects p
+         LEFT JOIN (SELECT project_id, MAX(id) AS last_event FROM events GROUP BY project_id) e
+           ON e.project_id = p.id
+         ORDER BY COALESCE(e.last_event, 0) DESC, p.id DESC`,
+      )
+      .all()
+      .map(projectFromRow);
   }
 
   createRepo(input: {
@@ -767,7 +782,13 @@ export class Store {
    * Ticket to Done. State re-checked here so a racing mutation can't Done a
    * ticket that left Human Review mid-merge.
    */
-  mergeTicket(ticketId: number): TicketWithAcs {
+  mergeTicket(
+    ticketId: number,
+    opts: {
+      /** Drift the human force-merged past (ticket 33) — the waive-equivalent, audited. */
+      freshnessWaived?: string[];
+    } = {},
+  ): TicketWithAcs {
     const existing = this.getTicket(ticketId);
     if (!existing) throw new NotFoundError(`ticket ${ticketId} not found`);
     if (existing.state !== "human_review") {
@@ -778,12 +799,14 @@ export class Store {
         .prepare("UPDATE tickets SET state = 'done', updated_at = ? WHERE id = ?")
         .run(nowIso(), ticketId);
       const ticket = this.getTicket(ticketId)!;
+      const detail: Record<string, unknown> = { outcome: "pass", prNumber: ticket.prNumber };
+      if (opts.freshnessWaived !== undefined) detail.freshnessWaived = opts.freshnessWaived;
       const verdictAudit = this.insertAudit({
         projectId: ticket.projectId,
         ticketId: ticket.id,
         actor: "human",
         type: "verdict.recorded",
-        detail: { outcome: "pass", prNumber: ticket.prNumber },
+        detail,
       });
       const mergedAudit = this.insertAudit({
         projectId: ticket.projectId,
@@ -798,6 +821,113 @@ export class Store {
     this.bus.emit("audit.appended", mergedAudit);
     this.bus.emit("ticket.updated", ticket);
     return ticket;
+  }
+
+  /**
+   * A human settles an AC from the Manual Walkthrough (ticket 33): verified
+   * or failed, provenance human. Like waiveAc, legal in any state — the
+   * walkthrough happens at Human Review, but a human observation is never
+   * illegal. Any earlier waive reason is cleared: one status, one story.
+   */
+  settleAcByHuman(acId: number, status: "verified" | "failed"): AcceptanceCriterion {
+    const row = this.db.prepare("SELECT * FROM acceptance_criteria WHERE id = ?").get(acId);
+    if (!row) throw new NotFoundError(`acceptance criterion ${acId} not found`);
+    const { ac, ticket, audit } = withTransaction(this.db, () => {
+      this.db
+        .prepare(
+          "UPDATE acceptance_criteria SET status = ?, provenance = 'human', waive_reason = NULL, updated_at = ? WHERE id = ?",
+        )
+        .run(status, nowIso(), acId);
+      const ticket = this.getTicket(Number(row.ticket_id))!;
+      const ac = ticket.acceptanceCriteria.find((candidate) => candidate.id === acId)!;
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "human",
+        type: status === "verified" ? "ac.verified" : "ac.failed",
+        detail: { acId },
+      });
+      return { ac, ticket, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    this.bus.emit("ac.updated", ac);
+    this.bus.emit("ticket.updated", ticket);
+    return ac;
+  }
+
+  /**
+   * The reviewer's bounce (ticket 33): a failed review — or a drift
+   * re-verify — sends a Human Review ticket back to In Progress through the
+   * slice-30 machinery. Each failed step's note becomes a Follow-up
+   * Criterion verbatim (origin review-fail); failed ACs need no new rows —
+   * they reset to pending on the next claim like any other failure. Never
+   * parks: the cap stops agents looping, and this bounce is a human
+   * explicitly buying another cycle.
+   */
+  reviewBounceTicket(
+    runId: number,
+    input: {
+      reason: ReviewBounceReason;
+      /** The marks as submitted; audited whole so the review is reconstructable. */
+      steps: ReviewStepMark[];
+      /** Verbatim reviewer notes about to become Follow-up Criteria. */
+      followUps: string[];
+      treeState: TreeState | null;
+      /** What the Final Verdict freshness subset found, for stale-evidence bounces. */
+      driftReasons?: string[];
+    },
+  ): { ticket: TicketWithAcs; followUpAcIds: number[] } {
+    const run = this.getRun(runId);
+    if (!run) throw new NotFoundError(`run ${runId} not found`);
+    const existing = this.getTicket(run.ticketId)!;
+    if (existing.state !== "human_review") {
+      throw new StateError(`ticket ${existing.displayKey} is ${existing.state}, not human_review`);
+    }
+    const bounceCount = existing.bounceCount + 1;
+    const { ticket, followUpAcIds, audit } = withTransaction(this.db, () => {
+      const now = nowIso();
+      const positionRow = this.db
+        .prepare(
+          "SELECT COALESCE(MAX(position), -1) + 1 AS next FROM acceptance_criteria WHERE ticket_id = ?",
+        )
+        .get(existing.id)!;
+      const insert = this.db.prepare(
+        "INSERT INTO acceptance_criteria (ticket_id, text, position, origin, created_at, updated_at) VALUES (?, ?, ?, 'review-fail', ?, ?)",
+      );
+      const followUpAcIds = input.followUps.map((text, offset) => {
+        const inserted = insert.run(existing.id, text, Number(positionRow.next) + offset, now, now);
+        return Number(inserted.lastInsertRowid);
+      });
+      this.db
+        .prepare(
+          "UPDATE tickets SET state = 'in_progress', bounce_count = ?, arrived_by_cap = 0, updated_at = ? WHERE id = ?",
+        )
+        .run(bounceCount, now, existing.id);
+      const ticket = this.getTicket(existing.id)!;
+      const detail: Record<string, unknown> = {
+        runId,
+        bounceCount,
+        reason: input.reason,
+        steps: input.steps,
+        followUpAcIds,
+        treeState: input.treeState,
+      };
+      if (input.driftReasons !== undefined) detail.driftReasons = input.driftReasons;
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "human",
+        type: "ticket.bounced",
+        detail,
+      });
+      return { ticket, followUpAcIds, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    this.bus.emit("ticket.updated", ticket);
+    for (const ac of ticket.acceptanceCriteria) {
+      if (followUpAcIds.includes(ac.id)) this.bus.emit("ac.updated", ac);
+    }
+    return { ticket, followUpAcIds };
   }
 
   /**
