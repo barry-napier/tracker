@@ -4,10 +4,12 @@
 
 **Blocked by:** 30 — Bounce machinery.
 
-**Status:** ready-for-agent
+**Status:** done (2026-07-19)
 
-- [ ] Wizard opens from a Human Review card; steps navigable; latest Run is the one read
-- [ ] Recap iframe sandboxed exactly per [Recap doc and dogfood report formats](11-recap-dogfood-formats.md); external-resource-free fixture renders, hostile fixture stays contained
-- [ ] Meta/badges drawn from DB + gate results live; stale banner only when provably stale (artifact SHA prefix vs branch tip; unknowable → no banner)
-- [ ] Steps degrade gracefully: park-by-cap arrival shows an explicit "missing — arrived via bounce cap" placeholder per absent artifact, never a blank panel
-- [ ] Human-routed ACs from the plan manifest appear in the Walkthrough checklist
+- [x] Wizard opens from a Human Review card; steps navigable; latest Run is the one read
+- [x] Recap iframe sandboxed exactly per [Recap doc and dogfood report formats](11-recap-dogfood-formats.md); external-resource-free fixture renders, hostile fixture stays contained
+- [x] Meta/badges drawn from DB + gate results live; stale banner only when provably stale (artifact SHA prefix vs branch tip; unknowable → no banner)
+- [x] Steps degrade gracefully: park-by-cap arrival shows an explicit "missing — arrived via bounce cap" placeholder per absent artifact, never a blank panel
+- [x] Human-routed ACs from the plan manifest appear in the Walkthrough checklist
+
+**Resolution notes (2026-07-19):** Two new read endpoints back the wizard. `GET /api/tickets/:id/review` aggregates the latest Run (with artifacts + gate results), the Ticket's PR with live mergeability through the GitHubPort, and evidence **Freshness** (`fresh|stale|unknown`, Mergeability-style union) from a prefix-SHA compare of the newest artifact's worktree HEAD vs the remote branch tip — the port grew `branchTip` for this; every GitHub answer degrades (`unknown`/null) rather than failing the wizard open. `GET /api/artifacts/:id/content` serves blobs from the store under the prototype's CSP (`default-src 'none'` + inline/data: only — network denied, recap tabs still scriptable) plus nosniff; the renderer's iframe is `sandbox="allow-scripts"` with `src` pointing at the endpoint (no same-origin), and `index.html` gained `frame-src http://127.0.0.1:*` so the packaged CSP admits it. Renderer: `reviewModel.ts` (pure, tested) carries the step roster, docs-step exclusion of `dogfood-report.md`, cap-aware absence labels, and the badge roll-up (named gates in battery order; ac-checks aggregate where all-skip stays skip); `markdown.ts` (pure, tested) naively parses headings/lists/fences/pipe-tables for the Dogfood step, rendered as React elements so agent text is escaped by construction. Manual Walkthrough states the no-preview degradation and lists every AC with plan-manifest human routings surfaced verbatim. Containment proven twice: the serving-CSP test asserts no directive grants a network source against a hostile blob, and a live hostile recap in the dev app reported every escape BLOCKED (cookies SecurityError, parent DOM SecurityError, fetch TypeError, external img onerror) while its inline script ran. Verdict actions deliberately absent (slice 33).

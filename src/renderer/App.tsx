@@ -9,6 +9,7 @@ import {
 import { apiGet, apiPost } from "./api.ts";
 import { PROVIDER_LABELS, repoName } from "./format.ts";
 import { useBoard } from "./useBoard.ts";
+import { ReviewWizard } from "./ReviewWizard.tsx";
 import { TicketDetail } from "./TicketDetail.tsx";
 import { STATES } from "./ticketStates.ts";
 
@@ -51,6 +52,9 @@ export default function App() {
   const { project, repos, loaded, createProject, createRepo } = useWorkspace();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const selected = board.tickets.find((t) => t.id === selectedId) ?? null;
+  const [reviewId, setReviewId] = useState<number | null>(null);
+  // Live row from board state, so SSE updates keep the wizard chrome honest.
+  const reviewing = board.tickets.find((t) => t.id === reviewId) ?? null;
 
   return (
     <div className="app">
@@ -77,6 +81,9 @@ export default function App() {
                   project={ticket.state === "backlog" ? project : null}
                   repos={repos}
                   onOpen={() => setSelectedId(ticket.id)}
+                  onReview={
+                    ticket.state === "human_review" ? () => setReviewId(ticket.id) : null
+                  }
                 />
               ))}
             </section>
@@ -94,6 +101,7 @@ export default function App() {
           onClose={() => setSelectedId(null)}
         />
       )}
+      {reviewing && <ReviewWizard ticket={reviewing} onClose={() => setReviewId(null)} />}
     </div>
   );
 }
@@ -103,12 +111,15 @@ function TicketCard({
   project,
   repos,
   onOpen,
+  onReview,
 }: {
   ticket: TicketWithAcs;
   /** Non-null only on Backlog cards, where the promote control lives. */
   project: Project | null;
   repos: Repo[];
   onOpen: () => void;
+  /** Non-null only on Human Review cards, which carry the Review → button. */
+  onReview: (() => void) | null;
 }) {
   return (
     <article className="card" onClick={onOpen}>
@@ -123,6 +134,17 @@ function TicketCard({
         </em>
       )}
       {project && <PromoteControl ticket={ticket} project={project} repos={repos} />}
+      {onReview && (
+        <button
+          className="reviewbtn"
+          onClick={(e) => {
+            e.stopPropagation();
+            onReview();
+          }}
+        >
+          Review →
+        </button>
+      )}
     </article>
   );
 }

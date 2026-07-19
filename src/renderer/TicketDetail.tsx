@@ -10,7 +10,7 @@ import type {
 } from "../server/types.ts";
 import { AgentLog } from "./AgentLog.tsx";
 import { apiPost } from "./api.ts";
-import { PROVIDER_LABELS, repoName } from "./format.ts";
+import { GATE_MARKS, PROVIDER_LABELS, repoName } from "./format.ts";
 import { STATE_LABELS } from "./ticketStates.ts";
 
 const ORIGIN_LABELS: Record<AcceptanceCriterion["origin"], string | null> = {
@@ -24,14 +24,6 @@ const PHASE_MARKS: Record<PhaseExecution["state"], string> = {
   completed: "✓",
   failed: "✗",
   crashed: "✗",
-};
-
-// Skip renders as "n/a", never as a green check (ticket 06): a fact-driven
-// "not applicable" must not masquerade as evidence.
-const GATE_MARKS: Record<GateResult["status"], string> = {
-  pass: "✓",
-  fail: "✗",
-  skip: "n/a",
 };
 
 function gateSummary(result: GateResult): string {

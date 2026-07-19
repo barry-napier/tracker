@@ -40,6 +40,10 @@ export class FakeGitHub implements GitHubPort {
     return this.#branchSha(remote, branch) !== null;
   }
 
+  async branchTip(remote: string, branch: string): Promise<string | null> {
+    return this.#branchSha(remote, branch);
+  }
+
   async findPr(remote: string, branch: string): Promise<PullRequestRef | null> {
     const pr = this.#prs.find(
       (candidate) =>

@@ -23,6 +23,8 @@ export type Mergeability = "mergeable" | "conflicting" | "unknown";
 export interface GitHubPort {
   /** Is the branch recorded on the remote? (`branch-recorded`, ticket 06.) */
   branchExists(remote: string, branch: string): Promise<boolean>;
+  /** The branch's tip SHA on the remote, null if unresolvable (staleness, ticket 32). */
+  branchTip(remote: string, branch: string): Promise<string | null>;
   /** The open PR for the branch, if any (`pr-fresh`). */
   findPr(remote: string, branch: string): Promise<PullRequestRef | null>;
   /** Open a PR for an already-pushed branch (the agent's job in production). */
@@ -44,6 +46,10 @@ export interface GitHubPort {
 export class NullGitHub implements GitHubPort {
   async branchExists(): Promise<boolean> {
     return false;
+  }
+
+  async branchTip(): Promise<string | null> {
+    return null;
   }
 
   async findPr(): Promise<PullRequestRef | null> {
@@ -87,6 +93,20 @@ export class GhGitHub implements GitHubPort {
       return true;
     } catch (error) {
       if (isHttp404(error)) return false;
+      throw error;
+    }
+  }
+
+  async branchTip(remote: string, branch: string): Promise<string | null> {
+    try {
+      const stdout = await gh(
+        "api", `repos/${repoSlug(remote)}/branches/${branch}`,
+        "--jq", ".commit.sha",
+      );
+      const sha = stdout.trim();
+      return sha === "" ? null : sha;
+    } catch (error) {
+      if (isHttp404(error)) return null;
       throw error;
     }
   }

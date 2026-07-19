@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import type { BusEvent, EventBus } from "./bus.ts";
+import type { Reviews } from "./reviews.ts";
 import type { RunLogRegistry } from "./runlog.ts";
 import { NotFoundError, StateError, ValidationError, type Store } from "./store.ts";
 import { isProvider, PROVIDERS, type PreviewKind } from "./types.ts";
@@ -11,11 +14,31 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
 }
 
+/**
+ * Defense in depth for served artifact content (ticket 11 §6, ported from
+ * the prototype): even if the recap lint missed an external reference,
+ * nothing may load from the network — inline styles/scripts and data: URIs
+ * are all a self-contained artifact needs.
+ */
+const ARTIFACT_CSP =
+  "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:";
+
+/** Only extensions the workflow actually persists get a renderable type. */
+function artifactContentType(name: string): string {
+  if (name.endsWith(".html")) return "text/html; charset=utf-8";
+  if (name.endsWith(".md")) return "text/markdown; charset=utf-8";
+  if (name.endsWith(".json")) return "application/json; charset=utf-8";
+  return "text/plain; charset=utf-8";
+}
+
 export function createApp(
   store: Store,
   bus: EventBus,
   runLogs: RunLogRegistry,
   verdicts: Verdicts,
+  reviews: Reviews,
+  /** Where the ArtifactStore blobbed run evidence; content serves from here. */
+  dataDir: string,
 ): Hono {
   const app = new Hono();
 
@@ -183,6 +206,31 @@ export function createApp(
         });
         notify = undefined;
       }
+    });
+  });
+
+  // Everything the review wizard opens on (ticket 32): the latest Run's
+  // evidence plus live GitHub chrome (PR mergeability, branch-tip freshness).
+  app.get("/api/tickets/:id/review", async (c) =>
+    c.json(await reviews.forTicket(Number(c.req.param("id")))),
+  );
+
+  // Raw artifact content out of the blob store — what the recap iframe and
+  // the wizard's markdown/preview panes load. The deny-external CSP is
+  // defense in depth on top of the renderer's sandboxed iframe.
+  app.get("/api/artifacts/:id/content", (c) => {
+    const artifact = store.getArtifact(Number(c.req.param("id")));
+    if (!artifact) return c.json({ error: "not found" }, 404);
+    let content: Buffer;
+    try {
+      content = readFileSync(path.join(dataDir, artifact.path));
+    } catch {
+      return c.json({ error: "artifact blob missing from disk" }, 404);
+    }
+    return c.body(new Uint8Array(content), 200, {
+      "content-type": artifactContentType(artifact.name),
+      "content-security-policy": ARTIFACT_CSP,
+      "x-content-type-options": "nosniff",
     });
   });
 

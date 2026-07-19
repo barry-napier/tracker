@@ -444,6 +444,11 @@ export class Store {
     };
   }
 
+  getArtifact(id: number): Artifact | undefined {
+    const row = this.db.prepare("SELECT * FROM artifacts WHERE id = ?").get(id);
+    return row === undefined ? undefined : artifactFromRow(row);
+  }
+
   listArtifacts(runId: number): Artifact[] {
     return this.db
       .prepare("SELECT * FROM artifacts WHERE run_id = ? ORDER BY id")

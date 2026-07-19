@@ -8,6 +8,7 @@ import { WorkflowEngine } from "./engine.ts";
 import { GateBattery } from "./gates.ts";
 import { GhGitHub, type GitHubPort } from "./github.ts";
 import type { ProviderRegistry } from "./provider.ts";
+import { Reviews } from "./reviews.ts";
 import { RunLogRegistry } from "./runlog.ts";
 import { Store } from "./store.ts";
 import { Verdicts } from "./verdicts.ts";
@@ -35,7 +36,14 @@ export async function startServer(options: {
   const store = new Store(db, bus);
   const runLogs = new RunLogRegistry();
   const github = options.github ?? new GhGitHub();
-  const app = createApp(store, bus, runLogs, new Verdicts(store, github));
+  const app = createApp(
+    store,
+    bus,
+    runLogs,
+    new Verdicts(store, github),
+    new Reviews(store, github),
+    options.dataDir,
+  );
   const engine = new WorkflowEngine(store, options.providers ?? {}, runLogs);
   const artifacts = new ArtifactStore(options.dataDir, store);
   const pool = new WorkerPool(
