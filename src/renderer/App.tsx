@@ -9,11 +9,12 @@ import {
 } from "../server/types.ts";
 import { apiGet, apiPost } from "./api.ts";
 import { PROVIDER_LABELS, repoName } from "./format.ts";
-import { Home } from "./Home.tsx";
+import { avatarColor, Home } from "./Home.tsx";
 import { useBoard } from "./useBoard.ts";
 import { ReviewWizard } from "./ReviewWizard.tsx";
 import { TicketDetail } from "./TicketDetail.tsx";
 import { STATES } from "./ticketStates.ts";
+import { Icon } from "./icons.tsx";
 
 /**
  * Workspace state: Home (no open project) or one open Project's board.
@@ -79,54 +80,76 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        {project ? (
+        <button
+          type="button"
+          className="icon-btn"
+          title="Home"
+          onClick={goHome}
+          aria-pressed={project === null}
+        >
+          <Icon name="grid-plus" size={16} />
+        </button>
+        {project && (
           <>
-            <button type="button" className="brand" onClick={goHome} title="Back to Home">
-              Tracker
-            </button>
-            <span className="dim">/ {project.name}</span>
+            <span className="tab">
+              <span className="avatar" style={{ background: avatarColor(project.name) }}>
+                {project.name.slice(0, 1).toUpperCase()}
+              </span>
+              {project.name}
+              <button type="button" className="tab-close" title="Close project" onClick={goHome}>
+                <Icon name="close-small" size={14} />
+              </button>
+            </span>
             <RepoBar repos={repos} onCreate={createRepo} />
           </>
-        ) : (
-          <b>Tracker</b>
         )}
-        <ThemeToggle />
+        <span className="topbar-actions">
+          <ThemeToggle />
+          <button type="button" className="icon-btn" title="Settings">
+            <Icon name="settings-gear" />
+          </button>
+          <button type="button" className="icon-btn" title="Help">
+            <Icon name="help" />
+          </button>
+        </span>
       </header>
-      {error && <p className="banner error">Can't reach the Tracker server: {error}</p>}
-      {!project && (
-        <Home
-          projects={projects}
-          onOpen={(id) => void openProjectById(id)}
-          onCreated={openProject}
-        />
-      )}
-      {project && (
-      <div className="board">
-        {STATES.map(({ key, label }) => {
-          const column = tickets.filter((t) => t.state === key);
-          return (
-            <section key={key} className="column">
-              <h3>
-                {label} <span className="dim">{column.length}</span>
-              </h3>
-              {key === "backlog" && <NewTicketForm projectId={project.id} />}
-              {column.map((ticket) => (
-                <TicketCard
-                  key={ticket.id}
-                  ticket={ticket}
-                  project={ticket.state === "backlog" ? project : null}
-                  repos={repos}
-                  onOpen={() => setSelectedId(ticket.id)}
-                  onReview={
-                    ticket.state === "human_review" ? () => setReviewId(ticket.id) : null
-                  }
-                />
-              ))}
-            </section>
-          );
-        })}
-      </div>
-      )}
+      <main className="main">
+        {error && <p className="banner error">Can't reach the Tracker server: {error}</p>}
+        {!project && (
+          <Home
+            projects={projects}
+            onOpen={(id) => void openProjectById(id)}
+            onCreated={openProject}
+          />
+        )}
+        {project && (
+        <div className="board">
+          {STATES.map(({ key, label }) => {
+            const column = tickets.filter((t) => t.state === key);
+            return (
+              <section key={key} className="column">
+                <h3>
+                  {label} <span className="dim">{column.length}</span>
+                </h3>
+                {key === "backlog" && <NewTicketForm projectId={project.id} />}
+                {column.map((ticket) => (
+                  <TicketCard
+                    key={ticket.id}
+                    ticket={ticket}
+                    project={ticket.state === "backlog" ? project : null}
+                    repos={repos}
+                    onOpen={() => setSelectedId(ticket.id)}
+                    onReview={
+                      ticket.state === "human_review" ? () => setReviewId(ticket.id) : null
+                    }
+                  />
+                ))}
+              </section>
+            );
+          })}
+        </div>
+        )}
+      </main>
       {project && selected && (
         <TicketDetail
           ticket={selected}

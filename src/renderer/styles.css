@@ -216,11 +216,74 @@ body {
 /* -- top bar: flat app chrome over the base background -- */
 
 .topbar {
-  padding: 0.55rem 1rem;
-  border-bottom: 1px solid var(--border-muted);
+  padding: 0.45rem 1rem;
   display: flex;
   gap: 0.5rem;
-  align-items: baseline;
+  align-items: center;
+}
+
+/* -- tab chip: the open project, opencode-tab style -- */
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  padding: 0.2rem 0.25rem 0.2rem 0.4rem;
+  font-size: var(--fs-sm);
+}
+
+.tab .avatar {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  padding: 0.1rem;
+  cursor: pointer;
+}
+
+.tab-close:hover {
+  background: var(--overlay-hover);
+  color: var(--text-base);
+}
+
+/* -- main: the contained content surface, oc-2 style rounded card -- */
+
+.main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0 0.55rem 0.55rem;
+  background: var(--surface-panel);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+  overflow: hidden;
+}
+
+.topbar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
 }
 
 .themebtn {
@@ -1157,17 +1220,20 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 1.25rem;
-  padding: 2rem;
+  padding: 14vh 2rem 2rem;
 }
 
 .home .wordmark {
-  font-size: 5rem;
-  margin-bottom: 0;
+  font-size: 8rem;
+  margin: 0;
   font-weight: 700;
   letter-spacing: -0.04em;
-  color: var(--text-faint);
+  background: linear-gradient(to bottom, var(--text-faint), color-mix(in srgb, var(--text-faint) 35%, transparent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
   opacity: 0.5;
   user-select: none;
 }
@@ -1177,6 +1243,36 @@ body {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+.home-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.15rem;
+}
+
+.home-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  padding: 0.3rem;
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  background: var(--overlay-hover);
+  color: var(--text-base);
 }
 
 .home-search {
@@ -1230,11 +1326,11 @@ body {
 
 .home-list .avatar {
   flex: none;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--radius-sm);
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-md);
   background: var(--contrast-bg);
-  color: var(--contrast-fg);
+  color: #fff;
   font-size: var(--fs-xs);
   font-weight: 600;
   display: inline-flex;

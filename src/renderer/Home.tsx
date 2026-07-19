@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { HomeRepo } from "../server/home.ts";
 import type { Project } from "../server/types.ts";
 import { apiGet, apiPost } from "./api.ts";
+import { Icon } from "./icons.tsx";
 
 /** Preload-exposed folder picker; absent under `vite dev` in a plain browser. */
 declare global {
@@ -15,6 +16,14 @@ declare global {
  * onto a board — open a Recent Project (every Project is one; the list arrives
  * activity-ordered from the server) or clone an affiliated GitHub repo.
  */
+/** Deterministic chip color per name, stable across renders and sessions. */
+const AVATAR_COLORS = ["#6d5ce6", "#d94fa4", "#2f8f6f", "#c67a2e", "#3f7fd9", "#8f5cd9"];
+export function avatarColor(name: string): string {
+  let h = 0;
+  for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length]!;
+}
+
 export function Home({
   projects,
   onOpen,
@@ -34,6 +43,17 @@ export function Home({
       <h1 className="wordmark">tracker</h1>
       {!adding && (
         <div className="home-picker">
+          <div className="home-header">
+            <span className="home-title">Projects</span>
+            <button
+              type="button"
+              className="icon-btn"
+              title="Add project"
+              onClick={() => setAdding(true)}
+            >
+              <Icon name="folder-add-left" />
+            </button>
+          </div>
           <input
             autoFocus
             className="home-search"
@@ -45,7 +65,9 @@ export function Home({
             {shown.map((project) => (
               <li key={project.id}>
                 <button type="button" onClick={() => onOpen(project.id)}>
-                  <span className="avatar">{project.name.slice(0, 1).toUpperCase()}</span>
+                  <span className="avatar" style={{ background: avatarColor(project.name) }}>
+                    {project.name.slice(0, 1).toUpperCase()}
+                  </span>
                   {project.name}
                 </button>
               </li>
@@ -57,9 +79,6 @@ export function Home({
               <li className="dim home-empty">No projects yet — add one from GitHub</li>
             )}
           </ul>
-          <button type="button" className="home-link" onClick={() => setAdding(true)}>
-            + Add project
-          </button>
         </div>
       )}
       {adding && <ClonePane onOpen={onOpen} onCreated={onCreated} onBack={() => setAdding(false)} />}
@@ -162,7 +181,12 @@ function ClonePane({
               disabled={busy !== null}
               onClick={() => void openOrClone(repo)}
             >
-              <span className="avatar">{repo.nameWithOwner.split("/")[1]!.slice(0, 1).toUpperCase()}</span>
+              <span
+                className="avatar"
+                style={{ background: avatarColor(repo.nameWithOwner.split("/")[1]!) }}
+              >
+                {repo.nameWithOwner.split("/")[1]!.slice(0, 1).toUpperCase()}
+              </span>
               <span className="home-repo">
                 {repo.nameWithOwner}
                 {repo.description && <em className="dim"> — {repo.description}</em>}
