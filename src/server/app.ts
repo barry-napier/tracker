@@ -168,6 +168,7 @@ export function createApp(
       previewReadinessPath?: string;
       previewReadinessTimeoutMs?: number;
       testCommand?: string;
+      personaPath?: string;
     }>();
     if (typeof body.projectId !== "number") return c.json({ error: "projectId is required" }, 400);
     if (!isNonEmptyString(body.path)) return c.json({ error: "path is required" }, 400);
@@ -193,6 +194,7 @@ export function createApp(
       previewReadinessPath: body.previewReadinessPath,
       previewReadinessTimeoutMs: body.previewReadinessTimeoutMs,
       testCommand: body.testCommand,
+      personaPath: isNonEmptyString(body.personaPath) ? body.personaPath : undefined,
     });
     return c.json(repo, 201);
   });

@@ -33,6 +33,8 @@ export async function startServer(options: {
   providers?: ProviderRegistry;
   /** GitHub seam for the battery's gates and the merge path; defaults to `gh`. */
   github?: GitHubPort;
+  /** Preview port-preference base (ticket 10); tests offset it per worker. */
+  previewPortBase?: number;
 }): Promise<TrackerServer> {
   const db = openDatabase(options.dataDir);
   const bus = new EventBus();
@@ -45,7 +47,7 @@ export async function startServer(options: {
   const bouncer = new Bouncer(store, artifacts);
   // No process survives a restart: rows still claiming live catch up first.
   store.sweepOrphanedPreviews();
-  const previews = new PreviewManager(options.dataDir, store);
+  const previews = new PreviewManager(options.dataDir, store, options.previewPortBase);
   const app = createApp(
     store,
     bus,
@@ -56,7 +58,7 @@ export async function startServer(options: {
     previews,
     options.dataDir,
   );
-  const engine = new WorkflowEngine(store, options.providers ?? {}, runLogs);
+  const engine = new WorkflowEngine(store, options.providers ?? {}, runLogs, previews);
   const pool = new WorkerPool(
     store,
     new WorktreeManager(options.dataDir),

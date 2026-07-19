@@ -10,7 +10,7 @@ import { PreviewManager, type PreviewView } from "../src/server/previews.ts";
 import { StateError, Store } from "../src/server/store.ts";
 import { git } from "./git-helpers.ts";
 import { FakeGitHub } from "./github-fake.ts";
-import { api, bootServer, cleanups, runCleanups } from "./server-helpers.ts";
+import { api, bootServer, cleanups, previewPortBase, runCleanups } from "./server-helpers.ts";
 import {
   bootWorkspace,
   pushesToGitHub,
@@ -73,7 +73,7 @@ function forgeWorkspace(repoConfig: Record<string, unknown>, serverScript = PREV
   writeFileSync(path.join(worktree, "preview-server.mjs"), serverScript);
   store.recordWorktree(claim.run.id, { worktreePath: worktree, created: true });
 
-  const previews = new PreviewManager(dataDir, store);
+  const previews = new PreviewManager(dataDir, store, previewPortBase());
   cleanups.push(async () => {
     await previews.stopAll();
     db.close();
@@ -120,7 +120,10 @@ describe("PreviewManager (ticket 34)", () => {
       const started = await previews.start(ticket.id);
       expect(started.configured).toBe(true);
       expect(started.kind).toBe(kind);
-      expect(started.record).toMatchObject({ status: "starting", port: 4000 + ticket.number });
+      expect(started.record).toMatchObject({
+        status: "starting",
+        port: previewPortBase() + ticket.number,
+      });
 
       const ready = await waitForStatus(previews, ticket.id, "ready");
       expect(ready.url).toBe(`http://localhost:${ready.record!.port}`);
@@ -143,14 +146,17 @@ describe("PreviewManager (ticket 34)", () => {
 
   test("preferred port taken → probes up and stores the actual port", async () => {
     const { previews, ticket } = forgeWorkspace({ previewCommand: "node preview-server.mjs" });
-    const preferred = 4000 + ticket.number;
+    const preferred = previewPortBase() + ticket.number;
     const blocker = await holdPort(preferred);
     cleanups.push(async () => void blocker.close());
 
     await previews.start(ticket.id);
     const ready = await waitForStatus(previews, ticket.id, "ready");
-    expect(ready.record!.port).toBe(preferred + 1);
-    expect((await fetch(`http://127.0.0.1:${preferred + 1}`)).ok).toBe(true);
+    // Probed up past the taken preferred to some higher free port, and the
+    // record stores whatever was actually bound. (Not pinned to preferred+1:
+    // concurrent test files may hold nearby ports too.)
+    expect(ready.record!.port).toBeGreaterThan(preferred);
+    expect((await fetch(`http://127.0.0.1:${ready.record!.port}`)).ok).toBe(true);
   });
 
   test("readiness timeout → failed with the captured output surfaced", async () => {
@@ -170,6 +176,37 @@ describe("PreviewManager (ticket 34)", () => {
     await previews.start(ticket.id);
     const failed = await waitForStatus(previews, ticket.id, "failed");
     expect(failed.logTail).toContain("kaboom");
+  });
+
+  test("bootReady degrades honestly (never throws) when start can't spawn", async () => {
+    // A claimed ticket with no recorded worktree makes start throw — the kind
+    // of pre-readiness boot error (no worktree, port exhaustion) that must
+    // become an honest reason so the dogfood phase reports "unavailable"
+    // instead of crashing (ticket 36 AC5).
+    const dataDir = mkdtempSync(path.join(tmpdir(), "tracker-preview-"));
+    cleanups.push(() => rm(dataDir, { recursive: true, force: true }));
+    const db = openDatabase(dataDir);
+    cleanups.push(async () => db.close());
+    const store = new Store(db, new EventBus());
+    const project = store.createProject({ name: "No Worktree" });
+    const repo = store.createRepo({
+      projectId: project.id,
+      path: "/nowhere/checkout",
+      githubRemote: "git@github.com:barry/no-worktree.git",
+      previewCommand: "node preview-server.mjs",
+    });
+    const ticket = store.createTicket({
+      projectId: project.id,
+      title: "Unbootable",
+      acceptanceCriteria: ["It runs"],
+    });
+    store.promoteTicket(ticket.id, { repoId: repo.id, provider: "claude-code" });
+    store.claimNextTicket(); // Run exists, but no worktree is ever recorded.
+
+    const previews = new PreviewManager(dataDir, store, previewPortBase());
+    const boot = await previews.bootReady(ticket.id, { timeoutMs: 400 });
+    expect(boot.ready).toBe(false);
+    expect(boot).toMatchObject({ reason: expect.stringContaining("no worktree") });
   });
 
   test("HTTP readiness override really checks HTTP, not just the TCP bind", async () => {
@@ -231,10 +268,13 @@ describe("preview endpoints in the wizard flow (ticket 34)", () => {
     const arrived = await waitForTicketState(server, ticket.id, "human_review");
     expect(arrived.arrivedByCap).toBe(true);
 
-    // First use creates the record keyed to the ticket.
+    // The dogfood phase (ticket 36) already booted this preview during each
+    // run and stopped it, so a stopped record is keyed to the ticket before
+    // the wizard ever opens — no live process, no link.
     const before = await api(server, "GET", `/api/tickets/${ticket.id}/preview`);
     expect(before.status).toBe(200);
-    expect(before.json).toMatchObject({ configured: true, kind: "ui", record: null });
+    expect(before.json).toMatchObject({ configured: true, kind: "ui", url: null });
+    expect(before.json.record.status).toBe("stopped");
 
     const started = await api(server, "POST", `/api/tickets/${ticket.id}/preview/start`);
     expect(started.status).toBe(200);

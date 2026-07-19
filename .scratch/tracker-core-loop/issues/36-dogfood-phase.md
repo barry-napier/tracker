@@ -4,10 +4,12 @@
 
 **Blocked by:** 34 — PreviewManager.
 
-**Status:** ready-for-agent
+**Status:** done (2026-07-19)
 
-- [ ] Dogfood phase boots the preview and receives the vendored prompt assets through the standard template variable set
-- [ ] Report + results file land as Run artifacts; results conform to the vendored schema (scenarios with flow_ref → AC ids, kind, branch, status, fix, cut log)
-- [ ] Governor caps prompt-enforced; fixes carry SHA + regression test in the Matrix
-- [ ] Persona configured → lens applied; absent → report says the experiential judge was skipped
-- [ ] An honest red report still completes the phase (contract + artifacts exist) — teeth belong to the gate (slice 37)
+- [x] Dogfood phase boots the preview and receives the vendored prompt assets through the standard template variable set
+- [x] Report + results file land as Run artifacts; results conform to the vendored schema (scenarios with flow_ref → AC ids, kind, branch, status, fix, cut log)
+- [x] Governor caps prompt-enforced; fixes carry SHA + regression test in the Matrix
+- [x] Persona configured → lens applied; absent → report says the experiential judge was skipped
+- [x] An honest red report still completes the phase (contract + artifacts exist) — teeth belong to the gate (slice 37)
+
+Landed as a `boots_preview` node flag (migration 12, parallel to `emits_checks`): the engine boots the ticket's preview before that node and injects the live URL + persona + vendored playbook (`src/server/dogfood.ts`) through the template variables; the phase owes `kb/dogfood-report.md` + `kb/dogfood-results.json`. Persona is per-Repo config (`repos.persona_path`). `PreviewManager.bootReady` is the shared boot-and-wait both the dogfood phase and the demo recorder use. Gates stay untouched — slice 37.

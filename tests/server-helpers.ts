@@ -8,6 +8,20 @@ import { initScratchRepo } from "./git-helpers.ts";
 
 export const cleanups: Array<() => Promise<void>> = [];
 
+/**
+ * A preview port band unique to this vitest worker. Files run in parallel
+ * across workers but sequentially within one, so a per-worker offset keeps
+ * concurrent test files from fighting over the same ports (the dogfood phase
+ * of ticket 36 boots many more previews). PreviewManager binds
+ * `base + ticket.number % 1000` then probes up to PORT_PROBE_SPAN; the 200 gap
+ * keeps adjacent workers apart as long as test ticket numbers stay small (they
+ * do — per-DB sequences start at 1). VITEST_POOL_ID is 1-based and unique per
+ * concurrent worker in vitest's fork pool; absent → base 4000.
+ */
+export function previewPortBase(): number {
+  return 4000 + (Number(process.env.VITEST_POOL_ID) || 0) * 200;
+}
+
 export async function bootServer(
   dataDir?: string,
   options: { workers?: number; providers?: ProviderRegistry; github?: GitHubPort } = {},
@@ -23,6 +37,7 @@ export async function bootServer(
     workers: options.workers ?? 0,
     providers: options.providers,
     github: options.github ?? new NullGitHub(),
+    previewPortBase: previewPortBase(),
   });
   cleanups.push(async () => {
     await server.close();

@@ -31,6 +31,11 @@ export interface Repo {
   previewReadinessTimeoutMs: number | null;
   /** What the suite gate runs in the worktree; null = no suite → skip. */
   testCommand: string | null;
+  /**
+   * Worktree-relative path to the dogfood Persona markdown (ticket 11 §2);
+   * null = no persona → the experiential judge is skipped, never faked.
+   */
+  personaPath: string | null;
   createdAt: string;
 }
 
@@ -148,6 +153,12 @@ export interface WorkflowNode {
   promptTemplate: string | null;
   /** Extended Phase Contract: this node must emit AC checks (ticket 07 §4). */
   emitsChecks: boolean;
+  /**
+   * The dogfood phase (ticket 36): the engine boots the ticket's Preview
+   * Environment before this node runs and injects the live URL + persona +
+   * vendored dogfood playbook into its prompt through the template variables.
+   */
+  bootsPreview: boolean;
   /**
    * Worktree-relative artifacts this node owes beyond its contract file
    * (e.g. kb/recap.html); the artifact gate checks their existence.

@@ -235,25 +235,32 @@ describe("the demo phase (ticket 35)", () => {
     expect(view.logTail).toContain("kaboom at boot");
   }, 40_000);
 
-  test("a missing demo spec fails fast without booting the preview", async () => {
+  test("a missing demo spec fails the demo fast, before the recorder boots its own preview", async () => {
     const github = new FakeGitHub();
     const calls: PhaseCall[] = [];
-    // A well-behaved agent that simply never authors a demo.
-    const provider = scriptedProvider(calls, { onPhase: pushesToGitHub(github) });
+    // A well-behaved agent that authors the preview server (so the dogfood
+    // phase boots cleanly) but never a demo spec.
+    const provider = scriptedProvider(calls, {
+      onPhase: async (ctx) => {
+        if (ctx.phase === "implement") writeFileSync(path.join(ctx.cwd, "preview-server.mjs"), PREVIEW_SERVER);
+        await pushesToGitHub(github)(ctx);
+      },
+    });
     const { server, ticket } = await bootWorkspace(provider, {
       github,
       repo: { testCommand: "true", previewCommand: "node preview-server.mjs", previewKind: "ui" },
     });
 
+    // The recorder's asset check precedes its own boot: no demo/demo.spec.ts →
+    // it fails fast with that reason and records no demo artifact. (The dogfood
+    // phase's preview boot is a separate concern — see the dogfood tests.)
     await waitForAudit(server, ticket.id, "gates.failed", 30_000);
     const runs = (await api(server, "GET", `/api/tickets/${ticket.id}/runs`)).json;
     expect(runs.at(-1).gateResults.find((r: any) => r.gate === "demo-fresh")).toMatchObject({
       status: "fail",
       detail: { reason: "no agent-authored demo at demo/demo.spec.ts" },
     });
-    // No boot was attempted: no preview record was ever created.
-    const view = (await api(server, "GET", `/api/tickets/${ticket.id}/preview`)).json;
-    expect(view.record).toBeNull();
+    expect(runs.at(-1).artifacts.filter((a: any) => a.kind === "demo")).toEqual([]);
   }, 30_000);
 });
 

@@ -46,9 +46,10 @@ describe("the full seeded workflow", () => {
       expect(phase.providerSessionId).toBe(`sess-${phase.phase}-1`);
     }
 
-    // kb/* persisted to app data: kind, content hash, worktree HEAD SHA.
+    // kb/* persisted to app data: kind, content hash, worktree HEAD SHA. Five
+    // phase contracts, the recap, and the dogfood phase's report + results.
     const headSha = git(runs[0].worktreePath, "rev-parse", "HEAD");
-    expect(runs[0].artifacts).toHaveLength(6);
+    expect(runs[0].artifacts).toHaveLength(8);
     for (const artifact of runs[0].artifacts) {
       expect(artifact.kind).toBe("kb");
       expect(artifact.contentHash).toMatch(/^[0-9a-f]{64}$/);
@@ -56,7 +57,12 @@ describe("the full seeded workflow", () => {
       expect(existsSync(path.join(dataDir, artifact.path))).toBe(true);
     }
     expect(runs[0].artifacts.map((a: any) => a.name).sort()).toEqual(
-      [...[...PHASES].map((p) => `${p}.md`), "recap.html"].sort(),
+      [
+        ...[...PHASES].map((p) => `${p}.md`),
+        "recap.html",
+        "dogfood-report.md",
+        "dogfood-results.json",
+      ].sort(),
     );
 
     // The board heard each phase start and finish, and the run end enriched.
@@ -68,7 +74,7 @@ describe("the full seeded workflow", () => {
       [...PHASES].flatMap(() => ["started", "completed"]),
     );
     const runUpdates = client.messages.filter((m) => m.event === "run.updated");
-    expect(runUpdates.at(-1)!.data.artifacts).toHaveLength(6);
+    expect(runUpdates.at(-1)!.data.artifacts).toHaveLength(8);
 
     const audit = (await api(server, "GET", `/api/tickets/${ticket.id}/audit`)).json;
     const types = audit.map((event: { type: string }) => event.type);

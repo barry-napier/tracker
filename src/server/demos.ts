@@ -18,9 +18,6 @@ export const DEMO_ARTIFACT_KIND = "demo";
 
 /** A demo that can't finish in this is a broken demo, not a slow one. */
 const DEMO_TIMEOUT_MS = 5 * 60_000;
-const BOOT_POLL_MS = 100;
-/** Margin past the preview's own readiness deadline before giving up waiting. */
-const BOOT_DEADLINE_MARGIN_MS = 10_000;
 /** Full output lives in the transcript/log; failure reasons carry an excerpt. */
 const REASON_EXCERPT_CHARS = 800;
 
@@ -95,8 +92,14 @@ export class DemoRecorder {
       return { status: "failed", reason: `no agent-authored demo at ${asset}` };
     }
 
-    const boot = await this.#bootPreview(ctx);
-    if (boot.outcome !== undefined) return boot.outcome;
+    // A fresh process (ticket 36 gave PreviewManager the shared boot-and-wait):
+    // a boot failure IS the demo step's failure — honest, reason carried.
+    const boot = await this.previews.bootReady(ctx.ticket.id, {
+      timeoutMs: ctx.repo.previewReadinessTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS,
+      signal: ctx.signal,
+      actor: "agent",
+    });
+    if (!boot.ready) return { status: "failed", reason: boot.reason };
     try {
       return expectation.kind === "ui"
         ? await this.#recordVideo(ctx, boot.port)
@@ -104,33 +107,6 @@ export class DemoRecorder {
     } finally {
       await this.previews.stop(ctx.ticket.id, { actor: "agent" });
     }
-  }
-
-  /**
-   * Always a fresh process (never a survivor serving stale code), watched
-   * until the manager's readiness verdict lands. A boot failure IS the demo
-   * step's failure — honest, with the captured output in the reason.
-   */
-  async #bootPreview(
-    ctx: DemoContext,
-  ): Promise<{ port: number; outcome?: undefined } | { outcome: DemoOutcome }> {
-    const view = await this.previews.restart(ctx.ticket.id, { actor: "agent" });
-    const timeout = ctx.repo.previewReadinessTimeoutMs ?? DEFAULT_READINESS_TIMEOUT_MS;
-    const deadline = Date.now() + timeout + BOOT_DEADLINE_MARGIN_MS;
-    let current = view;
-    while (!ctx.signal?.aborted) {
-      const record = current.record;
-      if (record?.status === "ready" && record.port !== null) return { port: record.port };
-      if (record?.status === "failed") {
-        const tail = current.logTail === null ? "" : `\n${excerpt(current.logTail)}`;
-        return { outcome: { status: "failed", reason: `preview boot failed${tail}` } };
-      }
-      if (Date.now() > deadline) break;
-      await sleep(BOOT_POLL_MS);
-      current = this.previews.view(ctx.ticket.id);
-    }
-    await this.previews.stop(ctx.ticket.id, { actor: "agent" });
-    return { outcome: { status: "failed", reason: "preview boot never settled" } };
   }
 
   /**
@@ -257,8 +233,4 @@ function excerpt(text: string): string {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

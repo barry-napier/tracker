@@ -58,6 +58,67 @@ export function writeRecap(cwd: string, html: string = CLEAN_RECAP): void {
 }
 
 /**
+ * What a well-behaved dogfood phase authors (ticket 36): the machine-readable
+ * results file (one scenario, schema-conforming) and the five-section report.
+ * `status: "fail"` proves the honest-red path — the phase still completes with
+ * both artifacts present; the teeth belong to slice 37's dogfood-green gate.
+ */
+export function writeDogfood(
+  cwd: string,
+  opts: { status?: "pass" | "fail"; append?: string } = {},
+): void {
+  const status = opts.status ?? "pass";
+  mkdirSync(path.join(cwd, "kb"), { recursive: true });
+  const results = {
+    ticket: "TRK-1",
+    frozen_sha: "HEAD",
+    base: "main",
+    scenarios: [
+      {
+        id: "S1",
+        journey: "Use the widget end to end and confirm the far-end proof",
+        kind: "browser",
+        branch: "happy",
+        status,
+        flow_ref: "AC-1",
+      },
+    ],
+  };
+  writeFileSync(path.join(cwd, "kb", "dogfood-results.json"), JSON.stringify(results, null, 2));
+  const verdict = status === "pass" ? "READY" : "BLOCKED (human decision)";
+  writeFileSync(
+    path.join(cwd, "kb", "dogfood-report.md"),
+    [
+      "# Dogfood report — TRK-1: Ship the widget",
+      "",
+      `> Verdict: **${verdict}**`,
+      "",
+      "## Matrix",
+      "",
+      "| # | Journey | Kind | Functional | Experiential | Evidence | Fix |",
+      "|---|---|---|---|---|---|---|",
+      `| S1 | Use the widget | browser | ${status} | — | — | — |`,
+      "",
+      "**Cut from the matrix**: nothing.",
+      "",
+      "## Paper cuts",
+      "",
+      "None.",
+      "",
+      "## Decisions for a human",
+      "",
+      "None.",
+      "",
+      "## Instruments",
+      "",
+      "- Suite: skipped in the fixture.",
+      opts.append ?? "",
+      "",
+    ].join("\n"),
+  );
+}
+
+/**
  * A well-behaved agent for every phase — misbehaves only where the test's
  * `sabotage` hook says so (return false → skip the contract file and every
  * other side effect; throw → crash). The `planChecks` hook can replace the
@@ -89,6 +150,7 @@ export function scriptedProvider(
     if (sabotage(phase, attempt) !== false) {
       writeContract(ctx.cwd, phase);
       if (phase === "plan") planChecks(call);
+      if (phase === "dogfood") writeDogfood(ctx.cwd);
       if (phase === "document") writeRecap(ctx.cwd);
       await onPhase(call);
     }

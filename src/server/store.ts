@@ -133,13 +133,14 @@ export class Store {
     previewReadinessPath?: string;
     previewReadinessTimeoutMs?: number;
     testCommand?: string;
+    personaPath?: string;
   }): Repo {
     const project = this.getProject(input.projectId);
     if (!project) throw new NotFoundError(`project ${input.projectId} not found`);
     const { repo, audit } = withTransaction(this.db, () => {
       const result = this.db
         .prepare(
-          "INSERT INTO repos (project_id, path, github_remote, target_branch, preview_command, preview_kind, preview_readiness_path, preview_readiness_timeout_ms, test_command, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO repos (project_id, path, github_remote, target_branch, preview_command, preview_kind, preview_readiness_path, preview_readiness_timeout_ms, test_command, persona_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .run(
           input.projectId,
@@ -151,6 +152,7 @@ export class Store {
           input.previewReadinessPath ?? null,
           input.previewReadinessTimeoutMs ?? null,
           input.testCommand ?? null,
+          input.personaPath ?? null,
           nowIso(),
         );
       const repo = this.getRepo(Number(result.lastInsertRowid));
@@ -1140,7 +1142,7 @@ export class Store {
       const versionId = Number(versionResult.lastInsertRowid);
       const nodeIds = new Map<number, number>();
       const insertNode = this.db.prepare(
-        "INSERT INTO workflow_nodes (workflow_version_id, type, name, prompt_template, gate_requirements, emits_checks) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO workflow_nodes (workflow_version_id, type, name, prompt_template, gate_requirements, emits_checks, boots_preview) VALUES (?, ?, ?, ?, ?, ?, ?)",
       );
       for (const node of graph.nodes) {
         const nodeResult = insertNode.run(
@@ -1150,6 +1152,7 @@ export class Store {
           node.promptTemplate,
           node.gateRequirements.length === 0 ? null : JSON.stringify(node.gateRequirements),
           node.emitsChecks ? 1 : 0,
+          node.bootsPreview ? 1 : 0,
         );
         nodeIds.set(node.id, Number(nodeResult.lastInsertRowid));
       }
@@ -1472,6 +1475,7 @@ function repoFromRow(row: Row): Repo {
     previewReadinessTimeoutMs:
       row.preview_readiness_timeout_ms === null ? null : Number(row.preview_readiness_timeout_ms),
     testCommand: row.test_command === null ? null : String(row.test_command),
+    personaPath: row.persona_path === null ? null : String(row.persona_path),
     createdAt: String(row.created_at),
   };
 }
@@ -1570,6 +1574,7 @@ function workflowNodeFromRow(row: Row): WorkflowNode {
     name: String(row.name),
     promptTemplate: row.prompt_template === null ? null : String(row.prompt_template),
     emitsChecks: Number(row.emits_checks) === 1,
+    bootsPreview: Number(row.boots_preview) === 1,
     gateRequirements:
       row.gate_requirements === null ? [] : (JSON.parse(String(row.gate_requirements)) as string[]),
   };

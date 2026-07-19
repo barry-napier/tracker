@@ -17,6 +17,17 @@ const PROBE_TIMEOUT_MS = 2_000;
 /** Grace between SIGTERM and SIGKILL on stop. */
 const STOP_GRACE_MS = 2_000;
 const LOG_TAIL_LINES = 40;
+/** How often bootReady re-reads the record while waiting for readiness. */
+const BOOT_POLL_MS = 100;
+/** Margin past the readiness deadline before bootReady gives up waiting. */
+const BOOT_DEADLINE_MARGIN_MS = 10_000;
+
+/**
+ * A boot-and-wait outcome for the non-wizard consumers that need the bound
+ * port synchronously — the demo recorder (ticket 35) and the dogfood phase
+ * (ticket 36) — rather than the wizard's polling PreviewView.
+ */
+export type BootResult = { ready: true; port: number } | { ready: false; reason: string };
 
 /** What the wizard's Manual Walkthrough step renders (ticket 34). */
 export interface PreviewView {
@@ -62,6 +73,13 @@ export class PreviewManager {
   constructor(
     private readonly dataDir: string,
     private readonly store: Store,
+    /**
+     * Base of the deterministic port preference (ticket 10: `base + n % 1000`,
+     * probe up on conflict). Production leaves it at 4000; the test harness
+     * offsets it per parallel worker so concurrent test files don't fight over
+     * the same port band.
+     */
+    private readonly portBase = 4000,
   ) {}
 
   view(ticketId: number): PreviewView {
@@ -107,7 +125,7 @@ export class PreviewManager {
       this.#live.delete(ticketId);
     }
 
-    const port = await findFreePort(4000 + (ticket.number % 1000));
+    const port = await findFreePort(this.portBase + (ticket.number % 1000));
     const logRelative = path.join("previews", `ticket-${ticketId}.log`);
     mkdirSync(path.join(this.dataDir, "previews"), { recursive: true });
     const log = createWriteStream(path.join(this.dataDir, logRelative), { flags: "w" });
@@ -150,6 +168,47 @@ export class PreviewManager {
   async restart(ticketId: number, opts: LifecycleOpts = {}): Promise<PreviewView> {
     await this.stop(ticketId, opts);
     return this.start(ticketId, opts);
+  }
+
+  /**
+   * Restart the preview and wait out its readiness verdict, returning the
+   * bound port or an honest failure reason. Both orchestrator consumers boot
+   * this way (a fresh process every time — never a survivor serving stale
+   * code): the demo recorder after the workflow, and the dogfood phase inside
+   * it. Readiness itself is watched by start's #watchReadiness; this just
+   * polls the record it writes until a terminal state or the deadline.
+   */
+  async bootReady(
+    ticketId: number,
+    opts: { timeoutMs: number; signal?: AbortSignal; actor?: Actor },
+  ): Promise<BootResult> {
+    // Total by contract: a pre-readiness boot error (no free port, no
+    // worktree) resolves to an honest reason, never a throw — so the dogfood
+    // phase can still run and report "preview unavailable" instead of crashing.
+    try {
+      let current = await this.restart(ticketId, { actor: opts.actor });
+      const deadline = Date.now() + opts.timeoutMs + BOOT_DEADLINE_MARGIN_MS;
+      while (!opts.signal?.aborted) {
+        const record = current.record;
+        if (record?.status === "ready" && record.port !== null) {
+          return { ready: true, port: record.port };
+        }
+        if (record?.status === "failed") {
+          const tail = current.logTail === null ? "" : `\n${current.logTail}`;
+          return { ready: false, reason: `preview boot failed${tail}` };
+        }
+        if (Date.now() > deadline) break;
+        await sleep(BOOT_POLL_MS);
+        current = this.view(ticketId);
+      }
+      await this.stop(ticketId, { actor: opts.actor });
+      return {
+        ready: false,
+        reason: opts.signal?.aborted ? "preview boot aborted" : "preview boot never settled",
+      };
+    } catch (error) {
+      return { ready: false, reason: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   /** Clean stop (verdict submit, demo recorded, app quit): SIGTERM, grace, SIGKILL. */

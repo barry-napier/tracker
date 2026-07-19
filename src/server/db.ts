@@ -413,6 +413,47 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
     `,
     rekeysForeignKeys: true,
   },
+  {
+    version: 12,
+    sql: `
+      -- The dogfood phase becomes real (ticket 36). The node needs a live
+      -- Preview Environment before it runs and the vendored dogfood playbook
+      -- in its prompt; boots_preview marks the node the engine boots a preview
+      -- for and hands the dogfood asset variables to (parallel to emits_checks
+      -- — a per-node capability, not an engine special case).
+      ALTER TABLE workflow_nodes ADD COLUMN boots_preview INTEGER NOT NULL DEFAULT 0;
+      UPDATE workflow_nodes SET boots_preview = 1 WHERE name = 'dogfood';
+
+      -- Persona (ticket 11 §2, CONTEXT.md): an optional per-Repo markdown file
+      -- giving the experiential judge a user's lens. Null = no persona → the
+      -- report says the experiential judge was skipped; never faked.
+      ALTER TABLE repos ADD COLUMN persona_path TEXT;
+
+      -- The dogfood template stops being a generic "use it and judge" phase:
+      -- it now references the engine-supplied dogfood asset variables
+      -- (src/server/dogfood.ts) — the live preview URL, the persona lens, the
+      -- verification guide, the governor, the results schema, and the report
+      -- template. The contract file stays kb/dogfood.md; the phase also owes
+      -- kb/dogfood-report.md and kb/dogfood-results.json (slice 37 gates them).
+      UPDATE workflow_nodes SET prompt_template =
+        'You are the dogfood verification agent for ticket {{displayKey}}: {{title}}.' || char(10) || char(10) ||
+        '{{description}}' || char(10) || char(10) ||
+        'Acceptance criteria:' || char(10) || '{{acceptanceCriteria}}' || char(10) || char(10) ||
+        'Knowledge from earlier phases: {{priorKb}}' || char(10) || char(10) ||
+        'A running preview of this branch is available at: {{previewBaseUrl}}' || char(10) || char(10) ||
+        'Persona (experiential judge):' || char(10) || '{{persona}}' || char(10) || char(10) ||
+        'Follow this verification playbook exactly:' || char(10) || '{{dogfoodGuide}}' || char(10) || char(10) ||
+        'The fix-loop governor — read it before changing any code:' || char(10) || '{{dogfoodGovernor}}' || char(10) || char(10) ||
+        'Write kb/dogfood-results.json with at least one scenario, conforming to this schema:' || char(10) ||
+        '{{matrixSchema}}' || char(10) || char(10) ||
+        'Write kb/dogfood-report.md following this template heading-for-heading:' || char(10) ||
+        '{{dogfoodReportTemplate}}' || char(10) || char(10) ||
+        'Follow-up criteria from bounced attempts: {{followUps}}' || char(10) ||
+        'Bounce report from the previous attempt: {{bounceReportPath}}' || char(10) || char(10) ||
+        'Before finishing, write kb/dogfood.md: the verdict, what you walked, what you fixed (with SHAs), and what a human must decide.'
+      WHERE name = 'dogfood';
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {
