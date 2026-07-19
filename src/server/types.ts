@@ -196,6 +196,11 @@ export interface PhaseExecution {
   phase: string;
   state: PhaseState;
   failureReason: string | null;
+  /**
+   * The edge label this phase declared when its node branches (ADR-0001);
+   * null for the single-unlabeled-edge nodes of a v1 linear graph.
+   */
+  outcome: string | null;
   /** The provider's own session id, when it reports one. */
   providerSessionId: string | null;
   startedAt: string;

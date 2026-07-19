@@ -467,6 +467,16 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
         WHERE name = 'dogfood';
     `,
   },
+  {
+    version: 14,
+    sql: `
+      -- Branch routing (ticket 46, ADR-0001): a phase whose node has labeled
+      -- outgoing edges declares which one it took in its contract, and the
+      -- engine records the matched label here. Null for the single-unlabeled-
+      -- edge nodes that make up every v1 (RPIRD) graph.
+      ALTER TABLE phase_executions ADD COLUMN outcome TEXT;
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

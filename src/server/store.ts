@@ -1348,17 +1348,17 @@ export class Store {
   endPhase(
     executionId: number,
     state: "completed" | "failed" | "crashed",
-    detail: { failureReason?: string; providerSessionId?: string } = {},
+    detail: { failureReason?: string; providerSessionId?: string; outcome?: string } = {},
   ): PhaseExecution {
     const existing = this.getPhaseExecution(executionId);
     if (!existing) throw new NotFoundError(`phase execution ${executionId} not found`);
-    const { failureReason, providerSessionId } = detail;
+    const { failureReason, providerSessionId, outcome } = detail;
     const { execution, ticket, audit } = withTransaction(this.db, () => {
       this.db
         .prepare(
-          "UPDATE phase_executions SET state = ?, failure_reason = ?, provider_session_id = ?, ended_at = ? WHERE id = ?",
+          "UPDATE phase_executions SET state = ?, failure_reason = ?, provider_session_id = ?, outcome = ?, ended_at = ? WHERE id = ?",
         )
-        .run(state, failureReason ?? null, providerSessionId ?? null, nowIso(), executionId);
+        .run(state, failureReason ?? null, providerSessionId ?? null, outcome ?? null, nowIso(), executionId);
       const execution = this.getPhaseExecution(executionId)!;
       const run = this.getRun(execution.runId)!;
       const ticket = this.getTicket(run.ticketId)!;
@@ -1466,6 +1466,7 @@ function phaseFromRow(row: Row): PhaseExecution {
     phase: String(row.phase),
     state: String(row.state) as PhaseExecution["state"],
     failureReason: row.failure_reason === null ? null : String(row.failure_reason),
+    outcome: row.outcome === null ? null : String(row.outcome),
     providerSessionId: row.provider_session_id === null ? null : String(row.provider_session_id),
     startedAt: String(row.started_at),
     endedAt: row.ended_at === null ? null : String(row.ended_at),

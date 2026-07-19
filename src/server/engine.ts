@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { BOUNCE_REPORT_PATH } from "./bounce.ts";
 import { readCheckManifest } from "./checks.ts";
@@ -7,7 +7,7 @@ import {
   resolvePersona,
   type PreviewHandoff,
 } from "./dogfood.ts";
-import { nextNode, triggerOf } from "./graph.ts";
+import { branchLabels, nextNode, nextNodeByLabel, triggerOf } from "./graph.ts";
 import { DEFAULT_READINESS_TIMEOUT_MS, type PreviewManager } from "./previews.ts";
 import type { ProviderRegistry } from "./provider.ts";
 import { RunLogRegistry } from "./runlog.ts";
@@ -53,20 +53,38 @@ export class WorkflowEngine {
     // Context travels between phases as files: each completed phase's
     // contract doc joins the {{priorKb}} handoff for the ones after it.
     const priorKb: string[] = [];
-    let node: WorkflowNode | undefined = triggerOf(workflow);
-    while ((node = nextNode(workflow, node)) !== undefined) {
-      if (node.type !== "agent_phase") continue;
-      await this.#runPhase(ctx, provider, node, priorKb);
+    // Walk from the trigger. A branch node (labeled outgoing edges) routes by
+    // the phase's declared outcome; every other node follows its single
+    // unlabeled edge, so a v1 linear graph runs exactly as before. Following
+    // one edge per node means a fan-in target is reached — and runs — once.
+    let node: WorkflowNode | undefined = nextNode(workflow, triggerOf(workflow));
+    while (node !== undefined) {
+      if (node.type !== "agent_phase") {
+        node = nextNode(workflow, node);
+        continue;
+      }
+      const labels = branchLabels(workflow, node);
+      const outcome = await this.#runPhase(ctx, provider, node, priorKb, labels);
       priorKb.push(`kb/${node.name}.md`);
+      node =
+        outcome === null
+          ? nextNode(workflow, node)
+          : nextNodeByLabel(workflow, node, outcome);
     }
   }
 
+  /**
+   * Run one phase. Returns the edge label the phase routes on when its node
+   * branches (`labels` non-empty), or null for a single-unlabeled-edge node.
+   * Throws PhaseFailedError (wrong work) or a plain Error (crash).
+   */
   async #runPhase(
     ctx: RunContext,
     provider: NonNullable<ProviderRegistry[keyof ProviderRegistry]>,
     node: WorkflowNode,
     priorKb: readonly string[],
-  ): Promise<void> {
+    labels: readonly string[],
+  ): Promise<string | null> {
     const execution = this.store.startPhase(ctx.run.id, node);
     // Re-entry context (spec 21, Phase Contract): follow-up criteria and the
     // Bounce Report the previous cycle left in the reused worktree. Statuses
@@ -97,6 +115,9 @@ export class WorkflowEngine {
         bounceReportPath: existsSync(path.join(ctx.worktreePath, BOUNCE_REPORT_PATH))
           ? BOUNCE_REPORT_PATH
           : "none",
+        // Branch choices (ADR-0001): a branch node's phase must declare one of
+        // these as its `outcome`; empty for a single-edge node ("none").
+        outcomes: labels.length === 0 ? "none" : labels.join(", "),
         ...(dogfood?.vars ?? {}),
       });
 
@@ -138,11 +159,31 @@ export class WorkflowEngine {
           failure = manifest.failure;
         }
       }
+      // Branch routing (ADR-0001): a node with labeled edges must have its
+      // phase declare `outcome: <label>` in the contract. The engine only
+      // string-matches — routing is the phase's judgment, never a gate — but a
+      // missing or unrecognized outcome is wrong work, failed with the same
+      // teeth as a hollow contract. A single-edge node ignores any stray one.
+      let route: string | null = null;
+      if (failure === undefined && labels.length > 0) {
+        const declared = readContractOutcome(contract);
+        if (declared === undefined) {
+          failure = `phase ${node.name} declared no outcome — kb/${node.name}.md must set \`outcome:\` to one of: ${labels.join(", ")}`;
+        } else if (!labels.includes(declared)) {
+          failure = `phase ${node.name} declared outcome "${declared}" — expected one of: ${labels.join(", ")}`;
+        } else {
+          route = declared;
+        }
+      }
       if (failure !== undefined) {
         this.store.endPhase(execution.id, "failed", { failureReason: failure, providerSessionId });
         throw new PhaseFailedError(failure);
       }
-      this.store.endPhase(execution.id, "completed", { providerSessionId });
+      this.store.endPhase(execution.id, "completed", {
+        providerSessionId,
+        outcome: route ?? undefined,
+      });
+      return route;
     } finally {
       // The dogfood phase owns its preview for the phase's lifetime only: stop
       // it however the phase ends so the later demo step (and the wizard) boot
@@ -182,4 +223,20 @@ export class WorkflowEngine {
 /** The engine's fixed template variable set (Phase Contract). */
 function renderTemplate(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (match, name: string) => vars[name] ?? match);
+}
+
+/**
+ * The `outcome` a branching phase declared in its contract's leading YAML
+ * frontmatter (`---` fenced). Returns undefined when the file has no
+ * frontmatter block, no closing fence (malformed), or no `outcome:` key — all
+ * of which the engine treats alike as an undeclared outcome.
+ */
+function readContractOutcome(contractPath: string): string | undefined {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(readFileSync(contractPath, "utf8"));
+  if (!match) return undefined;
+  for (const line of match[1]!.split(/\r?\n/)) {
+    const kv = /^outcome:\s*(.+?)\s*$/.exec(line);
+    if (kv) return kv[1]!.replace(/^["']|["']$/g, "").trim() || undefined;
+  }
+  return undefined;
 }

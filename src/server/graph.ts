@@ -1,4 +1,4 @@
-import type { WorkflowGraph, WorkflowNode } from "./types.ts";
+import type { WorkflowEdge, WorkflowGraph, WorkflowNode } from "./types.ts";
 
 /**
  * The v1 graph walk (ADR-0001), shared by the engine's interpreter and the
@@ -15,7 +15,33 @@ export function nextNode(workflow: WorkflowGraph, from: WorkflowNode): WorkflowN
   const edge = workflow.edges.find(
     (candidate) => candidate.fromNodeId === from.id && candidate.conditionLabel === null,
   );
-  if (!edge) return undefined;
+  return edge === undefined ? undefined : nodeOfEdge(workflow, edge);
+}
+
+/**
+ * The labels on a node's outgoing edges — the branch choices a phase picks
+ * from (ADR-0001). A non-empty result marks a branch node: its phase must
+ * declare one of these labels as its outcome, and the engine routes by it.
+ */
+export function branchLabels(workflow: WorkflowGraph, from: WorkflowNode): string[] {
+  return workflow.edges
+    .filter((edge) => edge.fromNodeId === from.id && edge.conditionLabel !== null)
+    .map((edge) => edge.conditionLabel as string);
+}
+
+/** Follow the outgoing edge whose label matches the phase's declared outcome. */
+export function nextNodeByLabel(
+  workflow: WorkflowGraph,
+  from: WorkflowNode,
+  label: string,
+): WorkflowNode | undefined {
+  const edge = workflow.edges.find(
+    (candidate) => candidate.fromNodeId === from.id && candidate.conditionLabel === label,
+  );
+  return edge === undefined ? undefined : nodeOfEdge(workflow, edge);
+}
+
+function nodeOfEdge(workflow: WorkflowGraph, edge: WorkflowEdge): WorkflowNode {
   const node = workflow.nodes.find((candidate) => candidate.id === edge.toNodeId);
   if (!node) throw new Error(`edge ${edge.id} points at missing node ${edge.toNodeId}`);
   return node;
