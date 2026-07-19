@@ -2,7 +2,14 @@ import type { Bouncer } from "./bounce.ts";
 import type { GitHubPort } from "./github.ts";
 import { freshness } from "./reviews.ts";
 import { NotFoundError, StateError, ValidationError, type Store } from "./store.ts";
-import type { Repo, ReviewStepMark, Run, TicketWithAcs } from "./types.ts";
+import {
+  REVIEW_STEP_KEYS,
+  type Repo,
+  type ReviewStepKey,
+  type ReviewStepMark,
+  type Run,
+  type TicketWithAcs,
+} from "./types.ts";
 
 /**
  * Drift at the Final Verdict (ticket 33): the freshness subset found the
@@ -70,20 +77,25 @@ export class Verdicts {
   /**
    * The failed review: every failed step needs the reviewer's written note —
    * fail without one is impossible, here and not merely in the UI — and the
-   * notes bounce the Ticket through the slice-30 machinery verbatim.
+   * notes bounce the Ticket through the slice-30 machinery verbatim. A
+   * walkthrough that failed ACs is grounds enough on its own: failing any AC
+   * bounces the Ticket (CONTEXT.md), so no step mark must be fabricated.
    */
   async fail(ticketId: number, steps: unknown): Promise<TicketWithAcs> {
     const marks = parseSteps(steps);
     const failed = marks.filter((mark) => mark.status === "fail");
-    if (failed.length === 0) {
-      throw new ValidationError("a fail verdict needs at least one failed step");
-    }
     for (const mark of failed) {
       if (typeof mark.note !== "string" || mark.note.trim() === "") {
         throw new ValidationError(`failing a step requires a written note (step "${mark.step}")`);
       }
     }
     const target = this.reviewTarget(ticketId);
+    const failedAcs = target.ticket.acceptanceCriteria.filter((ac) => ac.status === "failed");
+    if (failed.length === 0 && failedAcs.length === 0) {
+      throw new ValidationError(
+        "a fail verdict needs a failed step or a failed acceptance criterion",
+      );
+    }
     const { ticket } = await this.bouncer.bounceFromReview({
       ...target,
       reason: "review-fail",
@@ -132,15 +144,19 @@ export class Verdicts {
    * a blocked merge must rest on provable staleness, never a gh hiccup.
    */
   private async driftReasons(ticket: TicketWithAcs, repo: Repo): Promise<string[]> {
-    if (ticket.branch === null) return [];
+    if (ticket.branch === null) return ["no branch recorded on the ticket"];
     const reasons: string[] = [];
     const branchTip = await this.github.branchTip(repo.githubRemote, ticket.branch).catch(() => null);
     if (branchTip === null) {
       reasons.push(`branch ${ticket.branch} is no longer resolvable on the remote`);
       return reasons;
     }
-    const pr = await this.github.findPr(repo.githubRemote, ticket.branch).catch(() => null);
-    if (pr !== null && pr.headSha !== branchTip) {
+    // A port hiccup (undefined) stays non-drift; a definite "no open PR"
+    // (null) is drift — the PR the reviewer approved is gone.
+    const pr = await this.github.findPr(repo.githubRemote, ticket.branch).catch(() => undefined);
+    if (pr === null) {
+      reasons.push(`no open PR found for branch ${ticket.branch}`);
+    } else if (pr !== undefined && pr.headSha !== branchTip) {
       reasons.push(
         `PR #${pr.number} head ${shortSha(pr.headSha)} is not the branch tip ${shortSha(branchTip)}`,
       );
@@ -160,15 +176,18 @@ function shortSha(sha: string): string {
   return sha.slice(0, 7);
 }
 
-/** The request body's steps, shape-checked before any guard runs. */
+/** The request body's steps, shape-checked before any guard runs. May be
+ * empty — a walkthrough-only fail carries no step marks. */
 function parseSteps(steps: unknown): ReviewStepMark[] {
-  if (!Array.isArray(steps) || steps.length === 0) {
-    throw new ValidationError("a fail verdict needs the step marks it is failing on");
+  if (!Array.isArray(steps)) {
+    throw new ValidationError("a fail verdict needs its step marks (an array, possibly empty)");
   }
   return steps.map((candidate) => {
-    const mark = candidate as Partial<ReviewStepMark>;
-    if (typeof mark.step !== "string" || mark.step.trim() === "") {
-      throw new ValidationError("every step mark needs a step name");
+    const mark = candidate as Partial<Record<keyof ReviewStepMark, unknown>>;
+    if (!isReviewStep(mark.step)) {
+      throw new ValidationError(
+        `unknown wizard step ${JSON.stringify(mark.step)} — steps are ${REVIEW_STEP_KEYS.join(", ")}`,
+      );
     }
     if (mark.status !== "pass" && mark.status !== "fail" && mark.status !== "skip") {
       throw new ValidationError(`step "${mark.step}" has no pass/fail/skip status`);
@@ -179,4 +198,8 @@ function parseSteps(steps: unknown): ReviewStepMark[] {
       note: typeof mark.note === "string" ? mark.note : undefined,
     };
   });
+}
+
+function isReviewStep(value: unknown): value is ReviewStepKey {
+  return typeof value === "string" && (REVIEW_STEP_KEYS as readonly string[]).includes(value);
 }

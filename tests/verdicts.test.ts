@@ -125,6 +125,39 @@ describe("wizard verdicts (ticket 33)", () => {
     expect(run2Research!.prompt).toContain("kb/bounce-report.md");
   }, 30_000);
 
+  test("a failed walkthrough alone bounces: failed ACs need no fabricated step mark", async () => {
+    const { boot } = wellBehavedWorkspace(["Widget renders"]);
+    const { server, ticket } = await boot();
+    await waitForTicketState(server, ticket.id, "human_review");
+    const acId = ticket.acceptanceCriteria[0].id;
+
+    // Nothing failed anywhere → no grounds to fail the review.
+    const noGrounds = await api(server, "POST", `/api/tickets/${ticket.id}/verdict`, {
+      outcome: "fail",
+      steps: [],
+    });
+    expect(noGrounds.status).toBe(400);
+
+    await api(server, "POST", `/api/acs/${acId}/fail`, {});
+    const verdict = await api(server, "POST", `/api/tickets/${ticket.id}/verdict`, {
+      outcome: "fail",
+      steps: [],
+    });
+    expect(verdict.status).toBe(200);
+
+    const bounced = await waitForAudit(server, ticket.id, "ticket.bounced");
+    expect(bounced.detail).toMatchObject({ reason: "review-fail", followUpAcIds: [] });
+
+    // The failed AC reset to pending on re-claim and re-earned green.
+    const detail = await waitForTicketState(server, ticket.id, "human_review");
+    expect(detail).toMatchObject({ bounceCount: 1 });
+    expect(detail.acceptanceCriteria).toHaveLength(1);
+    expect(detail.acceptanceCriteria[0]).toMatchObject({
+      status: "verified",
+      provenance: "machine",
+    });
+  }, 30_000);
+
   test("the walkthrough settles ACs with human provenance, and only from real rows", async () => {
     const server = await bootServer();
     const project = (await api(server, "POST", "/api/projects", { name: "A" })).json;
@@ -237,6 +270,15 @@ describe("wizard verdicts (ticket 33)", () => {
       outcome: "maybe",
     });
     expect(badOutcome.status).toBe(400);
+
+    // Step marks are validated against the wizard's roster — the API can't
+    // mint follow-ups under a step name the wizard never shows.
+    const badStep = await api(server, "POST", `/api/tickets/${ticket.id}/verdict`, {
+      outcome: "fail",
+      steps: [{ step: "banana", status: "fail", note: "not a step" }],
+    });
+    expect(badStep.status).toBe(400);
+    expect(badStep.json.error).toContain("banana");
 
     const wrongState = await api(server, "POST", `/api/tickets/${ticket.id}/verdict`, {
       outcome: "fail",

@@ -184,13 +184,26 @@ export interface FollowUpSeed {
   text: string;
 }
 
+/** The review wizard's six steps (ticket 12, Variant A); the verdict route
+ * validates step marks against this roster — an API caller can't mint
+ * follow-ups under a step name the wizard never shows. */
+export const REVIEW_STEP_KEYS = [
+  "recap",
+  "dogfood",
+  "pr",
+  "docs",
+  "walkthrough",
+  "verdict",
+] as const;
+export type ReviewStepKey = (typeof REVIEW_STEP_KEYS)[number];
+
 /**
  * One wizard step's mark as submitted with a review verdict (ticket 33).
  * A "fail" must carry the reviewer's written note — the note becomes a
  * Follow-up Criterion verbatim, so a fail without one is refused.
  */
 export interface ReviewStepMark {
-  step: string;
+  step: ReviewStepKey;
   status: "pass" | "fail" | "skip";
   note?: string;
 }

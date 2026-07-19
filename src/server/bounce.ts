@@ -85,9 +85,11 @@ export class Bouncer {
     /** What the Final Verdict freshness subset found, for stale-evidence bounces. */
     driftReasons?: string[];
   }): Promise<{ ticket: TicketWithAcs; followUpAcIds: number[] }> {
+    // Notes were validated non-empty upstream (Verdicts.fail); the fallback
+    // keeps this total rather than trusting a `!` across the layer boundary.
     const failedSteps = ctx.steps
       .filter((mark) => mark.status === "fail")
-      .map((mark) => ({ step: mark.step, note: mark.note!.trim() }));
+      .map((mark) => ({ step: mark.step, note: (mark.note ?? "").trim() }));
     // Snapshot fresh: walkthrough verdicts may have settled ACs since load.
     const ticket = this.store.getTicket(ctx.ticket.id)!;
     const worktreePath = ctx.run.worktreePath;

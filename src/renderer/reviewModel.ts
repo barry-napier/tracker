@@ -2,6 +2,8 @@ import type {
   AcceptanceCriterion,
   Artifact,
   GateStatus,
+  ReviewStepKey,
+  ReviewStepMark,
   RunWithPhases,
   Ticket,
   TicketWithAcs,
@@ -11,7 +13,8 @@ import type {
 export const RECAP_NAME = "recap.html";
 export const DOGFOOD_REPORT_NAME = "dogfood-report.md";
 
-export type WizardStepKey = "recap" | "dogfood" | "pr" | "docs" | "walkthrough" | "verdict";
+/** The wizard's step vocabulary is the server's — verdicts validate against it. */
+export type WizardStepKey = ReviewStepKey;
 
 /** The six steps, in prototype Variant A order (ticket 12). */
 export const WIZARD_STEPS: ReadonlyArray<{ key: WizardStepKey; label: string }> = [
@@ -106,9 +109,7 @@ export type ReviewMarks = Partial<Record<WizardStepKey, StepMark>>;
 export const MARKABLE_STEPS = WIZARD_STEPS.filter(({ key }) => key !== "verdict");
 
 /** The fail verdict's payload: every mark as made, notes riding the fails. */
-export function verdictSteps(
-  marks: ReviewMarks,
-): Array<{ step: WizardStepKey; status: GateStatus; note?: string }> {
+export function verdictSteps(marks: ReviewMarks): ReviewStepMark[] {
   return MARKABLE_STEPS.flatMap(({ key }) => {
     const mark = marks[key];
     if (!mark) return [];
@@ -122,11 +123,17 @@ export function verdictSteps(
 
 /**
  * Why "Fail review" is not yet possible; empty = enabled. Fail without a
- * note is impossible — the note becomes a Follow-up Criterion verbatim.
+ * note is impossible — the note becomes a Follow-up Criterion verbatim. A
+ * walkthrough that failed ACs is grounds enough on its own: failing any AC
+ * bounces the Ticket, no step mark needed.
  */
-export function failVerdictProblems(marks: ReviewMarks): string[] {
+export function failVerdictProblems(marks: ReviewMarks, ticket: TicketWithAcs): string[] {
   const failed = MARKABLE_STEPS.filter(({ key }) => marks[key]?.status === "fail");
-  if (failed.length === 0) return ["no step is marked as failed"];
+  if (failed.length === 0) {
+    return ticket.acceptanceCriteria.some((ac) => ac.status === "failed")
+      ? []
+      : ["no step is marked as failed and no acceptance criterion is failed"];
+  }
   return failed
     .filter(({ key }) => marks[key]!.note.trim() === "")
     .map(({ label }) => `"${label}" is failed without a note`);

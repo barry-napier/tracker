@@ -149,16 +149,25 @@ describe("verdict marks (ticket 33)", () => {
   });
 
   test("fail without a note is impossible; a noted fail enables the verdict", () => {
-    expect(failVerdictProblems({})).toEqual(["no step is marked as failed"]);
-    expect(failVerdictProblems({ recap: { status: "pass", note: "" } })).toEqual([
-      "no step is marked as failed",
+    const settled = { acceptanceCriteria: [criterion(1, { status: "verified" })] } as TicketWithAcs;
+    const noGrounds = "no step is marked as failed and no acceptance criterion is failed";
+    expect(failVerdictProblems({}, settled)).toEqual([noGrounds]);
+    expect(failVerdictProblems({ recap: { status: "pass", note: "" } }, settled)).toEqual([
+      noGrounds,
     ]);
-    expect(failVerdictProblems({ recap: { status: "fail", note: "  " } })).toEqual([
+    expect(failVerdictProblems({ recap: { status: "fail", note: "  " } }, settled)).toEqual([
       '"Visual Recap" is failed without a note',
     ]);
-    expect(failVerdictProblems({ recap: { status: "fail", note: "hides the error path" } })).toEqual(
-      [],
-    );
+    expect(
+      failVerdictProblems({ recap: { status: "fail", note: "hides the error path" } }, settled),
+    ).toEqual([]);
+  });
+
+  test("a failed walkthrough is grounds on its own — no step mark needed", () => {
+    const failedAc = {
+      acceptanceCriteria: [criterion(1, { status: "failed" })],
+    } as TicketWithAcs;
+    expect(failVerdictProblems({}, failedAc)).toEqual([]);
   });
 
   test("the payload keeps marks in step order and only fails carry notes", () => {

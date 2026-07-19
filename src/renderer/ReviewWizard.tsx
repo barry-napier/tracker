@@ -7,6 +7,7 @@ import type {
   RunWithPhases,
   TicketWithAcs,
 } from "../server/types.ts";
+import { settleAc, waiveWithPrompt } from "./acActions.ts";
 import { ApiError, apiBase, apiGet, apiPost } from "./api.ts";
 import { GATE_MARKS } from "./format.ts";
 import { Markdown } from "./Markdown.tsx";
@@ -371,15 +372,6 @@ function DocPreview({ artifact }: { artifact: Artifact }) {
   return <pre className="docraw">{text}</pre>;
 }
 
-/** One AC action against the store; errors surface, success refreshes chrome. */
-function settleAc(route: string, body: unknown, onSettled: () => void): void {
-  apiPost(route, body)
-    .then(onSettled)
-    .catch((error: unknown) => {
-      window.alert(error instanceof Error ? error.message : String(error));
-    });
-}
-
 function WalkthroughStep({
   ticket,
   onSettled,
@@ -388,11 +380,6 @@ function WalkthroughStep({
   onSettled: () => void;
 }) {
   const items = walkthroughItems(ticket);
-  const waive = (criterionId: number, text: string) => {
-    const reason = window.prompt(`Waive "${text}" — reason (required):`);
-    if (reason === null || reason.trim() === "") return;
-    settleAc(`/api/acs/${criterionId}/waive`, { reason: reason.trim() }, onSettled);
-  };
   return (
     <div className="walkthrough">
       <p className="dim">
@@ -426,7 +413,7 @@ function WalkthroughStep({
               </button>
               <button
                 disabled={criterion.status === "waived"}
-                onClick={() => waive(criterion.id, criterion.text)}
+                onClick={() => waiveWithPrompt(criterion, onSettled)}
               >
                 waive…
               </button>
@@ -466,7 +453,7 @@ function VerdictStep({
   const acs = ticket.acceptanceCriteria;
   const acCount = (status: AcStatus) => acs.filter((ac) => ac.status === status).length;
   const blockers = mergeProblems(ticket, marks);
-  const failProblems = failVerdictProblems(marks);
+  const failProblems = failVerdictProblems(marks, ticket);
   return (
     <div className="verdictstep">
       <ul className="verdictsummary">

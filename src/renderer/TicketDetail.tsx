@@ -9,7 +9,7 @@ import type {
   TicketWithAcs,
 } from "../server/types.ts";
 import { AgentLog } from "./AgentLog.tsx";
-import { apiPost } from "./api.ts";
+import { waiveWithPrompt } from "./acActions.ts";
 import { GATE_MARKS, PROVIDER_LABELS, repoName } from "./format.ts";
 import { STATE_LABELS } from "./ticketStates.ts";
 
@@ -35,14 +35,6 @@ function gateSummary(result: GateResult): string {
     return `missing ${detail.missing.join(", ")}`;
   }
   return "";
-}
-
-function waive(criterion: AcceptanceCriterion): void {
-  const reason = window.prompt(`Waive "${criterion.text}" — reason (required):`);
-  if (reason === null || reason.trim() === "") return;
-  apiPost(`/api/acs/${criterion.id}/waive`, { reason: reason.trim() }).catch((error: unknown) => {
-    window.alert(error instanceof Error ? error.message : String(error));
-  });
 }
 
 /** Ticket detail as a right slide-over over the board (ticket 12, Variant A). */
@@ -131,7 +123,7 @@ export function TicketDetail({
                   <button
                     className="waivebtn"
                     title="Waive this criterion (requires a reason)"
-                    onClick={() => waive(criterion)}
+                    onClick={() => waiveWithPrompt(criterion)}
                   >
                     waive
                   </button>
