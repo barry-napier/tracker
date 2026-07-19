@@ -5,6 +5,7 @@ import path from "node:path";
 import type { GitHubPort } from "../src/server/github.ts";
 import type { TrackerServer } from "../src/server/index.ts";
 import type { AgentEvent, PhaseContext } from "../src/server/provider.ts";
+import type { Project } from "../src/server/types.ts";
 import { FakeProvider, phaseFromPrompt, writePlanChecks } from "../src/server/providers/fake.ts";
 import { git } from "./git-helpers.ts";
 import type { FakeGitHub } from "./github-fake.ts";
@@ -103,7 +104,7 @@ export async function bootWorkspace(
     repo?: Record<string, unknown>;
     github?: GitHubPort;
     /** Workspace surgery (e.g. re-pointing the project's workflow) before the promotion triggers claims. */
-    beforePromote?: (server: TrackerServer, project: any) => Promise<void>;
+    beforePromote?: (server: TrackerServer, project: Project) => Promise<void>;
   } = {},
 ) {
   const dataDir = await mkdtemp(path.join(tmpdir(), "tracker-wf-"));

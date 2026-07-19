@@ -41,6 +41,11 @@ export async function apiPost<T>(route: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** The message a caught API failure shows the user. */
+export function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 export async function apiPatch<T>(route: string, body: unknown): Promise<T> {
   const res = await fetch(`${apiBase}${route}`, {
     method: "PATCH",

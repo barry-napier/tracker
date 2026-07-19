@@ -54,6 +54,8 @@ const BOUNCE_CAP = 3;
  * Trail event as a side effect (never event sourcing — see ticket 05).
  * The audit insert commits in the same transaction as its mutation; SSE
  * emission happens after commit so a rollback can never have been broadcast.
+ * One carve-out: app-global workflow-library ops audit nothing — see the
+ * workflow section below.
  */
 export class Store {
   constructor(
@@ -69,11 +71,9 @@ export class Store {
     workflowId?: number;
   }): Project {
     const workflow =
-      input.workflowId === undefined ? this.defaultWorkflow() : this.getWorkflow(input.workflowId);
-    if (!workflow) throw new NotFoundError(`workflow ${input.workflowId} not found`);
-    if (workflow.archived) {
-      throw new ValidationError(`workflow "${workflow.name}" is archived and cannot be selected`);
-    }
+      input.workflowId === undefined
+        ? this.defaultWorkflow()
+        : this.selectableWorkflow(input.workflowId);
     const { project, audit } = withTransaction(this.db, () => {
       const result = this.db
         .prepare(
@@ -1070,6 +1070,14 @@ export class Store {
       .map(phaseFromRow);
   }
 
+  // -- workflow library (ticket 43) --------------------------------------
+  //
+  // These ops are app-global: no project, no ticket — outside the Audit
+  // Trail's domain, which CONTEXT.md scopes to what happened to a Ticket.
+  // They deliberately append no audit events (an event no project or ticket
+  // can surface is write-only noise); the Run's pinned version is the
+  // enduring record of what actually drove work.
+
   /** One immutable version's content — what a Run's pinned id resolves to. */
   getWorkflowGraph(versionId: number): WorkflowGraph {
     const row = this.db
@@ -1235,13 +1243,19 @@ export class Store {
   setProjectWorkflow(projectId: number, workflowId: number): Project {
     const project = this.getProject(projectId);
     if (!project) throw new NotFoundError(`project ${projectId} not found`);
-    const workflow = this.getWorkflow(workflowId);
-    if (!workflow) throw new NotFoundError(`workflow ${workflowId} not found`);
+    const workflow = this.selectableWorkflow(workflowId);
+    this.db.prepare("UPDATE projects SET workflow_id = ? WHERE id = ?").run(workflow.id, projectId);
+    return this.getProject(projectId)!;
+  }
+
+  /** Archived is never a new choice — the shared gate for every selection surface. */
+  private selectableWorkflow(id: number): Workflow {
+    const workflow = this.getWorkflow(id);
+    if (!workflow) throw new NotFoundError(`workflow ${id} not found`);
     if (workflow.archived) {
       throw new ValidationError(`workflow "${workflow.name}" is archived and cannot be selected`);
     }
-    this.db.prepare("UPDATE projects SET workflow_id = ? WHERE id = ?").run(workflowId, projectId);
-    return this.getProject(projectId)!;
+    return workflow;
   }
 
   private defaultWorkflow(): Workflow {

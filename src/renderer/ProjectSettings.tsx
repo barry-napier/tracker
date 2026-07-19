@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import type { Project, WorkflowListing } from "../server/types.ts";
-import { apiGet, apiPatch } from "./api.ts";
+import { apiGet, apiPatch, errorMessage } from "./api.ts";
 
 /**
- * The shared workflow picker (ticket 45): active workflows only, the current
- * (or default) selection preselected. A project sitting on an archived
- * workflow still sees that selection, labeled — the picker just won't offer
- * archived options as new choices. Used by project settings and the
- * add-project flow.
+ * The shared workflow picker (ticket 45) for any surface that assigns a
+ * Project's workflow: active workflows only, the current (or default)
+ * selection preselected. A project sitting on an archived workflow still
+ * sees that selection, labeled — the picker just won't offer archived
+ * options as new choices.
  */
 export function WorkflowPicker({
   workflows,
@@ -74,7 +74,7 @@ export function ProjectSettings({ project, onClose }: { project: Project; onClos
         setWorkflows(listed);
         setWorkflowId(live.workflowId);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e) => setError(errorMessage(e)));
   }, [project.id]);
 
   const pick = async (picked: number) => {
@@ -85,7 +85,7 @@ export function ProjectSettings({ project, onClose }: { project: Project; onClos
       setError(null);
     } catch (e) {
       setWorkflowId(previous);
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorMessage(e));
     }
   };
 

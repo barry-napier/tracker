@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { WorkflowListing } from "../server/types.ts";
-import { apiGet, apiPatch, apiPost } from "./api.ts";
+import { apiGet, apiPatch, apiPost, errorMessage } from "./api.ts";
 
 /**
  * The app-global Workflow library, hosted as a view within Home (ticket 44).
@@ -21,7 +21,7 @@ export function WorkflowLibrary() {
         setRows(listed);
         setError(null);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+      .catch((e) => setError(errorMessage(e)));
   useEffect(() => {
     void load();
   }, []);
@@ -31,7 +31,7 @@ export function WorkflowLibrary() {
       await call();
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(errorMessage(e));
     }
   };
 

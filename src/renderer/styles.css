@@ -1869,7 +1869,7 @@ body {
   width: 14px;
   height: 14px;
   border-radius: var(--radius-full);
-  background: #fff;
+  background: var(--surface-panel);
 }
 
 /* On-track is --contrast-bg (light in dark mode): the knob must invert with it. */
