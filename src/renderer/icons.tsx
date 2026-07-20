@@ -9,6 +9,7 @@ const VIEWBOXES: Partial<Record<IconName, string>> = {
   "grid-plus": "0 0 16 16",
   "chevron-down": "0 0 16 16",
   "chevron-left": "0 0 16 16",
+  "dots-horizontal": "0 0 16 16",
   search: "0 0 16 16",
 };
 
@@ -30,6 +31,13 @@ const PATHS = {
   ),
   "close-small": (
     <path d="M6 6L14 14M14 6L6 14" stroke="currentColor" strokeLinecap="square" />
+  ),
+  "dots-horizontal": (
+    <>
+      <circle cx="3.5" cy="8" r="0.75" stroke="currentColor" />
+      <circle cx="8" cy="8" r="0.75" stroke="currentColor" />
+      <circle cx="12.5" cy="8" r="0.75" stroke="currentColor" />
+    </>
   ),
   "chevron-down": (
     <path d="M3.5 6L8 10.5L12.5 6" stroke="currentColor" strokeLinecap="square" />

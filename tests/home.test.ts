@@ -109,6 +109,50 @@ describe("Home: add a local repo", () => {
   });
 });
 
+describe("Home: remove from recents (ticket 50)", () => {
+  test("hiding forgets the list entry and deletes nothing", async () => {
+    const server = await bootServer();
+    const { project } = await seedWorkspace(server);
+    await api(server, "POST", "/api/tickets", {
+      projectId: project.id,
+      title: "survives the hide",
+      acceptanceCriteria: [],
+    });
+
+    const hide = await api(server, "POST", `/api/projects/${project.id}/hide`, {});
+    expect(hide.status).toBe(200);
+    expect(hide.json.hiddenAt).not.toBeNull();
+
+    // Gone from recents, but the project and its history still resolve.
+    expect((await api(server, "GET", "/api/projects")).json).toHaveLength(0);
+    expect((await api(server, "GET", `/api/projects/${project.id}`)).status).toBe(200);
+    const audit = (await api(server, "GET", `/api/projects/${project.id}/audit`)).json;
+    expect(audit.map((e: any) => e.type)).toContain("ticket.created");
+    expect(audit.map((e: any) => e.type)).toContain("project.hidden");
+  });
+
+  test("re-adding a hidden project's checkout un-hides the same Project", async () => {
+    const server = await bootServer();
+    const { source, project } = await seedWorkspace(server);
+    await api(server, "POST", `/api/projects/${project.id}/hide`, {});
+
+    const res = await api(server, "POST", "/api/projects/local", { path: source });
+    expect(res.status).toBe(200);
+    expect(res.json.alreadyTracked).toBe(true);
+    expect(res.json.project.id).toBe(project.id);
+    expect(res.json.project.hiddenAt).toBeNull();
+    // Just re-added → back in recents, at the top.
+    const names = (await api(server, "GET", "/api/projects")).json.map((p: any) => p.id);
+    expect(names[0]).toBe(project.id);
+  });
+
+  test("hiding an unknown project is a 404", async () => {
+    const server = await bootServer();
+    const res = await api(server, "POST", "/api/projects/999/hide", {});
+    expect(res.status).toBe(404);
+  });
+});
+
 describe("Home: recent projects ordering (ticket A)", () => {
   test("projects list orders by latest board activity, most recent first", async () => {
     const server = await bootServer();

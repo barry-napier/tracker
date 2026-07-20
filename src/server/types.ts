@@ -29,6 +29,8 @@ export interface Project {
   defaultProvider: ProviderName;
   /** The one Workflow every Ticket on this board runs (selected by reference). */
   workflowId: number;
+  /** Removed from Home's recents (forget, not delete); null = visible. */
+  hiddenAt: string | null;
   createdAt: string;
 }
 

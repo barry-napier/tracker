@@ -45,7 +45,14 @@ export class Home {
       this.trackedByPath(repoPath) ?? (await this.trackedByRemote(repoPath));
     if (tracked !== null) {
       const project = this.store.getProject(tracked);
-      if (project) return { alreadyTracked: true, project };
+      if (project) {
+        // Re-adding a removed-from-recents project is its recovery path
+        // (ticket 50): un-hide instead of ghosting or duplicating.
+        return {
+          alreadyTracked: true,
+          project: project.hiddenAt === null ? project : this.store.unhideProject(project.id),
+        };
+      }
     }
 
     // Everything downstream (gates, PRs, the merge path) talks to GitHub via
@@ -129,6 +136,23 @@ export async function pickFolderNative(): Promise<string | null> {
       throw new StateError("no native folder picker available on this host");
     }
     return null; // dismissed, killed, escaped — all read as "user cancelled"
+  }
+}
+
+/**
+ * Open a project's checkout in the OS file manager (ticket 50). Server-side
+ * for the same reason as the folder picker: the server runs on the user's
+ * machine, and the browser-dev renderer has no shell access. macOS `open`,
+ * matching pickFolderNative's platform posture.
+ */
+export async function revealInFinder(repoPath: string): Promise<void> {
+  try {
+    await promisify(execFile)("open", [repoPath]);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new StateError("no file manager available on this host");
+    }
+    throw error;
   }
 }
 

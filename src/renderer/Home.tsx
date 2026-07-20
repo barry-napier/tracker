@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Project } from "../server/types.ts";
 import { apiPost } from "./api.ts";
 import { Icon } from "./icons.tsx";
@@ -27,16 +27,56 @@ export function Home({
   projects,
   onOpen,
   onCreated,
+  onHidden,
 }: {
   projects: Project[];
   onOpen: (projectId: number) => void;
   /** A picked repo landed as a new Project: open its board. */
   onCreated: (project: Project) => void;
+  /** A row was removed from recents (forget, not delete): drop it from state. */
+  onHidden: (projectId: number) => void;
 }) {
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [menuFor, setMenuFor] = useState<number | null>(null);
   const shown = projects.filter((p) => p.name.toLowerCase().includes(query.toLowerCase()));
+
+  // An open row menu closes the way native menus do: any click elsewhere
+  // (the menu's own items close it themselves) or Escape.
+  useEffect(() => {
+    if (menuFor === null) return;
+    const close = () => setMenuFor(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("click", close);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("click", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuFor]);
+
+  /** Forget the list entry (ticket 50) — the server hides, nothing is deleted. */
+  const removeFromList = async (projectId: number) => {
+    setError(null);
+    try {
+      await apiPost(`/api/projects/${projectId}/hide`, {});
+      onHidden(projectId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const reveal = async (projectId: number) => {
+    setError(null);
+    try {
+      await apiPost(`/api/projects/${projectId}/reveal`, {});
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   /** Register the picked checkout; an already-tracked one just reopens. */
   const addLocal = async (repoPath: string) => {
@@ -96,13 +136,42 @@ export function Home({
         />
         <ul className="home-list">
           {shown.map((project) => (
-            <li key={project.id}>
-              <button type="button" onClick={() => onOpen(project.id)}>
+            <li key={project.id} className="home-row">
+              <button type="button" className="home-open" onClick={() => onOpen(project.id)}>
                 <span className="avatar" style={{ background: avatarColor(project.name) }}>
                   {project.name.slice(0, 1).toUpperCase()}
                 </span>
                 {project.name}
               </button>
+              <button
+                type="button"
+                className="icon-btn row-kebab"
+                title="More options"
+                aria-haspopup="menu"
+                aria-expanded={menuFor === project.id}
+                onClick={(e) => {
+                  // The document-level closer sees this click too; stop it so
+                  // the toggle isn't immediately undone.
+                  e.stopPropagation();
+                  setMenuFor((open) => (open === project.id ? null : project.id));
+                }}
+              >
+                <Icon name="dots-horizontal" size={16} />
+              </button>
+              {menuFor === project.id && (
+                <div className="row-menu" role="menu">
+                  <button type="button" role="menuitem" onClick={() => void reveal(project.id)}>
+                    Reveal in Finder
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => void removeFromList(project.id)}
+                  >
+                    Remove from list
+                  </button>
+                </div>
+              )}
             </li>
           ))}
           {shown.length === 0 && projects.length > 0 && (

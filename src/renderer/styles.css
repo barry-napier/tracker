@@ -1447,7 +1447,7 @@ body {
   overflow-y: auto;
 }
 
-.home-list > li > button {
+.home-list .home-open {
   width: 100%;
   display: flex;
   align-items: center;
@@ -1462,13 +1462,62 @@ body {
   text-align: left;
 }
 
-.home-list > li > button:hover:not(:disabled) {
+.home-list .home-open:hover:not(:disabled) {
   background: var(--overlay-hover);
 }
 
-.home-list > li > button:disabled {
+.home-list .home-open:disabled {
   color: var(--text-faint);
   cursor: default;
+}
+
+/* Row overflow (ticket 50): kebab reveals on hover/focus, opencode-style. */
+.home-row {
+  position: relative;
+}
+
+.home-row .row-kebab {
+  position: absolute;
+  top: 50%;
+  right: 0.35rem;
+  transform: translateY(-50%);
+  opacity: 0;
+}
+
+.home-row:hover .row-kebab,
+.home-row:focus-within .row-kebab,
+.home-row .row-kebab[aria-expanded="true"] {
+  opacity: 1;
+}
+
+.row-menu {
+  position: absolute;
+  top: calc(100% - 2px);
+  right: 0.35rem;
+  z-index: 10;
+  min-width: 170px;
+  display: flex;
+  flex-direction: column;
+  padding: 0.25rem;
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-floating);
+}
+
+.row-menu button {
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-base);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0.35rem 0.6rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.row-menu button:hover {
+  background: var(--overlay-hover);
 }
 
 .home-list .avatar {

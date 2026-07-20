@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import type { BusEvent, EventBus } from "./bus.ts";
-import { pickFolderNative, type Home } from "./home.ts";
+import { pickFolderNative, revealInFinder, type Home } from "./home.ts";
 import type { PreviewManager } from "./previews.ts";
 import type { Reviews } from "./reviews.ts";
 import type { RunLogRegistry } from "./runlog.ts";
@@ -188,6 +188,23 @@ export function createApp(
     const project = store.getProject(Number(c.req.param("id")));
     if (!project) return c.json({ error: "not found" }, 404);
     return c.json(project);
+  });
+
+  // Remove from Home's recents (ticket 50): forget the list entry, delete
+  // nothing. Re-adding the checkout via /api/projects/local un-hides it.
+  app.post("/api/projects/:id/hide", (c) =>
+    c.json(store.hideProject(Number(c.req.param("id")))),
+  );
+
+  // Row menu's "Reveal in Finder": the server owns the shell, same as the
+  // folder picker. A project with no registered repo has nothing to reveal.
+  app.post("/api/projects/:id/reveal", async (c) => {
+    const project = store.getProject(Number(c.req.param("id")));
+    if (!project) return c.json({ error: "not found" }, 404);
+    const repo = store.listRepos(project.id)[0];
+    if (!repo) throw new StateError(`project ${project.name} has no registered repo`);
+    await revealInFinder(repo.path);
+    return c.json({ ok: true });
   });
 
   app.get("/api/projects/:id/audit", (c) => {

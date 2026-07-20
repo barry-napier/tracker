@@ -101,6 +101,12 @@ function useWorkspace() {
     setActiveId((current) => (current === id ? null : current));
   }, []);
 
+  // Removed from recents (ticket 50): drop the row without a refetch. An open
+  // tab survives — hiding is a Home-list concern, not a tab concern.
+  const forgetProject = useCallback((id: number) => {
+    setProjects((rows) => rows.filter((p) => p.id !== id));
+  }, []);
+
   return {
     projects,
     tabs,
@@ -111,6 +117,7 @@ function useWorkspace() {
     openProjectById,
     activateTab,
     closeTab,
+    forgetProject,
     goHome,
   };
 }
@@ -127,6 +134,7 @@ export default function App() {
     openProjectById,
     activateTab,
     closeTab,
+    forgetProject,
     goHome,
   } = useWorkspace();
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -187,15 +195,16 @@ export default function App() {
         ))}
         <span className="topbar-actions">
           <ThemeToggle />
-          <button
-            type="button"
-            className="icon-btn"
-            title={project ? `${project.name} settings` : "Open a project to edit its settings"}
-            disabled={!project}
-            onClick={() => setSettingsOpen(true)}
-          >
-            <Icon name="settings-gear" />
-          </button>
+          {project && (
+            <button
+              type="button"
+              className="icon-btn"
+              title={`${project.name} settings`}
+              onClick={() => setSettingsOpen(true)}
+            >
+              <Icon name="settings-gear" />
+            </button>
+          )}
           <button type="button" className="icon-btn" title="Help">
             <Icon name="help" />
           </button>
@@ -209,6 +218,7 @@ export default function App() {
             projects={projects}
             onOpen={(id) => void openProjectById(id)}
             onCreated={openProject}
+            onHidden={forgetProject}
           />
         )}
         {!project && !CANVAS_PROTOTYPE && homeView === "workflows" && <WorkflowLibrary />}

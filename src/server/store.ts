@@ -111,7 +111,8 @@ export class Store {
   /**
    * Ordered for Home's recents: latest board activity first, read straight
    * off the Audit Trail — "opened" is not a recorded event (see CONTEXT.md).
-   * Event ids order the same as time and never tie.
+   * Event ids order the same as time and never tie. Hidden projects (ticket
+   * 50) are the one exclusion; getProject still resolves them.
    */
   listProjects(): Project[] {
     return this.db
@@ -119,10 +120,46 @@ export class Store {
         `SELECT p.* FROM projects p
          LEFT JOIN (SELECT project_id, MAX(id) AS last_event FROM events GROUP BY project_id) e
            ON e.project_id = p.id
+         WHERE p.hidden_at IS NULL
          ORDER BY COALESCE(e.last_event, 0) DESC, p.id DESC`,
       )
       .all()
       .map(projectFromRow);
+  }
+
+  /**
+   * Remove from Home's recents (ticket 50): forget the list entry, delete
+   * nothing — tickets, runs, and the audit trail all stay, and the project
+   * still resolves by id. Recovery is re-adding the checkout (Home.addLocal).
+   */
+  hideProject(id: number): Project {
+    return this.setProjectHidden(id, true);
+  }
+
+  /** Undo of hideProject; the unhide audit event also floats the project to
+   *  the top of recents, where a just-re-added project belongs. */
+  unhideProject(id: number): Project {
+    return this.setProjectHidden(id, false);
+  }
+
+  private setProjectHidden(id: number, hidden: boolean): Project {
+    const project = this.getProject(id);
+    if (!project) throw new NotFoundError(`project ${id} not found`);
+    const { updated, audit } = withTransaction(this.db, () => {
+      this.db
+        .prepare("UPDATE projects SET hidden_at = ? WHERE id = ?")
+        .run(hidden ? nowIso() : null, id);
+      const audit = this.insertAudit({
+        projectId: id,
+        ticketId: null,
+        actor: "human",
+        type: hidden ? "project.hidden" : "project.unhidden",
+        detail: { name: project.name },
+      });
+      return { updated: this.getProject(id)!, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    return updated;
   }
 
   createRepo(input: {
@@ -1652,6 +1689,7 @@ function projectFromRow(row: Row): Project {
     ticketPrefix: String(row.ticket_prefix),
     defaultProvider: String(row.default_provider) as Project["defaultProvider"],
     workflowId: Number(row.workflow_id),
+    hiddenAt: row.hidden_at === null ? null : String(row.hidden_at),
     createdAt: String(row.created_at),
   };
 }

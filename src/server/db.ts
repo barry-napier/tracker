@@ -497,6 +497,15 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
       );
     `,
   },
+  {
+    version: 16,
+    sql: `
+      -- Remove-from-recents (ticket 50): hiding forgets the Home list entry
+      -- and nothing else — every child row stays, and re-adding the checkout
+      -- clears the flag. Null = visible.
+      ALTER TABLE projects ADD COLUMN hidden_at TEXT;
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {
