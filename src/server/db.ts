@@ -477,6 +477,26 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
       ALTER TABLE phase_executions ADD COLUMN outcome TEXT;
     `,
   },
+  {
+    version: 15,
+    sql: `
+      -- App-level provider config (ticket 38). Deliberately app-level, not
+      -- per-project and never per-ticket: which binary and which model an
+      -- agent runs is an operator's machine-shaped decision, and a per-ticket
+      -- model knob would make two Runs of the same Ticket incomparable.
+      -- Rows are created on first edit; a missing row means "all defaults",
+      -- so the table starts empty rather than seeded.
+      CREATE TABLE provider_config (
+        provider TEXT PRIMARY KEY,
+        binary_path TEXT,
+        model TEXT,
+        max_budget_usd REAL,
+        -- Extra child environment as a JSON object; '{}' = inherit only.
+        env TEXT NOT NULL DEFAULT '{}',
+        updated_at TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

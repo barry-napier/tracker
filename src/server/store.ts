@@ -4,6 +4,7 @@ import { withTransaction } from "./db.ts";
 import { walkPhases } from "./graph.ts";
 import { branchNameFor, type WorktreeResult } from "./worktrees.ts";
 import type { CheckRegistration } from "./checks.ts";
+import { PROVIDERS } from "./types.ts";
 import type {
   AcceptanceCriterion,
   AcCheck,
@@ -18,6 +19,7 @@ import type {
   PreviewRecord,
   PreviewStatus,
   Project,
+  ProviderConfig,
   ProviderName,
   Repo,
   ReviewBounceReason,
@@ -1275,6 +1277,59 @@ export class Store {
     return this.getProject(projectId)!;
   }
 
+  /**
+   * App-level provider config (ticket 38). A provider with no row yet reads
+   * as all-defaults rather than as missing, so every adapter can ask for its
+   * config unconditionally and the settings surface always has a row to show.
+   */
+  getProviderConfig(provider: ProviderName): ProviderConfig {
+    const row = this.db
+      .prepare("SELECT * FROM provider_config WHERE provider = ?")
+      .get(provider) as Row | undefined;
+    return row === undefined
+      ? { provider, binaryPath: null, model: null, maxBudgetUsd: null, env: {} }
+      : providerConfigFromRow(row);
+  }
+
+  listProviderConfigs(): ProviderConfig[] {
+    return PROVIDERS.map((provider) => this.getProviderConfig(provider));
+  }
+
+  /**
+   * Patch semantics: an omitted field is left alone, an explicit null clears
+   * it back to the default. Without that distinction the settings form could
+   * never blank a pinned model once it had been set.
+   */
+  setProviderConfig(
+    provider: ProviderName,
+    patch: Partial<Omit<ProviderConfig, "provider">>,
+  ): ProviderConfig {
+    const current = this.getProviderConfig(provider);
+    const next: ProviderConfig = { ...current, ...patch, provider };
+    if (next.maxBudgetUsd !== null && !(next.maxBudgetUsd > 0)) {
+      throw new ValidationError("maxBudgetUsd must be greater than zero");
+    }
+    this.db
+      .prepare(
+        `INSERT INTO provider_config (provider, binary_path, model, max_budget_usd, env, updated_at)
+         VALUES (?, ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(provider) DO UPDATE SET
+           binary_path = excluded.binary_path,
+           model = excluded.model,
+           max_budget_usd = excluded.max_budget_usd,
+           env = excluded.env,
+           updated_at = excluded.updated_at`,
+      )
+      .run(
+        provider,
+        next.binaryPath,
+        next.model,
+        next.maxBudgetUsd,
+        JSON.stringify(next.env),
+      );
+    return this.getProviderConfig(provider);
+  }
+
   /** Archived is never a new choice — the shared gate for every selection surface. */
   private selectableWorkflow(id: number): Workflow {
     const workflow = this.getWorkflow(id);
@@ -1567,6 +1622,26 @@ function auditFromRow(row: Row): AuditEvent {
     type: String(row.type),
     detail: JSON.parse(String(row.detail)) as Record<string, unknown>,
     createdAt: String(row.created_at),
+  };
+}
+
+function providerConfigFromRow(row: Row): ProviderConfig {
+  let env: Record<string, string> = {};
+  try {
+    const parsed: unknown = JSON.parse(String(row.env));
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      env = parsed as Record<string, string>;
+    }
+  } catch {
+    // A hand-edited database should not stop the app booting; an unreadable
+    // env reads as none, and the next save rewrites it.
+  }
+  return {
+    provider: String(row.provider) as ProviderName,
+    binaryPath: row.binary_path === null ? null : String(row.binary_path),
+    model: row.model === null ? null : String(row.model),
+    maxBudgetUsd: row.max_budget_usd === null ? null : Number(row.max_budget_usd),
+    env,
   };
 }
 

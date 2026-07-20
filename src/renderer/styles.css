@@ -2233,6 +2233,40 @@ body {
   gap: 0.4rem;
 }
 
+/* App-level provider config (ticket 38): collapsed per provider, since most
+   boards never touch it — the defaults are the point. */
+.provider-config {
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  padding: 0.4rem 0.6rem;
+}
+
+.provider-config > summary {
+  cursor: pointer;
+  font-size: var(--fs-sm);
+}
+
+.provider-config label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.5rem;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.provider-config input,
+.provider-config textarea {
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-base);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  padding: 0.3rem 0.45rem;
+  resize: vertical;
+}
+
 .icon-btn:disabled {
   opacity: 0.4;
   cursor: default;

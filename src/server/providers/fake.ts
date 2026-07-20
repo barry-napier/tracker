@@ -5,6 +5,7 @@ import type {
   PhaseContext,
   PhaseHandle,
   Provider,
+  ProviderCapabilities,
   RunPhaseOpts,
   RunResult,
 } from "../provider.ts";
@@ -65,6 +66,17 @@ export function writePlanChecks(
  * the dev app until the adapter slices land.
  */
 export class FakeProvider implements Provider {
+  /**
+   * The fake claims everything: scripts exercise deltas, thinking blocks and
+   * costs freely, and a test asserting capability-driven behaviour needs the
+   * permissive answer rather than a made-up restriction.
+   */
+  readonly capabilities: ProviderCapabilities = {
+    costReporting: true,
+    streamsPartialText: true,
+    emitsThinking: true,
+  };
+
   constructor(private readonly script: FakeScript) {}
 
   runPhase(prompt: string, cwd: string, opts?: RunPhaseOpts): PhaseHandle {

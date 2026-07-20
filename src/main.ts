@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
-import { demoProviders } from "./server/providers/demo.ts";
+import { appProviders } from "./server/providers/registry.ts";
 import { startServer, type TrackerServer } from "./server/index.ts";
 
 // One app instance = one orchestrator = one SQLite writer.
@@ -61,8 +61,10 @@ void app
       startServer({
         dataDir: app.getPath("userData"),
         port,
-        // Scripted demo phases until the real adapter slices land.
-        providers: demoProviders(),
+        // Claude Code is a real adapter (ticket 38); Kiro and Copilot stay
+        // scripted until their own slices. Built against the live provider
+        // config so a settings edit lands on the next claim.
+        providers: appProviders,
       });
     try {
       server = await boot(Number(process.env.TRACKER_PORT ?? 4400));

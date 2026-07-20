@@ -54,7 +54,26 @@ export interface PhaseContext {
   cwd: string;
 }
 
+/**
+ * What a provider can honestly do, declared rather than discovered — the
+ * three flags ticket 38 names, so each adapter states them where the next one
+ * can be compared against it. Nothing reads these yet: they exist to be
+ * declared at the seam rather than rediscovered per surface later, and the
+ * first reader will be whichever view stops guessing (a cost column, or a log
+ * view deciding whether to expect deltas). Adding a flag no adapter answers
+ * honestly is worse than not having it.
+ */
+export interface ProviderCapabilities {
+  /** Reports real spend, so RunResult.costUsd means something. */
+  costReporting: boolean;
+  /** Streams text deltas onto an open block, rather than landing whole ones. */
+  streamsPartialText: boolean;
+  /** Surfaces the model's reasoning as `thinking` blocks. */
+  emitsThinking: boolean;
+}
+
 export interface Provider {
+  readonly capabilities: ProviderCapabilities;
   /** Each call is a fresh provider session (Phase Contract). */
   runPhase(prompt: string, cwd: string, opts?: RunPhaseOpts): PhaseHandle;
 }

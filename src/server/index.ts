@@ -11,6 +11,7 @@ import { GhGitHub, type GitHubPort } from "./github.ts";
 import { Home } from "./home.ts";
 import { PreviewManager } from "./previews.ts";
 import type { ProviderRegistry } from "./provider.ts";
+import type { ProviderConfigReader } from "./providers/registry.ts";
 import { Reviews } from "./reviews.ts";
 import { RunLogRegistry } from "./runlog.ts";
 import { Store } from "./store.ts";
@@ -29,8 +30,13 @@ export async function startServer(options: {
   port: number;
   /** Worker-pool size; see WorkerPool for the default's rationale. 0 disables claims. */
   workers?: number;
-  /** Provider adapters by name; a claim on an unregistered provider crashes its run. */
-  providers?: ProviderRegistry;
+  /**
+   * Provider adapters by name; a claim on an unregistered provider crashes
+   * its run. Pass a function to build the registry against the app's live
+   * provider config (ticket 38) — adapters that read it per phase pick up a
+   * settings edit without a restart. Tests pass a plain registry.
+   */
+  providers?: ProviderRegistry | ((config: ProviderConfigReader) => ProviderRegistry);
   /** GitHub seam for the battery's gates and the merge path; defaults to `gh`. */
   github?: GitHubPort;
   /** Preview port-preference base (ticket 10); tests offset it per worker. */
@@ -58,7 +64,11 @@ export async function startServer(options: {
     previews,
     options.dataDir,
   );
-  const engine = new WorkflowEngine(store, options.providers ?? {}, runLogs, previews);
+  const providers =
+    typeof options.providers === "function"
+      ? options.providers((provider) => store.getProviderConfig(provider))
+      : (options.providers ?? {});
+  const engine = new WorkflowEngine(store, providers, runLogs, previews);
   const pool = new WorkerPool(
     store,
     new WorktreeManager(options.dataDir),

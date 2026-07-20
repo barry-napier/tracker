@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Project, WorkflowListing } from "../server/types.ts";
+import type { Project, ProviderConfig, WorkflowListing } from "../server/types.ts";
 import { apiGet, apiPatch, errorMessage } from "./api.ts";
 
 /**
@@ -49,6 +49,116 @@ export function WorkflowPicker({
         </li>
       ))}
     </ul>
+  );
+}
+
+/** `KEY=value` lines ⇄ the env object the API stores. */
+function envToText(env: Record<string, string>): string {
+  return Object.entries(env)
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+}
+
+function envFromText(text: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    env[trimmed.slice(0, eq).trim()] = trimmed.slice(eq + 1).trim();
+  }
+  return env;
+}
+
+/**
+ * App-level provider config (ticket 38), hosted in the Project settings
+ * dialog because it is the only settings surface the app has — hence the
+ * "every project on this machine" wording, which is doing real work: this is
+ * the one section here whose scope is not the Project. Saves on blur; the
+ * adapter re-reads config per phase, so the next claim picks it up.
+ */
+function ProviderConfigSection() {
+  const [configs, setConfigs] = useState<ProviderConfig[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void apiGet<ProviderConfig[]>("/api/provider-config")
+      .then(setConfigs)
+      .catch((e) => setError(errorMessage(e)));
+  }, []);
+
+  const save = async (provider: string, patch: Record<string, unknown>) => {
+    try {
+      const saved = await apiPatch<ProviderConfig>(`/api/provider-config/${provider}`, patch);
+      setConfigs((current) =>
+        (current ?? []).map((c) => (c.provider === saved.provider ? saved : c)),
+      );
+      setError(null);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  return (
+    <section>
+      <h4 className="wf-section-title">Providers</h4>
+      <p className="dim">
+        Applies to every project on this machine. Blank means the provider's own default — the
+        binary is resolved on <code>PATH</code>. A change takes effect at the next claim.
+      </p>
+      {error && <p className="banner error">{error}</p>}
+      {configs?.map((config) => (
+        <details key={config.provider} className="provider-config">
+          <summary>
+            {config.provider}
+            {config.model && <span className="dim"> — {config.model}</span>}
+          </summary>
+          <label>
+            Binary path
+            <input
+              type="text"
+              defaultValue={config.binaryPath ?? ""}
+              placeholder={`resolve "${config.provider === "claude-code" ? "claude" : config.provider}" on PATH`}
+              onBlur={(e) => void save(config.provider, { binaryPath: e.target.value })}
+            />
+          </label>
+          <label>
+            Pinned model
+            <input
+              type="text"
+              defaultValue={config.model ?? ""}
+              placeholder="provider default"
+              onBlur={(e) => void save(config.provider, { model: e.target.value })}
+            />
+          </label>
+          <label>
+            Budget cap per phase (USD)
+            <input
+              type="number"
+              min="0"
+              step="0.5"
+              defaultValue={config.maxBudgetUsd ?? ""}
+              placeholder="uncapped"
+              onBlur={(e) =>
+                void save(config.provider, {
+                  maxBudgetUsd: e.target.value === "" ? null : Number(e.target.value),
+                })
+              }
+            />
+          </label>
+          <label>
+            Extra environment
+            <textarea
+              rows={3}
+              defaultValue={envToText(config.env)}
+              placeholder="KEY=value, one per line"
+              onBlur={(e) => void save(config.provider, { env: envFromText(e.target.value) })}
+            />
+          </label>
+        </details>
+      ))}
+    </section>
   );
 }
 
@@ -104,6 +214,7 @@ export function ProjectSettings({ project, onClose }: { project: Project; onClos
             <WorkflowPicker workflows={workflows} value={workflowId} onChange={(id) => void pick(id)} />
           )}
         </section>
+        <ProviderConfigSection />
         <div className="formrow">
           <button type="button" onClick={onClose}>
             Close

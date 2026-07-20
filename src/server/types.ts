@@ -5,6 +5,23 @@ export function isProvider(value: unknown): value is ProviderName {
   return typeof value === "string" && (PROVIDERS as readonly string[]).includes(value);
 }
 
+/**
+ * App-level adapter config (ticket 38): how to reach a provider on this
+ * machine and which model it is pinned to. Shared by every Project; see
+ * migration 15 in db.ts for why the scope is app-level and not per-ticket.
+ */
+export interface ProviderConfig {
+  provider: ProviderName;
+  /** Absolute path to the CLI; null = resolve the usual name on PATH. */
+  binaryPath: string | null;
+  /** Pinned model; null = whatever the provider defaults to. */
+  model: string | null;
+  /** Native spend cap per phase; null = uncapped by the provider. */
+  maxBudgetUsd: number | null;
+  /** Extra environment for the adapter's child process. */
+  env: Record<string, string>;
+}
+
 export interface Project {
   id: number;
   name: string;

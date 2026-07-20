@@ -9,7 +9,7 @@ import type { PreviewManager } from "./previews.ts";
 import type { Reviews } from "./reviews.ts";
 import type { RunLogRegistry } from "./runlog.ts";
 import { NotFoundError, StateError, ValidationError, type Store } from "./store.ts";
-import { isProvider, PROVIDERS, type PreviewKind } from "./types.ts";
+import { isProvider, PROVIDERS, type PreviewKind, type ProviderConfig } from "./types.ts";
 import { DriftError, type Verdicts } from "./verdicts.ts";
 
 function isNonEmptyString(value: unknown): value is string {
@@ -125,6 +125,49 @@ export function createApp(
   app.post("/api/workflows/:id/unarchive", (c) =>
     c.json(store.unarchiveWorkflow(Number(c.req.param("id")))),
   );
+
+  // App-level provider config (ticket 38): one row per provider name, shared
+  // by every Project. Adapters read it fresh per phase, so a save here lands
+  // on the next claim without an app restart.
+  app.get("/api/provider-config", (c) => c.json(store.listProviderConfigs()));
+  app.patch("/api/provider-config/:provider", async (c) => {
+    const provider = c.req.param("provider");
+    if (!isProvider(provider)) return c.json({ error: `unknown provider ${provider}` }, 404);
+    const body = await c.req
+      .json<Record<string, unknown>>()
+      .catch(() => ({}) as Record<string, unknown>);
+    const patch: Partial<Omit<ProviderConfig, "provider">> = {};
+    // Present-and-null clears; absent leaves alone. Empty strings from a form
+    // field are the user blanking it, which is the same as clearing.
+    for (const field of ["binaryPath", "model"] as const) {
+      if (!(field in body)) continue;
+      const value = body[field];
+      if (value === null) patch[field] = null;
+      else if (typeof value === "string") {
+        // Trim before testing for empty, or a field the user cleared to
+        // whitespace would store "" and read as a pinned model named nothing.
+        const trimmed = value.trim();
+        patch[field] = trimmed === "" ? null : trimmed;
+      } else return c.json({ error: `${field} must be a string or null` }, 400);
+    }
+    if ("maxBudgetUsd" in body) {
+      const value = body.maxBudgetUsd;
+      if (value === null || value === "") patch.maxBudgetUsd = null;
+      else if (typeof value === "number" && Number.isFinite(value)) patch.maxBudgetUsd = value;
+      else return c.json({ error: "maxBudgetUsd must be a number or null" }, 400);
+    }
+    if ("env" in body) {
+      const value = body.env;
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return c.json({ error: "env must be an object" }, 400);
+      }
+      if (Object.values(value).some((v) => typeof v !== "string")) {
+        return c.json({ error: "env values must be strings" }, 400);
+      }
+      patch.env = value as Record<string, string>;
+    }
+    return c.json(store.setProviderConfig(provider, patch));
+  });
 
   app.get("/api/projects", (c) => c.json(store.listProjects()));
 
