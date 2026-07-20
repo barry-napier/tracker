@@ -29,8 +29,10 @@ export interface Project {
   defaultProvider: ProviderName;
   /** The one Workflow every Ticket on this board runs (selected by reference). */
   workflowId: number;
-  /** Removed from Home's recents (forget, not delete); null = visible. */
+  /** Archived off Home's recents (recoverable); null = visible. */
   hiddenAt: string | null;
+  /** Soft-deleted: out of every listing, row kept for references. */
+  deletedAt: string | null;
   createdAt: string;
 }
 
@@ -161,10 +163,16 @@ export interface Workflow {
   name: string;
   /** Identity metadata like name (ticket 51); empty = not written yet. */
   description: string;
+  /** Appearance (null = derived from name): a hex color and a renderer icon
+   *  name. The server stores both as opaque strings. */
+  color: string | null;
+  icon: string | null;
   /** Removed from selection but still driving Projects that reference it. */
   archived: boolean;
   /** Preselected at Project creation; exactly one active default at all times. */
   isDefault: boolean;
+  /** Soft-deleted: out of every listing, row kept so run history resolves. */
+  deletedAt: string | null;
   createdAt: string;
 }
 
@@ -176,8 +184,9 @@ export interface WorkflowListing extends Workflow {
   phases: string[];
   usedByProjects: number;
   /**
-   * Never entered service: no project references it and no run ever pinned
-   * one of its versions — the one case hard delete is allowed (ticket 51).
+   * Delete would succeed: not the default and no project currently selects
+   * it. Never-used workflows hard-delete; anything with run history
+   * soft-deletes (the row stays so pinned versions resolve).
    */
   deletable: boolean;
   /** Unpublished changes: a Draft exists (ticket 47), invisible to claims. */

@@ -9,6 +9,7 @@ import {
   COPILOT_CAPABILITIES,
   CopilotProvider,
   WrapperMapper,
+  parseProbeLine,
 } from "../src/server/providers/copilot.ts";
 import { CONTRACT_PROMPT, collectEvents } from "./provider-contract.ts";
 
@@ -248,4 +249,26 @@ describe("CopilotProvider endings", () => {
       await rm(cwd, { recursive: true, force: true });
     }
   }, 15_000);
+});
+
+describe("parseProbeLine", () => {
+  test("finds the probe line among other output and maps it", () => {
+    const stdout = '{"type":"noise"}\n{"type":"probe","ok":true,"account":"me (via gh)","models":["auto"]}\n';
+    expect(parseProbeLine(stdout)).toEqual({
+      ok: true,
+      account: "me (via gh)",
+      models: ["auto"],
+      error: undefined,
+    });
+  });
+
+  test("unauthenticated: not ok, says how to fix it", () => {
+    const result = parseProbeLine('{"type":"probe","ok":false}\n');
+    expect(result?.ok).toBe(false);
+    expect(result?.error).toContain("sign in");
+  });
+
+  test("no probe line at all: undefined, so the exit handler judges", () => {
+    expect(parseProbeLine('{"type":"session","sessionId":"s"}\n')).toBeUndefined();
+  });
 });

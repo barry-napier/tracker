@@ -1750,6 +1750,15 @@ body {
   padding: 0.45rem 0.6rem;
 }
 
+.home-empty-cta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  text-align: center;
+  padding: 1.5rem 0.6rem;
+}
+
 .home-link {
   align-self: flex-start;
   background: none;
@@ -2281,25 +2290,6 @@ body {
   border-color: var(--warn-border);
 }
 
-.wf-sub {
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  font-size: var(--fs-xs);
-  color: var(--text-faint);
-}
-
-.wf-phases {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.wf-used {
-  flex: none;
-}
-
 /* Mirrors .home-time: far right, fades as the hover actions land on top. */
 .wf-time {
   margin-left: auto;
@@ -2312,21 +2302,6 @@ body {
 .wf-row:hover .wf-time,
 .wf-row:focus-within .wf-time {
   opacity: 0;
-}
-
-/* Inline "show archived" affordance inside the hidden-count footer line. */
-.wf-linklike {
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-  color: var(--text-accent);
-  cursor: pointer;
-}
-
-.wf-linklike:hover {
-  color: var(--text-accent-hover);
-  text-decoration: underline;
 }
 
 /* Row actions overlay the time on hover/focus, like Home's row kebab. */
@@ -2455,6 +2430,45 @@ body {
   color: var(--text-muted);
 }
 
+.wf-appearance {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.wf-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.wf-swatch {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-md);
+  color: #fff;
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-base) 12%, transparent);
+}
+
+.wf-swatch.auto {
+  background: var(--surface-raised);
+  color: var(--text-muted);
+}
+
+.wf-swatch.selected {
+  box-shadow:
+    0 0 0 2px var(--surface-panel),
+    0 0 0 4px var(--border-focus);
+}
+
 .wf-overlay {
   position: fixed;
   inset: 0;
@@ -2466,14 +2480,19 @@ body {
 }
 
 .wf-dialog {
-  width: min(420px, calc(100% - 2rem));
+  width: min(440px, calc(100% - 2rem));
   background: var(--surface-panel);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-overlay);
-  padding: 1.1rem 1.25rem;
+  padding: 1.75rem;
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 1rem;
+}
+
+.wf-dialog .formrow {
+  justify-content: flex-end;
+  margin-top: 0.75rem;
 }
 
 .wf-dialog h3 {
@@ -2628,14 +2647,6 @@ body {
 
 /* -- workflow canvas editor (ticket 48) --------------------------------- */
 
-/* Lindy-style canvas: flatten the .main card, dotted grid instead. */
-.main:has(.wfc-root) {
-  background: transparent;
-  box-shadow: none;
-  border-radius: 0;
-  margin: 0;
-  padding: 0;
-}
 .wfc-root {
   position: relative;
   flex: 1;
@@ -2648,6 +2659,8 @@ body {
 .wfc-loading { padding: 24px; }
 .wfc-error { margin: 0 16px; }
 .wfc-chrome {
+  position: relative;
+  border-bottom: 1px solid var(--border-muted);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -2666,7 +2679,8 @@ body {
   color: var(--text-base);
   cursor: pointer;
 }
-.wfc-chrome button:hover { background: var(--surface-raised-hover); }
+.wfc-chrome button:hover:not(:disabled) { background: var(--surface-raised-hover); }
+.wfc-chrome button:disabled { opacity: 0.45; cursor: default; }
 .wfc-chrome button.primary {
   background: var(--info-bg);
   color: var(--info-fg);
@@ -2684,7 +2698,93 @@ body {
   padding-left: 4px;
 }
 .wfc-chrome .wfc-back:hover { background: var(--overlay-hover); }
-.wfc-title { font-weight: 600; }
+.wfc-title {
+  font-weight: 600;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.wfc-chrome .wfc-title button.wfc-avatar-btn {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  box-shadow: none;
+  color: #fff;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+/* Menus inside the chrome must not inherit the chrome's raised buttons. */
+.wfc-chrome .row-menu button {
+  background: none;
+  box-shadow: none;
+  border-radius: var(--radius-sm);
+  font-weight: 400;
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+}
+.wfc-chrome .row-menu button:hover:not(:disabled) { background: var(--overlay-hover); }
+.wfc-chrome .row-menu button.danger { color: var(--danger-fg); }
+.wfc-chrome .wfc-title .wfc-title-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  box-shadow: none;
+  font-weight: 600;
+  padding: 5px 8px;
+}
+.wfc-chrome .wfc-title .wfc-title-btn:hover { background: var(--overlay-hover); }
+.wfc-title-menu,
+.wfc-appearance {
+  top: calc(100% + 4px);
+  left: 0;
+  right: auto;
+}
+.wfc-title-menu button:disabled { opacity: 0.5; cursor: default; }
+.wfc-title-menu button:disabled:hover { background: none; }
+.wfc-appearance { min-width: 200px; font-weight: 400; }
+.wfc-swatches,
+.wfc-iconsgrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 0.6rem 6px;
+}
+.wfc-chrome .row-menu button.wfc-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: var(--radius-full);
+  color: #fff;
+  font-size: var(--fs-xs);
+  text-align: center;
+}
+.wfc-chrome .row-menu button.wfc-swatch.selected,
+.wfc-chrome .row-menu button.wfc-iconpick.selected {
+  box-shadow: 0 0 0 2px var(--surface-panel), 0 0 0 4px var(--border-focus);
+}
+.wfc-chrome .row-menu button.wfc-iconpick {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--text-base);
+  font-size: var(--fs-xs);
+}
 .wfc-pill {
   display: inline-flex;
   align-items: center;
@@ -2705,27 +2805,53 @@ button.wfc-pill.label { cursor: pointer; }
   position: relative;
   flex: 1;
   min-height: 0;
+  display: flex;
   overflow: hidden;
-  cursor: grab;
-  touch-action: none;
-  background-image: radial-gradient(var(--border-strong) 1px, transparent 1px);
-  background-size: 18px 18px;
 }
-.wfc-canvas:active { cursor: grabbing; }
-.wfc-world { position: absolute; inset: 0; transform-origin: 0 0; }
-.wfc-edges {
+.wfc-canvas .react-flow { flex: 1; min-width: 0; }
+/* React Flow owns the surface; its chrome maps onto our tokens here. */
+.wfc-canvas .react-flow { background: transparent; }
+.wfc-canvas .react-flow__pane { cursor: grab; }
+.wfc-canvas .react-flow__pane.dragging { cursor: grabbing; }
+.wfc-canvas .react-flow__edge .wfc-edge-path {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+.wfc-canvas .react-flow__edge .wfc-edge-path.selected { stroke: var(--border-focus); stroke-width: 2; }
+.wfc-canvas .react-flow__edge .wfc-edge-path.violation { stroke: var(--danger-fg); stroke-width: 2; }
+.wfc-canvas .react-flow__connection-path { stroke: var(--border-focus); stroke-dasharray: 4 4; }
+/* Handles: the source port keeps the old look; the target is an invisible
+   strip along the node's top edge — a drop target, not furniture. */
+.wfc-canvas .react-flow__handle.wfc-port {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-  pointer-events: none;
+  bottom: -7px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 14px;
+  height: 14px;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1.5px var(--border-strong);
+  cursor: crosshair;
 }
-.wfc-edge-path { fill: none; stroke: var(--border-strong); stroke-width: 1.5; pointer-events: none; }
-.wfc-edge-path.selected { stroke: var(--border-focus); stroke-width: 2; }
-.wfc-edge-path.violation { stroke: var(--danger-fg); stroke-width: 2; }
-.wfc-edge-path.linking { stroke: var(--border-focus); stroke-dasharray: 4 4; }
-.wfc-edge-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
+.wfc-canvas .react-flow__handle.wfc-port:hover { box-shadow: inset 0 0 0 2px var(--border-focus); }
+.wfc-canvas .react-flow__handle-top {
+  top: 0;
+  left: 0;
+  transform: none;
+  width: 100%;
+  height: 10px;
+  min-width: 0;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  opacity: 0;
+}
 .wfc-edge-label { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .wfc-edge-tools {
   display: flex;
@@ -2769,8 +2895,10 @@ button.wfc-pill.label { cursor: pointer; }
 .wfc-node {
   position: relative;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
   padding: 0 14px;
   border-radius: var(--radius-lg);
   background: var(--surface-raised);
@@ -2780,29 +2908,58 @@ button.wfc-pill.label { cursor: pointer; }
   color: var(--text-base);
 }
 .wfc-node.selected { box-shadow: var(--shadow-floating), 0 0 0 2px var(--border-focus); }
-.wfc-node.trigger { background: var(--info-bg); color: var(--info-fg); }
+/* The trigger reads as a stage card; the bolt icon carries the identity. */
+.wfc-node.trigger .wfc-node-icon { color: var(--info-fg); }
 .wfc-node.violation { box-shadow: var(--shadow-raised), 0 0 0 2px var(--danger-border); }
 .wfc-node.selected.violation { box-shadow: var(--shadow-floating), 0 0 0 2px var(--danger-fg); }
 .wfc-node-name {
   font-weight: 500;
+  margin-bottom: 4px;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.wfc-badges { display: inline-flex; gap: 4px; margin-left: auto; }
-.wfc-port {
-  position: absolute;
-  bottom: -7px;
-  left: 50%;
-  margin-left: -7px;
-  width: 14px;
-  height: 14px;
-  border-radius: var(--radius-full);
+.wfc-badges { display: inline-flex; gap: 4px; }
+/* The stage-kind menu at a connection drop (Lindy's "Select next step"). */
+.wfc-kind-menu {
+  position: fixed;
+  z-index: 20;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.35rem;
   background: var(--surface-raised);
-  box-shadow: inset 0 0 0 1.5px var(--border-strong);
-  cursor: crosshair;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-floating);
 }
-.wfc-port:hover { box-shadow: inset 0 0 0 2px var(--border-focus); }
+.wfc-kind-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface-panel);
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-base);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0.5rem 0.7rem;
+  cursor: pointer;
+  text-align: left;
+}
+.wfc-kind-menu button:hover { background: var(--surface-raised-hover); }
+.wfc-kind-menu .wfc-step-plus { margin-left: auto; color: var(--text-muted); }
+.wfc-step-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--text-muted);
+}
+.wfc-pill-icon { margin-right: 4px; }
+/* No badges → no second line; the name recenters on its own. */
+.wfc-badges:empty { display: none; }
 .wfc-violations {
   margin: 6px 0 0;
   padding: 6px 8px;
@@ -2816,26 +2973,12 @@ button.wfc-pill.label { cursor: pointer; }
   border-radius: var(--radius-md);
   box-shadow: inset 0 0 0 1px var(--danger-border);
 }
-.wfc-add {
+/* The bottom-center toolbar (the Lindy layout): Ask, divider, zoom cluster. */
+.wfc-toolbar {
   position: absolute;
   bottom: 18px;
-  left: 18px;
-  font: inherit;
-  font-size: var(--fs-sm);
-  padding: 6px 14px;
-  border-radius: var(--radius-full);
-  border: none;
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-floating);
-  color: var(--text-base);
-  cursor: pointer;
-  z-index: 6;
-}
-.wfc-add:hover { background: var(--surface-raised-hover); }
-.wfc-zoom {
-  position: absolute;
-  bottom: 18px;
-  right: 18px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 2px;
@@ -2845,7 +2988,10 @@ button.wfc-pill.label { cursor: pointer; }
   box-shadow: var(--shadow-floating);
   z-index: 6;
 }
-.wfc-zoom button {
+.wfc-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font: inherit;
   font-size: var(--fs-sm);
   border: none;
@@ -2855,22 +3001,203 @@ button.wfc-pill.label { cursor: pointer; }
   padding: 2px 8px;
   border-radius: var(--radius-full);
 }
-.wfc-zoom button:hover { background: var(--overlay-hover); }
+.wfc-toolbar button:hover { background: var(--overlay-hover); }
+.wfc-toolbar .wfc-ask.active { background: var(--info-bg); color: var(--info-fg); }
+.wfc-toolbar-divider { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--border-muted); }
 .wfc-zoom-pct { min-width: 44px; text-align: center; color: var(--text-muted); }
-.wfc-inspector {
+.wfc-chat {
   position: absolute;
   top: 12px;
-  right: 16px;
-  width: 280px;
-  max-height: calc(100% - 24px);
-  overflow: auto;
+  bottom: 18px;
+  left: 18px;
+  width: 400px;
+  max-width: calc(100% - 36px);
+  display: flex;
+  flex-direction: column;
   background: var(--surface-panel);
   box-shadow: var(--shadow-overlay);
   border-radius: var(--radius-lg);
-  padding: 14px;
+  z-index: 6;
+  cursor: default;
+}
+.wfc-chat-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-md);
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+.wfc-chat-head-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.wfc-chat-menu-anchor { position: relative; }
+.wfc-chat-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--surface-panel);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
+  z-index: 7;
+}
+.wfc-chat-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-base);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.wfc-chat-menu button:hover { background: var(--surface-raised); }
+.wfc-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.wfc-chat-head .icon-btn { margin-left: auto; }
+.wfc-chat-log {
+  flex: 1;
+  min-height: 60px;
+  overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
+  padding: 2px 12px 10px;
+}
+/* The chat's empty state: centered invitation, Lindy-style. */
+.wfc-chat-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  padding: 0 16px;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.wfc-chat-empty-title { font-weight: 500; color: var(--text-base); }
+/* The mini node-graph illustration tile above the empty-state invitation. */
+.wfc-chat-empty-art {
+  display: inline-flex;
+  padding: 14px 18px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.wfc-chat-msg {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  white-space: pre-wrap;
+}
+.wfc-chat-msg.user {
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+.wfc-chat-msg.assistant {
+  align-self: flex-start;
+  max-width: 95%;
+  background: var(--surface-raised);
+  color: var(--text-base);
+}
+/* The failure banner sits between the transcript and the input. */
+.wfc-chat-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  font-size: var(--fs-sm);
+}
+.wfc-chat-error-text { flex: 1; min-width: 0; }
+.wfc-chat-error .link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: var(--fs-sm);
+  color: var(--info-fg);
+  cursor: pointer;
+}
+/* One rounded surface holds the textarea and the action row beneath it. */
+.wfc-chat-inputbox {
+  margin: 0 12px 12px;
+  padding: 8px 10px;
+  background: var(--surface-input);
+  box-shadow: var(--shadow-raised);
+  border-radius: var(--radius-lg);
+}
+.wfc-chat-inputbox:focus-within { box-shadow: 0 0 0 2px var(--border-focus); }
+.wfc-chat-inputbox textarea {
+  display: block;
+  width: 100%;
+  max-height: 160px;
+  resize: none;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-base);
+  background: none;
+  border: none;
+  padding: 2px 0 6px;
+}
+.wfc-chat-inputbox textarea:focus-visible { outline: none; }
+.wfc-chat-inputactions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.wfc-mic.listening { color: var(--danger-fg); }
+.wfc-chat-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-left: 2px;
+  border: none;
+  border-radius: 50%;
+  background: var(--info-fg);
+  color: var(--surface-panel);
+  cursor: pointer;
+}
+.wfc-chat-send:disabled { opacity: 0.45; cursor: default; }
+
+.wfc-inspector {
+  flex: 0 0 320px;
+  min-height: 0;
+  overflow: auto;
+  background: var(--surface-panel);
+  border-left: 1px solid var(--border-muted);
+  padding: 20px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   z-index: 5;
   cursor: default;
 }
@@ -2879,7 +3206,7 @@ button.wfc-pill.label { cursor: pointer; }
 .wfc-inspector label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   font-size: var(--fs-sm);
   color: var(--text-muted);
 }
@@ -2893,6 +3220,10 @@ button.wfc-pill.label { cursor: pointer; }
   box-shadow: var(--shadow-raised);
   border-radius: var(--radius-md);
   padding: 6px 8px;
+}
+.wfc-inspector textarea {
+  min-height: 200px;
+  resize: vertical;
 }
 .wfc-inspector input:focus-visible,
 .wfc-inspector textarea:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--border-focus); }

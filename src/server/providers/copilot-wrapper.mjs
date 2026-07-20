@@ -53,6 +53,29 @@ process.on("SIGTERM", () => {
 });
 
 await client.start();
+
+// Probe mode: `{probe: true, cliPath}` on stdin. getAuthStatus and
+// listModels are the SDK's own zero-token endpoints — no session, no model
+// call. One line out, then gone.
+if (config.probe === true) {
+  const auth = await client.getAuthStatus();
+  let models;
+  try {
+    models = (await client.listModels()).map((model) => model.id).filter(Boolean);
+  } catch {
+    // Model listing is color; auth is the verdict. An SDK that can't list
+    // (older CLI runtime) still answers the question that matters.
+  }
+  out({
+    type: "probe",
+    ok: auth.isAuthenticated === true,
+    account: auth.statusMessage ?? auth.login,
+    models,
+  });
+  await client.stop();
+  process.exit(0);
+}
+
 const session = await client.createSession({
   // Pinned explicitly: tool operations resolve against the SESSION's working
   // directory, which does not reliably inherit the runtime process cwd — the

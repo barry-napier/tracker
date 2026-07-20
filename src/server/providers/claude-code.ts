@@ -3,6 +3,7 @@ import type {
   AgentBlock,
   AgentEvent,
   PhaseHandle,
+  ProbeResult,
   Provider,
   ProviderCapabilities,
   RunPhaseOpts,
@@ -279,6 +280,80 @@ export function buildArgs(prompt: string, config: ClaudeCodeConfig): string[] {
   return args;
 }
 
+/**
+ * `claude auth status` stdout → ProbeResult. The CLI prints JSON by default
+ * (verified against v2.1.215): loggedIn, authMethod, email,
+ * subscriptionType. Zero tokens — it reads the local credential store, no
+ * API call. Pure, so the shapes that matter (logged out, non-JSON output
+ * from an older CLI) are provable without a subprocess.
+ */
+export function parseAuthStatus(stdout: string): ProbeResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    // An older CLI without JSON output, or a wrapper printing noise. The
+    // binary ran, but nothing here is worth guessing at.
+    return { ok: false, error: `claude auth status printed no JSON: ${stdout.trim().slice(0, 200)}` };
+  }
+  if (!isRecord(parsed)) return { ok: false, error: "claude auth status printed non-object JSON" };
+  if (parsed.loggedIn !== true) {
+    return { ok: false, error: "claude is not logged in — run `claude auth login`" };
+  }
+  const email = typeof parsed.email === "string" ? parsed.email : undefined;
+  const plan = typeof parsed.subscriptionType === "string" ? parsed.subscriptionType : undefined;
+  return {
+    ok: true,
+    account: email === undefined ? plan : plan === undefined ? email : `${email} (${plan})`,
+    // No models: the CLI has no zero-token model listing to offer.
+  };
+}
+
+/** How long the auth-status child gets before the probe calls it hung. */
+const PROBE_TIMEOUT_MS = 10_000;
+
+/** Spawn `<binary> auth status`, honoring the same config as a phase. */
+export function probeClaudeCode(config: ClaudeCodeConfig): Promise<ProbeResult> {
+  return new Promise((resolve) => {
+    const child = spawn(config.binaryPath ?? "claude", ["auth", "status"], {
+      env: { ...process.env, ...config.env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr = (stderr + chunk).slice(-2000);
+    });
+    let settled = false;
+    const settle = (result: ProbeResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      settle({ ok: false, error: `claude auth status hung past ${PROBE_TIMEOUT_MS}ms` });
+    }, PROBE_TIMEOUT_MS);
+    child.on("error", (error) => settle({ ok: false, error: error.message }));
+    child.on("close", (code) => {
+      // Exit 0 is the only contract; a non-zero exit's best diagnosis is
+      // whatever the CLI said, stderr first.
+      if (code !== 0) {
+        const said = (stderr.trim() || stdout.trim()).slice(0, 300);
+        settle({ ok: false, error: `claude auth status exited ${code}${said ? `: ${said}` : ""}` });
+        return;
+      }
+      settle(parseAuthStatus(stdout));
+    });
+  });
+}
+
 export const CLAUDE_CODE_CAPABILITIES: ProviderCapabilities = {
   costReporting: true,
   // Whole blocks, never partial text — see StreamJsonMapper#fromMessage.
@@ -295,6 +370,10 @@ export class ClaudeCodeProvider implements Provider {
    * an app restart.
    */
   constructor(private readonly config: () => ClaudeCodeConfig) {}
+
+  probe(): Promise<ProbeResult> {
+    return probeClaudeCode(this.config());
+  }
 
   runPhase(prompt: string, cwd: string, opts?: RunPhaseOpts): PhaseHandle {
     const config = this.config();

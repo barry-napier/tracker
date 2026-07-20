@@ -44,14 +44,14 @@ export class Home {
     const tracked =
       this.trackedByPath(repoPath) ?? (await this.trackedByRemote(repoPath));
     if (tracked !== null) {
-      const project = this.store.getProject(tracked);
+      let project = this.store.getProject(tracked);
       if (project) {
-        // Re-adding a removed-from-recents project is its recovery path
-        // (ticket 50): un-hide instead of ghosting or duplicating.
-        return {
-          alreadyTracked: true,
-          project: project.hiddenAt === null ? project : this.store.unhideProject(project.id),
-        };
+        // Re-adding the checkout is the recovery path for both archive
+        // (ticket 50) and soft delete: resurrect instead of ghosting or
+        // duplicating.
+        if (project.deletedAt !== null) project = this.store.undeleteProject(project.id);
+        if (project.hiddenAt !== null) project = this.store.unhideProject(project.id);
+        return { alreadyTracked: true, project };
       }
     }
 

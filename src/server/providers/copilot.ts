@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import type {
   AgentEvent,
   PhaseHandle,
+  ProbeResult,
   Provider,
   ProviderCapabilities,
   RunPhaseOpts,
@@ -188,6 +189,87 @@ export class WrapperMapper {
   }
 }
 
+/**
+ * The wrapper's `{type:"probe"}` line → ProbeResult. Pure, same reason as
+ * WrapperMapper: the shapes worth testing (missing line, garbage fields)
+ * must be provable without an SDK runtime.
+ */
+export function parseProbeLine(stdout: string): ProbeResult | undefined {
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    if (!isRecord(parsed) || parsed.type !== "probe") continue;
+    return {
+      ok: parsed.ok === true,
+      account: typeof parsed.account === "string" ? parsed.account : undefined,
+      models: Array.isArray(parsed.models)
+        ? parsed.models.filter((id): id is string => typeof id === "string")
+        : undefined,
+      error: parsed.ok === true ? undefined : "copilot is not authenticated — run `copilot` and sign in",
+    };
+  }
+  return undefined;
+}
+
+/** SDK start + auth + model listing measured ~2s warm; cold npx-style
+ * runtimes are slower, and a wedged one must not hang the settings screen. */
+const PROBE_TIMEOUT_MS = 30_000;
+
+/** Spawn the wrapper in probe mode and judge from its one probe line. */
+export function probeCopilot(config: CopilotConfig): Promise<ProbeResult> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [config.wrapperPath ?? REAL_WRAPPER], {
+      env: { ...process.env, ...config.env, ELECTRON_RUN_AS_NODE: "1" },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    child.stdin.on("error", () => {
+      // A torn pipe surfaces via the close handler.
+    });
+    child.stdin.end(JSON.stringify({ probe: true, cliPath: config.cliPath }));
+
+    let settled = false;
+    const settle = (result: ProbeResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill("SIGTERM");
+      resolve(result);
+    };
+    const timer = setTimeout(
+      () => settle({ ok: false, error: `copilot probe hung past ${PROBE_TIMEOUT_MS}ms` }),
+      PROBE_TIMEOUT_MS,
+    );
+
+    let stdout = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+      const result = parseProbeLine(stdout);
+      if (result !== undefined) settle(result);
+    });
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr = (stderr + chunk).slice(-2000);
+    });
+    child.on("error", (error) => settle({ ok: false, error: error.message }));
+    child.on("close", (code) => {
+      settle({
+        ok: false,
+        error: `copilot wrapper exited ${code ?? "on a signal"} before its probe line${
+          stderr.trim() === "" ? "" : ` — stderr: ${stderr.trim().slice(-300)}`
+        }`,
+      });
+    });
+  });
+}
+
 export const COPILOT_CAPABILITIES: ProviderCapabilities = {
   // Partial by the ticket's terms: Copilot meters premium-request counts,
   // not USD, so costUsd would be a lie. The counts ride in RunResult.usage.
@@ -210,6 +292,10 @@ export class CopilotProvider implements Provider {
 
   /** Config resolved per phase, same contract as the other adapters. */
   constructor(private readonly config: () => CopilotConfig) {}
+
+  probe(): Promise<ProbeResult> {
+    return probeCopilot(this.config());
+  }
 
   runPhase(prompt: string, cwd: string, opts?: RunPhaseOpts): PhaseHandle {
     const config = this.config();

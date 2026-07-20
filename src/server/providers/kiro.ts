@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
+import { tmpdir } from "node:os";
 import type {
   AgentEvent,
   PhaseHandle,
+  ProbeResult,
   Provider,
   ProviderCapabilities,
   RunPhaseOpts,
@@ -182,6 +184,123 @@ export function promptOutcome(response: unknown): Pick<RunResult, "outcome" | "f
   };
 }
 
+/**
+ * The `session/new` response → ProbeResult. ACP's handshake is zero-token by
+ * design: initialize and session creation never touch a model, and Kiro's
+ * session/new response volunteers the whole model catalog (verified against
+ * kiro-cli 2.13.0). A session that opened is the auth verdict — an
+ * unauthenticated agent refuses it with an RPC error instead.
+ */
+export function probeFromSessionNew(response: unknown): ProbeResult {
+  if (!isRecord(response) || typeof response.sessionId !== "string") {
+    return { ok: false, error: `kiro session/new returned no sessionId: ${JSON.stringify(response).slice(0, 200)}` };
+  }
+  const models = isRecord(response.models) ? response.models.availableModels : undefined;
+  const ids = Array.isArray(models)
+    ? models
+        .map((model) => (isRecord(model) && typeof model.modelId === "string" ? model.modelId : ""))
+        .filter((id) => id !== "")
+    : [];
+  return {
+    ok: true,
+    // No account: Kiro's ACP surface names no login anywhere (issue 02's
+    // stderr footers are human text, not a contract).
+    models: ids.length > 0 ? ids : undefined,
+  };
+}
+
+/**
+ * Session/new on a cold CLI takes ~4s (measured); the deadline covers a slow
+ * first boot without letting a wedged agent hang the settings screen.
+ */
+const PROBE_TIMEOUT_MS = 20_000;
+
+/**
+ * Spawn `kiro-cli acp`, drive initialize → session/new, and judge from the
+ * responses. The session's cwd is the OS temp dir: a probe belongs to no
+ * project, and session creation only records the path.
+ */
+export function probeKiro(config: KiroConfig): Promise<ProbeResult> {
+  return new Promise((resolve) => {
+    const child = spawn(config.binaryPath ?? "kiro-cli", ["acp"], {
+      cwd: tmpdir(),
+      env: { ...process.env, ...config.env },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let settled = false;
+    const settle = (result: ProbeResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill("SIGTERM");
+      resolve(result);
+    };
+    const timer = setTimeout(
+      () => settle({ ok: false, error: `kiro probe hung past ${PROBE_TIMEOUT_MS}ms` }),
+      PROBE_TIMEOUT_MS,
+    );
+
+    const send = (message: Record<string, unknown>): void => {
+      if (!child.stdin.writable) return;
+      try {
+        child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
+      } catch {
+        // A torn pipe surfaces via the close handler.
+      }
+    };
+    // Fixed ids, fixed sequence: initialize is 1, session/new is 2.
+    send({
+      id: 1,
+      method: "initialize",
+      params: {
+        protocolVersion: 1,
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
+      },
+    });
+
+    let stdout = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (data: string) => {
+      stdout += data;
+      const lines = stdout.split("\n");
+      stdout = lines.pop() ?? "";
+      for (const line of lines) {
+        let message: unknown;
+        try {
+          message = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (!isRecord(message)) continue;
+        if (message.id === 1 && "result" in message) {
+          send({ id: 2, method: "session/new", params: { cwd: tmpdir(), mcpServers: [] } });
+        } else if (message.id === 2 && "result" in message) {
+          settle(probeFromSessionNew(message.result));
+        } else if ((message.id === 1 || message.id === 2) && "error" in message) {
+          // The auth failure lands here: an unauthenticated agent errors the
+          // handshake instead of opening a session.
+          settle({ ok: false, error: `kiro rpc error: ${JSON.stringify(message.error).slice(0, 300)}` });
+        }
+      }
+    });
+
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (data: string) => {
+      stderr = (stderr + data).slice(-2000);
+    });
+    child.on("error", (error) => settle({ ok: false, error: error.message }));
+    child.on("close", (code) => {
+      settle({
+        ok: false,
+        error: `kiro exited ${code ?? "on a signal"} mid-probe${
+          stderr.trim() === "" ? "" : ` — stderr: ${stderr.trim().slice(-300)}`
+        }`,
+      });
+    });
+  });
+}
+
 export const KIRO_CAPABILITIES: ProviderCapabilities = {
   // No cost in the prompt response — only human text on stderr (issue 02).
   costReporting: false,
@@ -197,6 +316,10 @@ export class KiroProvider implements Provider {
 
   /** Config resolved per phase, same contract as the Claude adapter. */
   constructor(private readonly config: () => KiroConfig) {}
+
+  probe(): Promise<ProbeResult> {
+    return probeKiro(this.config());
+  }
 
   runPhase(prompt: string, cwd: string, opts?: RunPhaseOpts): PhaseHandle {
     const config = this.config();

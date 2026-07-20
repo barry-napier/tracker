@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { AgentEvent } from "../src/server/provider.ts";
-import { AcpMapper, promptOutcome } from "../src/server/providers/kiro.ts";
+import { AcpMapper, probeFromSessionNew, promptOutcome } from "../src/server/providers/kiro.ts";
 
 /** Feed a sequence of session/update payloads and collect every event. */
 function feedAll(mapper: AcpMapper, updates: unknown[]): AgentEvent[] {
@@ -170,5 +170,24 @@ describe("promptOutcome", () => {
   test("a malformed response is failure with the payload in the reason", () => {
     expect(promptOutcome({})).toMatchObject({ outcome: "failed" });
     expect(promptOutcome(null)).toMatchObject({ outcome: "failed" });
+  });
+});
+
+describe("probeFromSessionNew", () => {
+  test("a session with a model catalog: ok with the ids", () => {
+    const result = probeFromSessionNew({
+      sessionId: "s-1",
+      models: {
+        currentModelId: "auto",
+        availableModels: [{ modelId: "auto" }, { modelId: "claude-sonnet-4.5" }, { junk: true }],
+      },
+    });
+    expect(result).toEqual({ ok: true, models: ["auto", "claude-sonnet-4.5"] });
+  });
+
+  test("no sessionId: not ok — the response is quoted, not guessed at", () => {
+    const result = probeFromSessionNew({ unexpected: "shape" });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("no sessionId");
   });
 });

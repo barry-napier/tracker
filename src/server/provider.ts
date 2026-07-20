@@ -72,10 +72,34 @@ export interface ProviderCapabilities {
   emitsThinking: boolean;
 }
 
+/**
+ * What a zero-token health check reports. `ok` answers the one question the
+ * board needs before a claim — "would a phase start, or die on auth?" —
+ * without spending a model call. Everything else is color the provider's
+ * transport volunteered for free; absence means the transport doesn't say,
+ * never that the adapter forgot to ask.
+ */
+export interface ProbeResult {
+  ok: boolean;
+  /** Who is signed in, as the provider states it (email, login, plan). */
+  account?: string;
+  /** Model ids the provider offered, where the transport lists them at all. */
+  models?: string[];
+  /** Why ok is false — binary missing, logged out, probe timed out. */
+  error?: string;
+}
+
 export interface Provider {
   readonly capabilities: ProviderCapabilities;
   /** Each call is a fresh provider session (Phase Contract). */
   runPhase(prompt: string, cwd: string, opts?: RunPhaseOpts): PhaseHandle;
+  /**
+   * Zero-token health check. Resolves for every ending — a probe that cannot
+   * answer (binary missing, timeout) resolves ok:false with the reason,
+   * never rejects and never hangs: each adapter enforces its own deadline,
+   * the same way runPhase owns its own kill semantics.
+   */
+  probe(): Promise<ProbeResult>;
 }
 
 /** Adapters registered per provider name; a missing entry crashes the claim. */

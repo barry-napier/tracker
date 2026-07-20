@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { WorkflowListing } from "../server/types.ts";
-import { apiDelete, apiGet, apiPatch, apiPost, errorMessage } from "./api.ts";
-import { avatarColor } from "./Home.tsx";
+import { apiDelete, apiGet, apiPatch, apiPost, apiPut, errorMessage } from "./api.ts";
+import { AVATAR_COLORS, avatarColor } from "./Home.tsx";
 import { timeAgo } from "./format.ts";
-import { Icon } from "./icons.tsx";
+import { Icon, isIconName, type IconName } from "./icons.tsx";
 import {
   clampWfVisible,
   filterWorkflows,
@@ -14,6 +14,9 @@ import {
   type WorkflowPrefs,
   type WorkflowSort,
 } from "./workflowPrefs.ts";
+
+/** The icons a workflow avatar can wear; everything else in the catalog is UI chrome. */
+const AVATAR_ICONS: IconName[] = ["sparkle", "bolt", "globe", "book", "folder", "code", "play", "pencil"];
 
 const SORT_LABELS: Record<WorkflowSort, string> = {
   name: "Name",
@@ -50,6 +53,7 @@ export function WorkflowLibrary({
   const [menuFor, setMenuFor] = useState<{ id: number; top: number; right: number } | null>(null);
   const [sortOpen, setSortOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const importRef = useRef<HTMLInputElement>(null);
   const [prefs, setPrefs] = useState<WorkflowPrefs>(loadWorkflowPrefs);
   const updatePrefs = (patch: Partial<WorkflowPrefs>) => {
     setPrefs((prev) => {
@@ -117,6 +121,42 @@ export function WorkflowLibrary({
     }
   };
 
+  // Import a shared workflow JSON (the editor's Share download): create the
+  // identity, land the graph as a draft, and publish if it validates —
+  // otherwise it arrives as a draft to fix in the editor.
+  const importWorkflow = async (file: File) => {
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      const shared = parsed as {
+        tracker?: string;
+        name?: string;
+        description?: string;
+        color?: string | null;
+        icon?: string | null;
+        graph?: unknown;
+      };
+      if (shared?.tracker !== "workflow" || typeof shared.name !== "string" || !shared.graph) {
+        throw new Error(`${file.name} is not a Tracker workflow export`);
+      }
+      const created = await apiPost<WorkflowListing>("/api/workflows", {
+        name: shared.name,
+        description: shared.description ?? "",
+        color: shared.color ?? null,
+        icon: shared.icon ?? null,
+      });
+      await apiPut(`/api/workflows/${created.id}/draft`, shared.graph);
+      try {
+        await apiPost(`/api/workflows/${created.id}/draft/publish`, {});
+      } catch {
+        // Violations keep it a draft; the editor shows why on open.
+      }
+      await load();
+      setError(null);
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
   const toggleArchived = (row: WorkflowListing) => {
     if (row.archived) return void act(() => apiPost(`/api/workflows/${row.id}/unarchive`, {}));
     // Archiving the default demands a successor in the same call (ticket 43):
@@ -130,8 +170,6 @@ export function WorkflowLibrary({
   // everything, so no workflow is ever unreachable.
   const capped = query === "" ? filtered.slice(0, prefs.visible) : filtered;
   const hiddenCount = filtered.length - capped.length;
-  const archivedHidden =
-    query === "" && !prefs.showArchived ? (rows ?? []).filter((row) => row.archived).length : 0;
 
   return (
     <div className="home wf-library">
@@ -166,6 +204,25 @@ export function WorkflowLibrary({
             >
               <Icon name="arrows-sort" size={16} />
             </button>
+            <button
+              type="button"
+              className="icon-btn"
+              title="Import workflow JSON"
+              onClick={() => importRef.current?.click()}
+            >
+              <Icon name="import" size={16} />
+            </button>
+            <input
+              ref={importRef}
+              type="file"
+              accept="application/json,.json"
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = "";
+                if (file) void importWorkflow(file);
+              }}
+            />
             <button type="button" className="icon-btn" title="New workflow" onClick={onCreateNew}>
               <Icon name="grid-plus" size={16} />
             </button>
@@ -258,18 +315,6 @@ export function WorkflowLibrary({
               +{hiddenCount} more — search, or raise visible workflows
             </li>
           )}
-          {archivedHidden > 0 && (
-            <li className="dim home-empty">
-              {archivedHidden} archived hidden —{" "}
-              <button
-                type="button"
-                className="wf-linklike"
-                onClick={() => updatePrefs({ showArchived: true })}
-              >
-                show archived
-              </button>
-            </li>
-          )}
           {rows !== null && filtered.length === 0 && rows.length > 0 && query !== "" && (
             <li className="dim home-empty">No workflow matches “{query}”</li>
           )}
@@ -336,12 +381,19 @@ function WorkflowRow({
     // menu, and a live rename input all stop propagation to stay row-local.
     <li
       className={row.archived ? "wf-row archived" : "wf-row"}
+      // The subline is gone (one-line rows); description and phases live in
+      // the hover tooltip instead.
+      title={row.description !== "" ? row.description : row.phases.join(" › ") || undefined}
       onClick={() => {
         if (!renaming) onOpen();
       }}
     >
-      <span className="avatar" style={{ background: avatarColor(row.name) }}>
-        {row.name.slice(0, 1).toUpperCase()}
+      <span className="avatar" style={{ background: row.color ?? avatarColor(row.name) }}>
+        {row.icon !== null && isIconName(row.icon) ? (
+          <Icon name={row.icon} size={14} />
+        ) : (
+          row.name.slice(0, 1).toUpperCase()
+        )}
       </span>
       <div className="wf-main">
         <div className="wf-titleline">
@@ -363,26 +415,15 @@ function WorkflowRow({
           <span className="wf-version dim">v{row.version}</span>
           {row.isDefault && <span className="wf-badge default">Default</span>}
           {row.archived && <span className="wf-badge archived">Archived</span>}
-          {row.hasDraft && <span className="wf-badge draft">Unpublished changes</span>}
-        </div>
-        <div className="wf-sub" title={row.phases.join(" › ") || undefined}>
-          {/* Description is the row's second line; the phase breadcrumb fills
-              in for legacy rows without one and lives in the tooltip. */}
-          <span className="wf-phases">
-            {row.description !== ""
-              ? row.description
-              : row.phases.length === 0
-                ? "no phases yet"
-                : row.phases.join(" › ")}
-          </span>
-        </div>
-        <div className="wf-sub">
-          <span className="wf-used">
-            {row.usedByProjects === 1 ? "1 project" : `${row.usedByProjects} projects`}
-          </span>
+          {row.hasDraft && <span className="wf-badge draft">Draft</span>}
         </div>
       </div>
-      <span className="wf-time">{timeAgo(row.createdAt)}</span>
+      <span className="wf-time">
+        {/* A zero count is just noise — only a real adoption earns a mention. */}
+        {row.usedByProjects > 0 &&
+          `${row.usedByProjects} ${row.usedByProjects === 1 ? "project" : "projects"} · `}
+        {timeAgo(row.createdAt)}
+      </span>
       <div className="wf-actions">
         <button
           type="button"
@@ -442,6 +483,89 @@ function WorkflowRow({
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * Shared icon + color chooser: "Auto" keeps the stored value null (the row
+ * derives a hash color and a letter glyph from the name), a pick stores it.
+ */
+function AppearancePicker({
+  name,
+  color,
+  icon,
+  onColor,
+  onIcon,
+}: {
+  /** Current (possibly draft) workflow name — drives the Auto preview. */
+  name: string;
+  color: string | null;
+  icon: IconName | null;
+  onColor: (color: string | null) => void;
+  onIcon: (icon: IconName | null) => void;
+}) {
+  const shownColor = color ?? avatarColor(name);
+  const letter = (name.trim() || "N").slice(0, 1).toUpperCase();
+  return (
+    <div className="wf-appearance">
+      <div className="wf-field">
+        <span className="wf-field-label">Color</span>
+        <div className="wf-swatches" role="radiogroup" aria-label="Avatar color">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={color === null}
+            className={color === null ? "wf-swatch auto selected" : "wf-swatch auto"}
+            title="Auto (from name)"
+            onClick={() => onColor(null)}
+          >
+            A
+          </button>
+          {AVATAR_COLORS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={color === option}
+              className={color === option ? "wf-swatch selected" : "wf-swatch"}
+              style={{ background: option }}
+              title={option}
+              onClick={() => onColor(option)}
+            />
+          ))}
+        </div>
+      </div>
+      <div className="wf-field">
+        <span className="wf-field-label">Icon</span>
+        <div className="wf-swatches" role="radiogroup" aria-label="Avatar icon">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={icon === null}
+            className={icon === null ? "wf-swatch glyph selected" : "wf-swatch glyph"}
+            style={{ background: shownColor }}
+            title="Auto (first letter)"
+            onClick={() => onIcon(null)}
+          >
+            {letter}
+          </button>
+          {AVATAR_ICONS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={icon === option}
+              className={icon === option ? "wf-swatch glyph selected" : "wf-swatch glyph"}
+              style={{ background: shownColor }}
+              title={option}
+              onClick={() => onIcon(option)}
+            >
+              <Icon name={option} size={14} />
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -517,6 +641,8 @@ function SuccessorDialog({
 export function WorkflowCreate({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [color, setColor] = useState<string | null>(null);
+  const [icon, setIcon] = useState<IconName | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -527,7 +653,7 @@ export function WorkflowCreate({ onDone }: { onDone: () => void }) {
     }
     setBusy(true);
     try {
-      await apiPost("/api/workflows", { name, description });
+      await apiPost("/api/workflows", { name, description, color, icon });
       onDone();
     } catch (e) {
       setError(errorMessage(e));
@@ -571,6 +697,7 @@ export function WorkflowCreate({ onDone }: { onDone: () => void }) {
               onChange={(e) => setDescription(e.target.value)}
             />
           </label>
+          <AppearancePicker name={name} color={color} icon={icon} onColor={setColor} onIcon={setIcon} />
           <div className="formrow">
             <button type="submit" disabled={busy || name.trim() === ""}>
               Create workflow

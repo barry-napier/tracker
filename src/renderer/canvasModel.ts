@@ -25,24 +25,36 @@ export const STEP_TYPE_LABELS: Record<WorkflowStepType, string> = {
 
 const findNode = (graph: DraftGraph, key: string) => graph.nodes.find((n) => n.key === key);
 
-/** Add a blank agent phase; key and name are made collision-free. */
-export function addPhase(graph: DraftGraph): { graph: DraftGraph; key: string } {
+/**
+ * Add an agent phase; key and name are made collision-free. A kind seeds the
+ * stage with one step of that type and names it after the kind — the create
+ * menu's classification. Kind is authoring convenience only: every stage is
+ * an agent_phase to the engine.
+ */
+export function addPhase(
+  graph: DraftGraph,
+  kind?: WorkflowStepType,
+): { graph: DraftGraph; key: string } {
   const keys = new Set(graph.nodes.map((n) => n.key));
   const names = new Set(graph.nodes.map((n) => n.name));
   let i = 1;
   while (keys.has(`p${i}`)) i += 1;
   const key = `p${i}`;
+  const base =
+    kind === undefined
+      ? "new-phase"
+      : STEP_TYPE_LABELS[kind].toLowerCase().replace(/[^a-z0-9]+/g, "-");
   let j = 1;
-  while (names.has(`new-phase-${j}`)) j += 1;
+  while (names.has(j === 1 ? base : `${base}-${j}`)) j += 1;
   const added: DraftNode = {
     key,
     type: "agent_phase",
-    name: `new-phase-${j}`,
+    name: j === 1 ? base : `${base}-${j}`,
     promptTemplate: null,
     emitsChecks: false,
     bootsPreview: false,
     gateRequirements: [],
-    steps: [],
+    steps: kind === undefined ? [] : [{ type: kind, title: STEP_TYPE_LABELS[kind], prompt: "" }],
   };
   return { graph: { ...graph, nodes: [...graph.nodes, added] }, key };
 }

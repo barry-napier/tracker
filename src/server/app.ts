@@ -113,16 +113,26 @@ export function createApp(
   // is immutable versions, and creation is duplicate-only until the editor.
   app.get("/api/workflows", (c) => c.json(store.listWorkflows()));
   app.post("/api/workflows", async (c) => {
-    const body = await c.req
-      .json<{ name?: string; description?: string }>()
-      .catch(() => ({}) as { name?: string; description?: string });
+    type CreateBody = {
+      name?: string;
+      description?: string;
+      color?: string | null;
+      icon?: string | null;
+    };
+    const body = await c.req.json<CreateBody>().catch(() => ({}) as CreateBody);
     if (body.name !== undefined && typeof body.name !== "string") {
       return c.json({ error: "name must be a string" }, 400);
     }
     if (body.description !== undefined && typeof body.description !== "string") {
       return c.json({ error: "description must be a string" }, 400);
     }
-    return c.json(store.createWorkflow(body.name, body.description), 201);
+    if (body.color !== undefined && body.color !== null && typeof body.color !== "string") {
+      return c.json({ error: "color must be a string or null" }, 400);
+    }
+    if (body.icon !== undefined && body.icon !== null && typeof body.icon !== "string") {
+      return c.json({ error: "icon must be a string or null" }, 400);
+    }
+    return c.json(store.createWorkflow(body.name, body.description, body.color, body.icon), 201);
   });
   app.delete("/api/workflows/:id", (c) => {
     store.deleteWorkflow(Number(c.req.param("id")));
@@ -132,20 +142,38 @@ export function createApp(
     c.json(store.duplicateWorkflow(Number(c.req.param("id"))), 201),
   );
   app.patch("/api/workflows/:id", async (c) => {
-    const body = await c.req.json<{ name?: string; description?: string }>();
+    const body = await c.req.json<{
+      name?: string;
+      description?: string;
+      color?: string | null;
+      icon?: string | null;
+    }>();
     if (body.name !== undefined && typeof body.name !== "string") {
       return c.json({ error: "name must be a string" }, 400);
     }
     if (body.description !== undefined && typeof body.description !== "string") {
       return c.json({ error: "description must be a string" }, 400);
     }
-    if (body.name === undefined && body.description === undefined) {
-      return c.json({ error: "name or description is required" }, 400);
+    if (body.color !== undefined && body.color !== null && typeof body.color !== "string") {
+      return c.json({ error: "color must be a string or null" }, 400);
+    }
+    if (body.icon !== undefined && body.icon !== null && typeof body.icon !== "string") {
+      return c.json({ error: "icon must be a string or null" }, 400);
+    }
+    if (
+      body.name === undefined &&
+      body.description === undefined &&
+      body.color === undefined &&
+      body.icon === undefined
+    ) {
+      return c.json({ error: "name, description, color, or icon is required" }, 400);
     }
     return c.json(
       store.updateWorkflow(Number(c.req.param("id")), {
         name: body.name,
         description: body.description,
+        color: body.color,
+        icon: body.icon,
       }),
     );
   });
@@ -312,6 +340,16 @@ export function createApp(
     c.json(store.hideProject(Number(c.req.param("id")))),
   );
 
+  app.post("/api/projects/:id/unhide", (c) =>
+    c.json(store.unhideProject(Number(c.req.param("id")))),
+  );
+
+  // Soft delete: gone from every listing, row kept for references. Recovery
+  // is re-adding the checkout via /api/projects/local.
+  app.delete("/api/projects/:id", (c) =>
+    c.json(store.deleteProject(Number(c.req.param("id")))),
+  );
+
   // Row menu's "Reveal in Finder": the server owns the shell, same as the
   // folder picker. A project with no registered repo has nothing to reveal.
   app.post("/api/projects/:id/reveal", async (c) => {
@@ -340,10 +378,6 @@ export function createApp(
     const body = await c.req.json<{
       projectId?: number;
       path?: string;
-  app.post("/api/projects/:id/unhide", (c) =>
-    c.json(store.unhideProject(Number(c.req.param("id")))),
-  );
-
       githubRemote?: string;
       targetBranch?: string;
       previewCommand?: string;

@@ -336,6 +336,28 @@ describe("workflow create and delete (ticket 51)", () => {
     expect((await api(server, "GET", "/api/workflows")).json).toHaveLength(3);
   });
 
+  test("appearance at creation: color and icon stick; a bad color 400s", async () => {
+    const server = await bootServer();
+    const styled = await api(server, "POST", "/api/workflows", {
+      name: "Styled",
+      color: "#2f8f6f",
+      icon: "bolt",
+    });
+    expect(styled.status).toBe(201);
+    expect(styled.json).toMatchObject({ color: "#2f8f6f", icon: "bolt" });
+
+    // Omitted means derived — both stay null.
+    const plain = await api(server, "POST", "/api/workflows", { name: "Plain" });
+    expect(plain.json).toMatchObject({ color: null, icon: null });
+
+    expect(
+      (await api(server, "POST", "/api/workflows", { name: "Bad", color: "green" })).status,
+    ).toBe(400);
+    expect(
+      (await api(server, "POST", "/api/workflows", { name: "Bad", icon: "  " })).status,
+    ).toBe(400);
+  });
+
   test("deletable tracks service entry: default and project-referenced rows are not", async () => {
     const server = await bootServer();
     // Seeded RPIRD is the default → never deletable.

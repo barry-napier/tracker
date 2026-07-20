@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { Project, ProjectListItem } from "../server/types.ts";
 
-import { apiPost } from "./api.ts";
+import { apiDelete, apiPost } from "./api.ts";
 import { timeAgo } from "./format.ts";
 import {
   clampVisible,
@@ -28,7 +28,7 @@ declare global {
  * from the server), or add one by picking a repo already on disk.
  */
 /** Deterministic chip color per name, stable across renders and sessions. */
-const AVATAR_COLORS = ["#6d5ce6", "#d94fa4", "#2f8f6f", "#c67a2e", "#3f7fd9", "#8f5cd9"];
+export const AVATAR_COLORS = ["#6d5ce6", "#d94fa4", "#2f8f6f", "#c67a2e", "#3f7fd9", "#8f5cd9"];
 export function avatarColor(name: string): string {
   let h = 0;
   for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
@@ -51,6 +51,7 @@ export function Home({
   onOpen,
   onCreated,
   onArchivedChange,
+  onDeleted,
 }: {
   projects: ProjectListItem[];
   onOpen: (projectId: number) => void;
@@ -58,6 +59,8 @@ export function Home({
   onCreated: (project: Project) => void;
   /** A row was archived or unarchived (never deleted): patch its hiddenAt. */
   onArchivedChange: (projectId: number, hiddenAt: string | null) => void;
+  /** A row was soft-deleted: drop it from state (re-adding the checkout recovers). */
+  onDeleted: (projectId: number) => void;
 }) {
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -69,6 +72,9 @@ export function Home({
     null,
   );
   const [sortOpen, setSortOpen] = useState(false);
+  // Soft delete asks first — it clears the board from view, even though the
+  // server keeps the row and re-adding the checkout brings it back.
+  const [deleting, setDeleting] = useState<ProjectListItem | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [prefs, setPrefs] = useState<HomePrefs>(loadHomePrefs);
   const updatePrefs = (patch: Partial<HomePrefs>) => {
@@ -153,6 +159,19 @@ export function Home({
       onArchivedChange(project.id, updated.hiddenAt);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  /** Soft delete (server keeps the row): drop it from the list on success. */
+  const deleteProject = async (project: ProjectListItem) => {
+    setError(null);
+    try {
+      await apiDelete(`/api/projects/${project.id}`);
+      onDeleted(project.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -390,6 +409,14 @@ export function Home({
                       >
                         {project.hiddenAt === null ? "Archive" : "Unarchive"}
                       </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="danger"
+                        onClick={() => setDeleting(project)}
+                      >
+                        Delete
+                      </button>
                     </div>
                   )}
                 </li>
@@ -410,10 +437,34 @@ export function Home({
             </li>
           )}
           {projects.length === 0 && (
-            <li className="dim home-empty">No projects yet — add a repo you have locally</li>
+            <li className="dim home-empty home-empty-cta">
+              No projects yet — add a repo you have locally
+              <button type="button" disabled={busy} onClick={() => void pickRepo()}>
+                Open a project
+              </button>
+            </li>
           )}
         </ul>
       </div>
+      {deleting && (
+        <div className="wf-overlay" onClick={() => setDeleting(null)}>
+          <div className="wf-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>Delete “{deleting.name}”?</h3>
+            <p className="dim">
+              The project leaves this list entirely — tickets, runs, and the audit trail are
+              kept, and re-adding the checkout brings everything back.
+            </p>
+            <div className="formrow">
+              <button type="button" className="danger" onClick={() => void deleteProject(deleting)}>
+                Delete
+              </button>
+              <button type="button" onClick={() => setDeleting(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import type {
   AgentEvent,
   PhaseContext,
   PhaseHandle,
+  ProbeResult,
   Provider,
   ProviderCapabilities,
   RunPhaseOpts,
@@ -78,6 +79,11 @@ export class FakeProvider implements Provider {
   };
 
   constructor(private readonly script: FakeScript) {}
+
+  /** Always healthy: probe failures are a real adapter's story to test. */
+  probe(): Promise<ProbeResult> {
+    return Promise.resolve({ ok: true, account: "fake" });
+  }
 
   runPhase(prompt: string, cwd: string, opts?: RunPhaseOpts): PhaseHandle {
     const generator = this.script({ prompt, cwd });

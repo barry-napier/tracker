@@ -546,6 +546,25 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
       ALTER TABLE workflows ADD COLUMN description TEXT NOT NULL DEFAULT '';
     `,
   },
+  {
+    version: 19,
+    sql: `
+      -- Workflow appearance: identity metadata like name/description. Null
+      -- means "derived" — the renderer hashes the name for a color and shows
+      -- the first letter, exactly as before this column existed.
+      ALTER TABLE workflows ADD COLUMN color TEXT;
+      ALTER TABLE workflows ADD COLUMN icon TEXT;
+    `,
+  },
+  {
+    version: 20,
+    sql: `
+      -- Soft delete: the row vanishes from every listing but stays for
+      -- references (runs pin workflow versions, audit trails name projects).
+      ALTER TABLE projects ADD COLUMN deleted_at TEXT;
+      ALTER TABLE workflows ADD COLUMN deleted_at TEXT;
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

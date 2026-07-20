@@ -146,7 +146,7 @@ export class Store {
          LEFT JOIN (SELECT project_id, MAX(id) AS last_event FROM events GROUP BY project_id) e
            ON e.project_id = p.id
          LEFT JOIN events le ON le.id = e.last_event
-         ${opts?.includeHidden ? "" : "WHERE p.hidden_at IS NULL"}
+         WHERE p.deleted_at IS NULL ${opts?.includeHidden ? "" : "AND p.hidden_at IS NULL"}
          ORDER BY COALESCE(e.last_event, 0) DESC, p.id DESC`,
       )
       .all()
@@ -171,6 +171,42 @@ export class Store {
    *  the top of recents, where a just-re-added project belongs. */
   unhideProject(id: number): Project {
     return this.setProjectHidden(id, false);
+  }
+
+  /**
+   * Soft delete: the project leaves every listing (archived included), but
+   * the row, tickets, runs, and audit trail all stay — history that names
+   * this project keeps resolving by id. Re-adding the checkout resurrects it
+   * (Home.addLocal), the same recovery path archiving uses.
+   */
+  deleteProject(id: number): Project {
+    return this.setProjectDeleted(id, true);
+  }
+
+  /** Recovery seam for addLocal — clears deleted_at so the row lists again. */
+  undeleteProject(id: number): Project {
+    return this.setProjectDeleted(id, false);
+  }
+
+  private setProjectDeleted(id: number, deleted: boolean): Project {
+    const project = this.getProject(id);
+    if (!project) throw new NotFoundError(`project ${id} not found`);
+    if (deleted === (project.deletedAt !== null)) return project;
+    const { updated, audit } = withTransaction(this.db, () => {
+      this.db
+        .prepare("UPDATE projects SET deleted_at = ? WHERE id = ?")
+        .run(deleted ? nowIso() : null, id);
+      const audit = this.insertAudit({
+        projectId: id,
+        ticketId: null,
+        actor: "human",
+        type: deleted ? "project.deleted" : "project.undeleted",
+        detail: { name: project.name },
+      });
+      return { updated: this.getProject(id)!, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    return updated;
   }
 
   private setProjectHidden(id: number, hidden: boolean): Project {
@@ -1271,10 +1307,10 @@ export class Store {
     return row === undefined ? undefined : workflowFromRow(row);
   }
 
-  /** The whole library, archived rows included — the listing shows them dimmed. */
+  /** The whole library, archived rows included (shown dimmed) — deleted rows never. */
   listWorkflows(): WorkflowListing[] {
     return this.db
-      .prepare("SELECT * FROM workflows ORDER BY id")
+      .prepare("SELECT * FROM workflows WHERE deleted_at IS NULL ORDER BY id")
       .all()
       .map((row) => this.listingFor(workflowFromRow(row)));
   }
@@ -1284,15 +1320,32 @@ export class Store {
    * only the trigger node. Zero phases is legal to hold but not to select —
    * selectableWorkflow guards claims, and the editor ticket fills the graph.
    */
-  createWorkflow(name?: string, description?: string): WorkflowListing {
+  createWorkflow(
+    name?: string,
+    description?: string,
+    color?: string | null,
+    icon?: string | null,
+  ): WorkflowListing {
     const trimmed = (name ?? "").trim();
+    if (color !== undefined && color !== null && !/^#[0-9a-fA-F]{6}$/.test(color)) {
+      throw new ValidationError("color must be a #rrggbb hex value");
+    }
+    if (icon !== undefined && icon !== null && icon.trim() === "") {
+      throw new ValidationError("icon must be a name or null");
+    }
     const created = withTransaction(this.db, () => {
       const now = nowIso();
       const inserted = this.db
         .prepare(
-          "INSERT INTO workflows (name, description, archived, is_default, created_at) VALUES (?, ?, 0, 0, ?)",
+          "INSERT INTO workflows (name, description, color, icon, archived, is_default, created_at) VALUES (?, ?, ?, ?, 0, 0, ?)",
         )
-        .run(trimmed === "" ? "New Workflow" : trimmed, (description ?? "").trim(), now);
+        .run(
+          trimmed === "" ? "New Workflow" : trimmed,
+          (description ?? "").trim(),
+          color ?? null,
+          icon ?? null,
+          now,
+        );
       const workflowId = Number(inserted.lastInsertRowid);
       const versionResult = this.db
         .prepare("INSERT INTO workflow_versions (workflow_id, version, created_at) VALUES (?, 1, ?)")
@@ -1308,20 +1361,32 @@ export class Store {
   }
 
   /**
-   * Hard delete, allowed only for a workflow that never entered service
-   * (ticket 51): no project references it, no run pinned any of its
-   * versions, and it is not the default. Everything else archives instead
-   * (CONTEXT.md: archived, never hard-deleted — this row has no history to
-   * preserve).
+   * Delete a workflow. Never-used ones (ticket 51: no project references it,
+   * no run pinned a version) hard-delete — there is no history to preserve.
+   * Anything with run history soft-deletes: the row keeps deleted_at so
+   * pinned versions still resolve, but it leaves the library and every
+   * selection surface. Blocked while it is the default or a project's
+   * current choice — hand those off first.
    */
   deleteWorkflow(id: number): void {
     const workflow = this.getWorkflow(id);
-    if (!workflow) throw new NotFoundError(`workflow ${id} not found`);
+    if (!workflow || workflow.deletedAt !== null) {
+      throw new NotFoundError(`workflow ${id} not found`);
+    }
     if (workflow.isDefault) {
       throw new StateError(`"${workflow.name}" is the Default Workflow — archive with a successor instead`);
     }
+    const usedBy = this.db
+      .prepare("SELECT COUNT(*) AS n FROM projects WHERE workflow_id = ? AND deleted_at IS NULL")
+      .get(id)!;
+    if (Number(usedBy.n) > 0) {
+      throw new StateError(
+        `"${workflow.name}" is the current workflow of ${usedBy.n} project(s) — switch them first`,
+      );
+    }
     if (!this.workflowNeverUsed(id)) {
-      throw new StateError(`"${workflow.name}" has been used — archive it instead of deleting`);
+      this.db.prepare("UPDATE workflows SET deleted_at = ? WHERE id = ?").run(nowIso(), id);
+      return;
     }
     withTransaction(this.db, () => {
       this.db
@@ -1410,7 +1475,10 @@ export class Store {
   }
 
   /** Identity edits only — every version, past pin, and project follows. */
-  updateWorkflow(id: number, patch: { name?: string; description?: string }): WorkflowListing {
+  updateWorkflow(
+    id: number,
+    patch: { name?: string; description?: string; color?: string | null; icon?: string | null },
+  ): WorkflowListing {
     const workflow = this.getWorkflow(id);
     if (!workflow) throw new NotFoundError(`workflow ${id} not found`);
     if (patch.name !== undefined) {
@@ -1423,13 +1491,27 @@ export class Store {
         .prepare("UPDATE workflows SET description = ? WHERE id = ?")
         .run(patch.description.trim(), id);
     }
+    if (patch.color !== undefined) {
+      if (patch.color !== null && !/^#[0-9a-fA-F]{6}$/.test(patch.color)) {
+        throw new ValidationError("color must be a #rrggbb hex value");
+      }
+      this.db.prepare("UPDATE workflows SET color = ? WHERE id = ?").run(patch.color, id);
+    }
+    if (patch.icon !== undefined) {
+      if (patch.icon !== null && patch.icon.trim() === "") {
+        throw new ValidationError("icon must be a name or null");
+      }
+      this.db.prepare("UPDATE workflows SET icon = ? WHERE id = ?").run(patch.icon, id);
+    }
     return this.listingFor(this.getWorkflow(id)!);
   }
 
   /** Exactly one active default at all times; the swap is one transaction. */
   setDefaultWorkflow(id: number): WorkflowListing {
     const workflow = this.getWorkflow(id);
-    if (!workflow) throw new NotFoundError(`workflow ${id} not found`);
+    if (!workflow || workflow.deletedAt !== null) {
+      throw new NotFoundError(`workflow ${id} not found`);
+    }
     if (workflow.archived) {
       throw new ValidationError(`workflow "${workflow.name}" is archived and cannot be the default`);
     }
@@ -1448,7 +1530,9 @@ export class Store {
    */
   archiveWorkflow(id: number, successorId?: number): WorkflowListing {
     const workflow = this.getWorkflow(id);
-    if (!workflow) throw new NotFoundError(`workflow ${id} not found`);
+    if (!workflow || workflow.deletedAt !== null) {
+      throw new NotFoundError(`workflow ${id} not found`);
+    }
     if (workflow.archived) return this.listingFor(workflow);
     if (!workflow.isDefault) {
       this.db.prepare("UPDATE workflows SET archived = 1 WHERE id = ?").run(id);
@@ -1692,10 +1776,12 @@ export class Store {
     steps.forEach((step, position) => insert.run(nodeId, position, step.type, step.title, step.prompt));
   }
 
-  /** Archived is never a new choice — the shared gate for every selection surface. */
+  /** Archived or deleted is never a new choice — the shared gate for every selection surface. */
   private selectableWorkflow(id: number): Workflow {
     const workflow = this.getWorkflow(id);
-    if (!workflow) throw new NotFoundError(`workflow ${id} not found`);
+    if (!workflow || workflow.deletedAt !== null) {
+      throw new NotFoundError(`workflow ${id} not found`);
+    }
     if (workflow.archived) {
       throw new ValidationError(`workflow "${workflow.name}" is archived and cannot be selected`);
     }
@@ -1722,14 +1808,14 @@ export class Store {
   private listingFor(workflow: Workflow): WorkflowListing {
     const graph = this.getWorkflowGraph(this.headVersionId(workflow.id));
     const usedBy = this.db
-      .prepare("SELECT COUNT(*) AS n FROM projects WHERE workflow_id = ?")
+      .prepare("SELECT COUNT(*) AS n FROM projects WHERE workflow_id = ? AND deleted_at IS NULL")
       .get(workflow.id)!;
     return {
       ...workflow,
       version: graph.version,
       phases: previewPhases(graph).map((node) => node.name),
       usedByProjects: Number(usedBy.n),
-      deletable: !workflow.isDefault && this.workflowNeverUsed(workflow.id),
+      deletable: !workflow.isDefault && Number(usedBy.n) === 0,
       hasDraft:
         this.db
           .prepare("SELECT 1 AS one FROM workflow_drafts WHERE workflow_id = ?")
@@ -2028,6 +2114,7 @@ function projectFromRow(row: Row): Project {
     defaultProvider: String(row.default_provider) as Project["defaultProvider"],
     workflowId: Number(row.workflow_id),
     hiddenAt: row.hidden_at === null ? null : String(row.hidden_at),
+    deletedAt: row.deleted_at === null || row.deleted_at === undefined ? null : String(row.deleted_at),
     createdAt: String(row.created_at),
   };
 }
@@ -2037,8 +2124,11 @@ function workflowFromRow(row: Row): Workflow {
     id: Number(row.id),
     name: String(row.name),
     description: String(row.description ?? ""),
+    color: row.color === null || row.color === undefined ? null : String(row.color),
+    icon: row.icon === null || row.icon === undefined ? null : String(row.icon),
     archived: Number(row.archived) === 1,
     isDefault: Number(row.is_default) === 1,
+    deletedAt: row.deleted_at === null || row.deleted_at === undefined ? null : String(row.deleted_at),
     createdAt: String(row.created_at),
   };
 }

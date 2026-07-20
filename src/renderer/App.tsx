@@ -165,6 +165,17 @@ function useWorkspace() {
     setProjects((rows) => rows.map((p) => (p.id === id ? { ...p, hiddenAt } : p)));
   }, []);
 
+  // Soft-deleted: the row leaves every listing, so drop it — and close its
+  // tab, since a deleted project's board is no longer a place to be.
+  const dropProject = useCallback(
+    (id: number) => {
+      setProjects((rows) => rows.filter((p) => p.id !== id));
+      setTabs((open) => open.filter((t) => t.id !== id));
+      if (projectIdFromPath(pathRef.current) === id) navigate("/");
+    },
+    [navigate],
+  );
+
   return {
     projects,
     tabs,
@@ -175,6 +186,7 @@ function useWorkspace() {
     openProjectById,
     closeTab,
     setProjectHiddenAt,
+    dropProject,
   };
 }
 
@@ -304,13 +316,14 @@ function Shell() {
 }
 
 function HomeRoute() {
-  const { projects, openProject, openProjectById, setProjectHiddenAt } = useShell();
+  const { projects, openProject, openProjectById, setProjectHiddenAt, dropProject } = useShell();
   return (
     <Home
       projects={projects}
       onOpen={(id) => void openProjectById(id)}
       onCreated={openProject}
       onArchivedChange={setProjectHiddenAt}
+      onDeleted={dropProject}
     />
   );
 }

@@ -3,6 +3,7 @@ import type { AgentEvent } from "../src/server/provider.ts";
 import {
   StreamJsonMapper,
   buildArgs,
+  parseAuthStatus,
   toRunResult,
 } from "../src/server/providers/claude-code.ts";
 
@@ -328,5 +329,26 @@ describe("buildArgs", () => {
     const bare = buildArgs("x", {});
     expect(bare).not.toContain("--model");
     expect(bare).not.toContain("--max-budget-usd");
+  });
+});
+
+describe("parseAuthStatus", () => {
+  test("logged in: ok with email and plan", () => {
+    const result = parseAuthStatus(
+      JSON.stringify({ loggedIn: true, email: "a@b.c", subscriptionType: "max" }),
+    );
+    expect(result).toEqual({ ok: true, account: "a@b.c (max)" });
+  });
+
+  test("logged out: not ok, says how to fix it", () => {
+    const result = parseAuthStatus(JSON.stringify({ loggedIn: false }));
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("claude auth login");
+  });
+
+  test("non-JSON output (older CLI): not ok, never throws", () => {
+    const result = parseAuthStatus("Logged in as somebody\n");
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("no JSON");
   });
 });

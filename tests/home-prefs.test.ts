@@ -20,6 +20,7 @@ function item(
     defaultProvider: "claude-code",
     workflowId: 1,
     hiddenAt: null,
+    deletedAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     lastActivityAt: null,
     repoPath: null,
