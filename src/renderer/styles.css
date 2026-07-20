@@ -2091,6 +2091,12 @@ body {
   border-color: var(--border-muted);
 }
 
+.wf-badge.draft {
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+}
+
 .wf-sub {
   display: flex;
   flex-direction: column;

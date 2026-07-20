@@ -8,7 +8,7 @@ import { pickFolderNative, revealInFinder, type Home } from "./home.ts";
 import type { PreviewManager } from "./previews.ts";
 import type { Reviews } from "./reviews.ts";
 import type { RunLogRegistry } from "./runlog.ts";
-import { NotFoundError, StateError, ValidationError, type Store } from "./store.ts";
+import { DraftInvalidError, NotFoundError, StateError, ValidationError, type Store } from "./store.ts";
 import type { DoneSweeper } from "./sweep.ts";
 import { isProvider, PROVIDERS, type PreviewKind, type ProviderConfig } from "./types.ts";
 import { DriftError, type Verdicts } from "./verdicts.ts";
@@ -126,6 +126,27 @@ export function createApp(
   });
   app.post("/api/workflows/:id/unarchive", (c) =>
     c.json(store.unarchiveWorkflow(Number(c.req.param("id")))),
+  );
+
+  // The Draft (ticket 47): the mutable editing layer over immutable versions.
+  // GET is get-or-create (first touch cuts it from the head), PUT replaces
+  // the graph (shape-checked only — a mid-edit draft may be invalid),
+  // validate returns the full violation list, publish appends the new head
+  // or answers 400 with that same list, DELETE discards.
+  app.get("/api/workflows/:id/draft", (c) =>
+    c.json(store.getWorkflowDraft(Number(c.req.param("id")))),
+  );
+  app.put("/api/workflows/:id/draft", async (c) =>
+    c.json(store.updateWorkflowDraft(Number(c.req.param("id")), await c.req.json())),
+  );
+  app.post("/api/workflows/:id/draft/validate", (c) =>
+    c.json({ violations: store.validateWorkflowDraft(Number(c.req.param("id"))) }),
+  );
+  app.post("/api/workflows/:id/draft/publish", (c) =>
+    c.json(store.publishWorkflowDraft(Number(c.req.param("id")))),
+  );
+  app.delete("/api/workflows/:id/draft", (c) =>
+    c.json(store.discardWorkflowDraft(Number(c.req.param("id")))),
   );
 
   // App-level provider config (ticket 38): one row per provider name, shared
@@ -515,6 +536,11 @@ export function createApp(
       return c.json({ error: error.message, drift: error.reasons }, 409);
     }
     if (error instanceof StateError) return c.json({ error: error.message }, 409);
+    // Structured like DriftError: the editor renders violations on the
+    // offending nodes and edges, so the list rides along with the message.
+    if (error instanceof DraftInvalidError) {
+      return c.json({ error: error.message, violations: error.violations }, 400);
+    }
     if (error instanceof ValidationError) return c.json({ error: error.message }, 400);
     if (error instanceof SyntaxError) return c.json({ error: "invalid JSON body" }, 400);
     console.error(error);

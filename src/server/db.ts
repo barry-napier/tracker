@@ -506,6 +506,38 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
       ALTER TABLE projects ADD COLUMN hidden_at TEXT;
     `,
   },
+  {
+    version: 17,
+    sql: `
+      -- Steps (ticket 47): typed, ordered prompt fragments a Stage owns —
+      -- versioned content like nodes and edges, keyed by the node row (which
+      -- pins the version). Authoring structure only; the engine's runtime
+      -- contract is untouched. Existing versions simply have no rows.
+      CREATE TABLE workflow_steps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        -- Cascade: steps are owned content — a deleted node (never-used
+        -- workflow hard delete, ticket 51) takes its steps with it.
+        node_id INTEGER NOT NULL REFERENCES workflow_nodes(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        prompt TEXT NOT NULL
+      );
+
+      -- The Draft (ticket 47): at most one per workflow, mutable scratch cut
+      -- from the head version. Deliberately a JSON blob, not rows — draft
+      -- content is not domain data anything queries; claims resolve versions
+      -- and can never see it. Publish materializes it into immutable rows.
+      CREATE TABLE workflow_drafts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workflow_id INTEGER NOT NULL UNIQUE REFERENCES workflows(id) ON DELETE CASCADE,
+        base_version INTEGER NOT NULL,
+        graph TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

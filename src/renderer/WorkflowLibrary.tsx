@@ -125,6 +125,7 @@ function WorkflowRow({
           <span className="wf-version dim">v{row.version}</span>
           {row.isDefault && <span className="wf-badge default">Default</span>}
           {row.archived && <span className="wf-badge archived">Archived</span>}
+          {row.hasDraft && <span className="wf-badge draft">Unpublished changes</span>}
         </div>
         <div className="wf-sub">
           <span className="wf-phases">{row.phases.join(" › ")}</span>

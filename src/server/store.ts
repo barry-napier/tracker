@@ -35,7 +35,16 @@ import type {
   WorkflowGraph,
   WorkflowListing,
   WorkflowNode,
+  DraftGraph,
+  DraftNode,
+  DraftStep,
+  DraftViolation,
+  WorkflowDraft,
+  WorkflowStep,
+  WorkflowStepType,
 } from "./types.ts";
+import { WORKFLOW_STEP_TYPES } from "./types.ts";
+import { validateDraftGraph } from "./workflow-validate.ts";
 
 export type { TicketWithAcs } from "./types.ts";
 
@@ -44,6 +53,14 @@ export class NotFoundError extends Error {}
 export class StateError extends Error {}
 /** A mutation whose referenced rows don't fit together (e.g. cross-project repo). */
 export class ValidationError extends Error {}
+/** Publish refused (ticket 47): carries the validator's full violation list. */
+export class DraftInvalidError extends ValidationError {
+  constructor(public readonly violations: DraftViolation[]) {
+    super(
+      `the draft has ${violations.length} validation ${violations.length === 1 ? "problem" : "problems"}`,
+    );
+  }
+}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -1231,7 +1248,7 @@ export class Store {
       nodes: this.db
         .prepare("SELECT * FROM workflow_nodes WHERE workflow_version_id = ? ORDER BY id")
         .all(versionId)
-        .map(workflowNodeFromRow),
+        .map((nodeRow) => workflowNodeFromRow(nodeRow, this.stepsForNode(Number(nodeRow.id)))),
       edges: this.db
         .prepare("SELECT * FROM workflow_edges WHERE workflow_version_id = ? ORDER BY id")
         .all(versionId)
@@ -1288,6 +1305,10 @@ export class Store {
           node.bootsPreview ? 1 : 0,
         );
         nodeIds.set(node.id, Number(nodeResult.lastInsertRowid));
+        this.insertSteps(
+          Number(nodeResult.lastInsertRowid),
+          node.steps.map((step) => ({ type: step.type, title: step.title, prompt: step.prompt })),
+        );
       }
       const insertEdge = this.db.prepare(
         "INSERT INTO workflow_edges (workflow_version_id, from_node_id, to_node_id, condition_label) VALUES (?, ?, ?, ?)",
@@ -1437,6 +1458,134 @@ export class Store {
     return this.getProviderConfig(provider);
   }
 
+  // -- workflow drafts (ticket 47) ---------------------------------------
+  //
+  // The mutable editing layer over immutable versions (ADR-0004). A draft
+  // lives in its own table as a JSON blob: claims resolve workflow_versions
+  // and can never see it. Same audit carve-out as the library ops above.
+
+  /** Get-or-create: first touch cuts the Draft from the head version. */
+  getWorkflowDraft(workflowId: number): WorkflowDraft {
+    const workflow = this.getWorkflow(workflowId);
+    if (!workflow) throw new NotFoundError(`workflow ${workflowId} not found`);
+    const existing = this.readDraft(workflowId);
+    if (existing) return existing;
+    const head = this.getWorkflowGraph(this.headVersionId(workflowId));
+    const now = nowIso();
+    this.db
+      .prepare(
+        "INSERT INTO workflow_drafts (workflow_id, base_version, graph, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(workflowId, head.version, JSON.stringify(draftGraphFromVersion(head)), now, now);
+    return this.readDraft(workflowId)!;
+  }
+
+  /**
+   * Replace the Draft's graph — the one mutation surface (the editor and the
+   * builder chat both funnel through it). Shape-checked only: a mid-edit
+   * draft may be as invalid as it likes; the validator gates publish.
+   */
+  updateWorkflowDraft(workflowId: number, graph: unknown): WorkflowDraft {
+    this.getWorkflowDraft(workflowId);
+    const parsed = parseDraftGraph(graph);
+    this.db
+      .prepare("UPDATE workflow_drafts SET graph = ?, updated_at = ? WHERE workflow_id = ?")
+      .run(JSON.stringify(parsed), nowIso(), workflowId);
+    return this.readDraft(workflowId)!;
+  }
+
+  /** The full violation list, never first-failure (ticket 47). */
+  validateWorkflowDraft(workflowId: number): DraftViolation[] {
+    return validateDraftGraph(this.getWorkflowDraft(workflowId).graph);
+  }
+
+  /**
+   * Validate, then append the Draft as the new immutable head and clear it —
+   * one transaction. The previous head and every pinned Run are untouched;
+   * Projects following the workflow pick the new head up at their next claim.
+   */
+  publishWorkflowDraft(workflowId: number): WorkflowListing {
+    const draft = this.getWorkflowDraft(workflowId);
+    const violations = validateDraftGraph(draft.graph);
+    if (violations.length > 0) throw new DraftInvalidError(violations);
+    const published = withTransaction(this.db, () => {
+      const head = this.getWorkflowGraph(this.headVersionId(workflowId));
+      const versionResult = this.db
+        .prepare("INSERT INTO workflow_versions (workflow_id, version, created_at) VALUES (?, ?, ?)")
+        .run(workflowId, head.version + 1, nowIso());
+      const versionId = Number(versionResult.lastInsertRowid);
+      const insertNode = this.db.prepare(
+        "INSERT INTO workflow_nodes (workflow_version_id, type, name, prompt_template, gate_requirements, emits_checks, boots_preview) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      );
+      const nodeIds = new Map<string, number>();
+      for (const node of draft.graph.nodes) {
+        const nodeResult = insertNode.run(
+          versionId,
+          node.type,
+          node.name,
+          node.promptTemplate,
+          node.gateRequirements.length === 0 ? null : JSON.stringify(node.gateRequirements),
+          node.emitsChecks ? 1 : 0,
+          node.bootsPreview ? 1 : 0,
+        );
+        nodeIds.set(node.key, Number(nodeResult.lastInsertRowid));
+        this.insertSteps(Number(nodeResult.lastInsertRowid), node.steps);
+      }
+      const insertEdge = this.db.prepare(
+        "INSERT INTO workflow_edges (workflow_version_id, from_node_id, to_node_id, condition_label) VALUES (?, ?, ?, ?)",
+      );
+      for (const edge of draft.graph.edges) {
+        insertEdge.run(versionId, nodeIds.get(edge.from)!, nodeIds.get(edge.to)!, edge.conditionLabel);
+      }
+      this.db.prepare("DELETE FROM workflow_drafts WHERE workflow_id = ?").run(workflowId);
+      return this.getWorkflow(workflowId)!;
+    });
+    return this.listingFor(published);
+  }
+
+  /** Throw the Draft away; the head version is untouched by construction. */
+  discardWorkflowDraft(workflowId: number): WorkflowListing {
+    const workflow = this.getWorkflow(workflowId);
+    if (!workflow) throw new NotFoundError(`workflow ${workflowId} not found`);
+    this.db.prepare("DELETE FROM workflow_drafts WHERE workflow_id = ?").run(workflowId);
+    return this.listingFor(workflow);
+  }
+
+  private readDraft(workflowId: number): WorkflowDraft | undefined {
+    const row = this.db
+      .prepare("SELECT * FROM workflow_drafts WHERE workflow_id = ?")
+      .get(workflowId);
+    if (!row) return undefined;
+    return {
+      workflowId: Number(row.workflow_id),
+      baseVersion: Number(row.base_version),
+      graph: JSON.parse(String(row.graph)) as DraftGraph,
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    };
+  }
+
+  private stepsForNode(nodeId: number): WorkflowStep[] {
+    return this.db
+      .prepare("SELECT * FROM workflow_steps WHERE node_id = ? ORDER BY position, id")
+      .all(nodeId)
+      .map((row) => ({
+        id: Number(row.id),
+        nodeId: Number(row.node_id),
+        position: Number(row.position),
+        type: String(row.type) as WorkflowStepType,
+        title: String(row.title),
+        prompt: String(row.prompt),
+      }));
+  }
+
+  private insertSteps(nodeId: number, steps: DraftStep[]): void {
+    const insert = this.db.prepare(
+      "INSERT INTO workflow_steps (node_id, position, type, title, prompt) VALUES (?, ?, ?, ?, ?)",
+    );
+    steps.forEach((step, position) => insert.run(nodeId, position, step.type, step.title, step.prompt));
+  }
+
   /** Archived is never a new choice — the shared gate for every selection surface. */
   private selectableWorkflow(id: number): Workflow {
     const workflow = this.getWorkflow(id);
@@ -1474,6 +1623,10 @@ export class Store {
       version: graph.version,
       phases: walkPhases(graph).map((node) => node.name),
       usedByProjects: Number(usedBy.n),
+      hasDraft:
+        this.db
+          .prepare("SELECT 1 AS one FROM workflow_drafts WHERE workflow_id = ?")
+          .get(workflow.id) !== undefined,
     };
   }
 
@@ -1782,7 +1935,7 @@ function workflowFromRow(row: Row): Workflow {
   };
 }
 
-function workflowNodeFromRow(row: Row): WorkflowNode {
+function workflowNodeFromRow(row: Row, steps: WorkflowStep[] = []): WorkflowNode {
   return {
     id: Number(row.id),
     workflowVersionId: Number(row.workflow_version_id),
@@ -1793,7 +1946,117 @@ function workflowNodeFromRow(row: Row): WorkflowNode {
     bootsPreview: Number(row.boots_preview) === 1,
     gateRequirements:
       row.gate_requirements === null ? [] : (JSON.parse(String(row.gate_requirements)) as string[]),
+    steps,
   };
+}
+
+/** The Draft's starting content: the head version, keyed for editing. */
+function draftGraphFromVersion(graph: WorkflowGraph): DraftGraph {
+  const keyOf = new Map(graph.nodes.map((node) => [node.id, `n${node.id}`]));
+  return {
+    nodes: graph.nodes.map((node) => ({
+      key: keyOf.get(node.id)!,
+      type: node.type,
+      name: node.name,
+      promptTemplate: node.promptTemplate,
+      emitsChecks: node.emitsChecks,
+      bootsPreview: node.bootsPreview,
+      gateRequirements: node.gateRequirements,
+      steps: node.steps.map((step) => ({ type: step.type, title: step.title, prompt: step.prompt })),
+    })),
+    edges: graph.edges.map((edge) => ({
+      from: keyOf.get(edge.fromNodeId)!,
+      to: keyOf.get(edge.toNodeId)!,
+      conditionLabel: edge.conditionLabel,
+    })),
+  };
+}
+
+/**
+ * Shape check for the draft-mutation surface: structural honesty only (a
+ * graph the editor can render and publish can materialize), never the
+ * publish rules — those are the validator's, at publish time.
+ */
+function parseDraftGraph(value: unknown): DraftGraph {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new ValidationError("the draft graph must be an object with nodes and edges");
+  }
+  const { nodes, edges } = value as { nodes?: unknown; edges?: unknown };
+  if (!Array.isArray(nodes) || !Array.isArray(edges)) {
+    throw new ValidationError("the draft graph must carry nodes[] and edges[]");
+  }
+  const keys = new Set<string>();
+  const parsedNodes: DraftNode[] = nodes.map((raw, index) => {
+    if (typeof raw !== "object" || raw === null) {
+      throw new ValidationError(`node ${index} is not an object`);
+    }
+    const node = raw as Record<string, unknown>;
+    if (typeof node.key !== "string" || node.key === "") {
+      throw new ValidationError(`node ${index} needs a non-empty string key`);
+    }
+    if (keys.has(node.key)) throw new ValidationError(`node key "${node.key}" is used twice`);
+    keys.add(node.key);
+    if (node.type !== "trigger" && node.type !== "agent_phase") {
+      throw new ValidationError(`node "${node.key}" has unknown type ${JSON.stringify(node.type)}`);
+    }
+    if (typeof node.name !== "string") {
+      throw new ValidationError(`node "${node.key}" needs a string name`);
+    }
+    if (node.promptTemplate !== null && typeof node.promptTemplate !== "string") {
+      throw new ValidationError(`node "${node.key}" promptTemplate must be a string or null`);
+    }
+    if (typeof node.emitsChecks !== "boolean" || typeof node.bootsPreview !== "boolean") {
+      throw new ValidationError(`node "${node.key}" emitsChecks/bootsPreview must be booleans`);
+    }
+    if (
+      !Array.isArray(node.gateRequirements) ||
+      node.gateRequirements.some((item) => typeof item !== "string")
+    ) {
+      throw new ValidationError(`node "${node.key}" gateRequirements must be strings`);
+    }
+    if (!Array.isArray(node.steps)) {
+      throw new ValidationError(`node "${node.key}" steps must be an array`);
+    }
+    const steps: DraftStep[] = node.steps.map((rawStep, stepIndex) => {
+      const step = (rawStep ?? {}) as Record<string, unknown>;
+      if (!(WORKFLOW_STEP_TYPES as readonly string[]).includes(String(step.type))) {
+        throw new ValidationError(
+          `node "${node.key}" step ${stepIndex} has unknown type ${JSON.stringify(step.type)}`,
+        );
+      }
+      if (typeof step.title !== "string" || typeof step.prompt !== "string") {
+        throw new ValidationError(`node "${node.key}" step ${stepIndex} needs title and prompt strings`);
+      }
+      return { type: step.type as DraftStep["type"], title: step.title, prompt: step.prompt };
+    });
+    return {
+      key: node.key,
+      type: node.type,
+      name: node.name,
+      promptTemplate: node.promptTemplate as string | null,
+      emitsChecks: node.emitsChecks,
+      bootsPreview: node.bootsPreview,
+      gateRequirements: node.gateRequirements as string[],
+      steps,
+    };
+  });
+  const parsedEdges = edges.map((raw, index) => {
+    if (typeof raw !== "object" || raw === null) {
+      throw new ValidationError(`edge ${index} is not an object`);
+    }
+    const edge = raw as Record<string, unknown>;
+    if (typeof edge.from !== "string" || !keys.has(edge.from)) {
+      throw new ValidationError(`edge ${index} "from" does not name a node key`);
+    }
+    if (typeof edge.to !== "string" || !keys.has(edge.to)) {
+      throw new ValidationError(`edge ${index} "to" does not name a node key`);
+    }
+    if (edge.conditionLabel !== null && typeof edge.conditionLabel !== "string") {
+      throw new ValidationError(`edge ${index} conditionLabel must be a string or null`);
+    }
+    return { from: edge.from, to: edge.to, conditionLabel: edge.conditionLabel as string | null };
+  });
+  return { nodes: parsedNodes, edges: parsedEdges };
 }
 
 function workflowEdgeFromRow(row: Row): WorkflowEdge {

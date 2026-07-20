@@ -162,6 +162,35 @@ export interface WorkflowListing extends Workflow {
   /** Agent-phase names of the head version, in graph walk order. */
   phases: string[];
   usedByProjects: number;
+  /** Unpublished changes: a Draft exists (ticket 47), invisible to claims. */
+  hasDraft: boolean;
+}
+
+/**
+ * The Steps taxonomy (ticket 47, from Prototype A): classifies a Step for
+ * the builder UI; it never changes how the engine executes.
+ */
+export const WORKFLOW_STEP_TYPES = [
+  "search-global",
+  "search-project",
+  "search-code",
+  "search-web",
+  "action",
+  "author",
+] as const;
+export type WorkflowStepType = (typeof WORKFLOW_STEP_TYPES)[number];
+
+/**
+ * A typed, ordered prompt fragment inside a Stage (CONTEXT.md: authoring
+ * structure, not runtime machinery). Versioned content like nodes and edges.
+ */
+export interface WorkflowStep {
+  id: number;
+  nodeId: number;
+  position: number;
+  type: WorkflowStepType;
+  title: string;
+  prompt: string;
 }
 
 /** Workflows are node/edge graphs, never ordered lists (ADR-0001). */
@@ -184,6 +213,8 @@ export interface WorkflowNode {
    * (e.g. kb/recap.html); the artifact gate checks their existence.
    */
   gateRequirements: string[];
+  /** The Stage's ordered Steps (ticket 47); empty on pre-Steps versions. */
+  steps: WorkflowStep[];
 }
 
 export interface WorkflowEdge {
@@ -203,6 +234,73 @@ export interface WorkflowGraph {
   name: string;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
+}
+
+/**
+ * The Draft's graph (ticket 47): the mutable editing layer over immutable
+ * versions. Nodes carry string keys, not row ids — a draft node may not
+ * exist anywhere yet; publish materializes keys into fresh node rows.
+ */
+export interface DraftStep {
+  type: WorkflowStepType;
+  title: string;
+  prompt: string;
+}
+
+export interface DraftNode {
+  /** Draft-local identity; stable across edits, meaningless after publish. */
+  key: string;
+  type: WorkflowNodeType;
+  name: string;
+  promptTemplate: string | null;
+  emitsChecks: boolean;
+  bootsPreview: boolean;
+  gateRequirements: string[];
+  steps: DraftStep[];
+}
+
+export interface DraftEdge {
+  from: string;
+  to: string;
+  conditionLabel: string | null;
+}
+
+export interface DraftGraph {
+  nodes: DraftNode[];
+  edges: DraftEdge[];
+}
+
+/**
+ * A Workflow's one mutable Draft (CONTEXT.md): created from the head
+ * version on first edit, invisible to claims, gone on publish or discard.
+ */
+export interface WorkflowDraft {
+  workflowId: number;
+  /** The head version number the draft was cut from. */
+  baseVersion: number;
+  graph: DraftGraph;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * One publish-validator violation (ticket 47). The validator always returns
+ * the full list, never first-failure; nodeKey/edgeIndex anchor the message
+ * to the offending element so the editor can render it in place.
+ */
+export interface DraftViolation {
+  rule:
+    | "trigger"
+    | "orphan"
+    | "cycle"
+    | "mixed-edges"
+    | "duplicate-label"
+    | "uncovered-path"
+    | "duplicate-name"
+    | "empty-prompt";
+  message: string;
+  nodeKey?: string;
+  edgeIndex?: number;
 }
 
 /**
