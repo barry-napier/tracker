@@ -666,9 +666,16 @@ function SuccessorDialog({
 /**
  * The full-page create form (ticket 51): a brand-new workflow starts with a
  * name and description; the version is always v1 (a trigger-only graph the
- * editor fills). Create lands back in the library; so does Cancel.
+ * editor fills). Create lands in the canvas editor; Cancel goes back to the
+ * library.
  */
-export function WorkflowCreate({ onDone }: { onDone: () => void }) {
+export function WorkflowCreate({
+  onDone,
+  onCreated,
+}: {
+  onDone: () => void;
+  onCreated: (id: number) => void;
+}) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [color, setColor] = useState<string | null>(null);
@@ -683,8 +690,8 @@ export function WorkflowCreate({ onDone }: { onDone: () => void }) {
     }
     setBusy(true);
     try {
-      await apiPost("/api/workflows", { name, description, color, icon });
-      onDone();
+      const created = await apiPost<WorkflowListing>("/api/workflows", { name, description, color, icon });
+      onCreated(created.id);
     } catch (e) {
       setError(errorMessage(e));
       setBusy(false);

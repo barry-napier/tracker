@@ -340,7 +340,12 @@ function WorkflowsRoute() {
 
 function WorkflowCreateRoute() {
   const navigate = useNavigate();
-  return <WorkflowCreate onDone={() => navigate("/workflows")} />;
+  return (
+    <WorkflowCreate
+      onDone={() => navigate("/workflows")}
+      onCreated={(id) => navigate(`/workflows/${id}`)}
+    />
+  );
 }
 
 /**
