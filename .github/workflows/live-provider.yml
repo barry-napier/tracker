@@ -1,0 +1,62 @@
+# The adapter contract suite against the REAL claude CLI (ticket 38).
+#
+# This exists because the stubbed suite once stayed green while the adapter
+# was broken: the stub binary was written by the same author as the adapter
+# and encoded the same wrong assumption about the wire format (one NDJSON
+# line per message — the real CLI splits messages across lines sharing a
+# message.id). A fixture shares its author's blind spots; only the real CLI
+# catches the wire format drifting underneath us.
+#
+# It spends real tokens (~$0.20–1.00 per run), so it fires only when the
+# provider seam changes, on pushes to main touching it, or by hand.
+name: Live provider contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/server/provider.ts"
+      - "src/server/providers/**"
+      - "tests/provider-contract*"
+      - "tests/claude-code-adapter.test.ts"
+      - "tests/fixtures/**"
+      - ".github/workflows/live-provider.yml"
+  pull_request:
+    paths:
+      - "src/server/provider.ts"
+      - "src/server/providers/**"
+      - "tests/provider-contract*"
+      - "tests/claude-code-adapter.test.ts"
+      - "tests/fixtures/**"
+      - ".github/workflows/live-provider.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: live-provider-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      # Fail loudly, never skip silently: a quietly-absent secret would make
+      # this job read as coverage it isn't — the exact trap it exists to close.
+      - name: Require ANTHROPIC_API_KEY
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::ANTHROPIC_API_KEY secret is not set — the live suite cannot authenticate. Add it in repo Settings → Secrets."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+      - name: Live contract suite
+        run: TRACKER_LIVE_PROVIDER_TESTS=1 npx vitest run tests/provider-contract.test.ts
