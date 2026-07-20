@@ -15,9 +15,21 @@ import type { ProviderConfigReader } from "./providers/registry.ts";
 import { Reviews } from "./reviews.ts";
 import { RunLogRegistry } from "./runlog.ts";
 import { Store } from "./store.ts";
+import { DoneSweeper } from "./sweep.ts";
 import { Verdicts } from "./verdicts.ts";
 import { sweepOrphanedRuns, WorkerPool } from "./workers.ts";
 import { WorktreeManager } from "./worktrees.ts";
+
+/** Every worktree path some ticket still accounts for (ticket 42). */
+function accountedWorktreePaths(store: Store, worktrees: WorktreeManager): Set<string> {
+  const keep = new Set<string>();
+  for (const ticket of store.listTickets()) {
+    if (ticket.repoId === null) continue;
+    const repo = store.getRepo(ticket.repoId);
+    if (repo) keep.add(worktrees.worktreePath(repo, ticket.displayKey));
+  }
+  return keep;
+}
 
 export interface TrackerServer {
   url: string;
@@ -53,11 +65,14 @@ export async function startServer(options: {
   // One Bouncer serves both bounce triggers: the battery's (WorkerPool) and
   // the reviewer's (Verdicts) — same machinery, same report shape.
   const bouncer = new Bouncer(store, artifacts);
+  const worktrees = new WorktreeManager(options.dataDir);
   // No process survives a restart: rows still claiming live catch up first —
   // preview records silently, orphaned Runs through the crash policy
-  // (ticket 41) before the pool below can claim anything.
+  // (ticket 41), and worktree dirs no ticket accounts for (ticket 42) —
+  // all before the pool below can claim anything.
   store.sweepOrphanedPreviews();
   await sweepOrphanedRuns(store, artifacts);
+  await worktrees.removeOrphanDirs(accountedWorktreePaths(store, worktrees));
   const previews = new PreviewManager(options.dataDir, store, options.previewPortBase);
   const app = createApp(
     store,
@@ -67,6 +82,7 @@ export async function startServer(options: {
     new Reviews(store, github),
     new Home(store),
     previews,
+    new DoneSweeper(store, worktrees, previews, artifacts, github),
     options.dataDir,
   );
   const providers =
@@ -76,7 +92,7 @@ export async function startServer(options: {
   const engine = new WorkflowEngine(store, providers, runLogs, previews, options.phaseTimeouts);
   const pool = new WorkerPool(
     store,
-    new WorktreeManager(options.dataDir),
+    worktrees,
     engine,
     artifacts,
     new DemoRecorder(options.dataDir, store, previews, artifacts),

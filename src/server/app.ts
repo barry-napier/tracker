@@ -9,6 +9,7 @@ import type { PreviewManager } from "./previews.ts";
 import type { Reviews } from "./reviews.ts";
 import type { RunLogRegistry } from "./runlog.ts";
 import { NotFoundError, StateError, ValidationError, type Store } from "./store.ts";
+import type { DoneSweeper } from "./sweep.ts";
 import { isProvider, PROVIDERS, type PreviewKind, type ProviderConfig } from "./types.ts";
 import { DriftError, type Verdicts } from "./verdicts.ts";
 
@@ -43,6 +44,7 @@ export function createApp(
   reviews: Reviews,
   home: Home,
   previews: PreviewManager,
+  sweeper: DoneSweeper,
   /** Where the ArtifactStore blobbed run evidence; content serves from here. */
   dataDir: string,
 ): Hono {
@@ -212,6 +214,13 @@ export function createApp(
     if (!project) return c.json({ error: "not found" }, 404);
     return c.json(store.listProjectAuditEvents(project.id));
   });
+
+  // The Done-column sweep (ticket 42): deliberate, batched disk hygiene.
+  // The response is the whole story — what was reaped, what was skipped and
+  // why; nothing disappears silently.
+  app.post("/api/projects/:id/sweep", async (c) =>
+    c.json(await sweeper.sweep(Number(c.req.param("id")))),
+  );
 
   app.post("/api/repos", async (c) => {
     const body = await c.req.json<{

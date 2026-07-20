@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import type { TreeState } from "./types.ts";
@@ -65,8 +65,13 @@ export class WorktreeManager {
     ticketKey: string,
     branch: string,
   ): Promise<WorktreeResult> {
+    return this.#chainOnRepoLock(repo, () => this.#ensureWorktree(repo, ticketKey, branch));
+  }
+
+  /** Serialize an op onto the repo's chain; a failure never wedges the lock. */
+  #chainOnRepoLock<T>(repo: WorktreeRepo, op: () => Promise<T>): Promise<T> {
     const previous = this.#locks.get(repoName(repo)) ?? Promise.resolve();
-    const task = previous.then(() => this.#ensureWorktree(repo, ticketKey, branch));
+    const task = previous.then(op);
     this.#locks.set(
       repoName(repo),
       task.catch(() => {}),
@@ -97,6 +102,61 @@ export class WorktreeManager {
     mkdirSync(path.dirname(worktreePath), { recursive: true });
     await git(bare, "worktree", "add", worktreePath, branch);
     return { worktreePath, created: true };
+  }
+
+  /**
+   * The Done sweep's reap (ticket 42): take the ticket's worktree off disk.
+   * Chained on the repo lock so a racing claim can't have git mid-operation
+   * under the removal. Returns the removed path, or null when there was
+   * nothing on disk. The branch stays in the bare clone — merged history is
+   * GitHub's; the reap is disk hygiene, never ref surgery.
+   */
+  async removeWorktree(repo: WorktreeRepo, ticketKey: string): Promise<string | null> {
+    return this.#chainOnRepoLock(repo, () => this.#removeWorktree(repo, ticketKey));
+  }
+
+  async #removeWorktree(repo: WorktreeRepo, ticketKey: string): Promise<string | null> {
+    const worktreePath = this.worktreePath(repo, ticketKey);
+    if (!existsSync(worktreePath)) return null;
+    const bare = path.join(this.rootDir, "repos", `${repoName(repo)}.git`);
+    try {
+      // --force: swept worktrees legitimately carry unignored kb/ leftovers.
+      await git(bare, "worktree", "remove", "--force", worktreePath);
+    } catch {
+      // The bare clone may be gone or confused; the directory still goes,
+      // and prune reconciles whatever admin records remain.
+      rmSync(worktreePath, { recursive: true, force: true });
+      if (existsSync(bare)) await git(bare, "worktree", "prune").catch(() => {});
+    }
+    return worktreePath;
+  }
+
+  /**
+   * Startup reconciliation (ticket 42): remove worktree directories no
+   * ticket accounts for — DB reset, repo removed. `keep` holds every path a
+   * ticket could still claim; everything else under worktrees/ goes.
+   * Runs before the pool starts claiming, so no lock is needed.
+   */
+  async removeOrphanDirs(keep: ReadonlySet<string>): Promise<string[]> {
+    const worktreesDir = path.join(this.rootDir, "worktrees");
+    if (!existsSync(worktreesDir)) return [];
+    const removed: string[] = [];
+    for (const entry of readdirSync(worktreesDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const full = path.join(worktreesDir, entry.name);
+      if (keep.has(full)) continue;
+      rmSync(full, { recursive: true, force: true });
+      removed.push(full);
+    }
+    // Let every bare clone drop its admin records for the vanished trees.
+    const reposDir = path.join(this.rootDir, "repos");
+    if (removed.length > 0 && existsSync(reposDir)) {
+      for (const entry of readdirSync(reposDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        await git(path.join(reposDir, entry.name), "worktree", "prune").catch(() => {});
+      }
+    }
+    return removed;
   }
 
   /** Clone once on first use; every later call is a cheap existence check. */

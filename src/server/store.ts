@@ -934,6 +934,38 @@ export class Store {
   }
 
   /**
+   * The Done sweep's record half (ticket 42): the preview row goes with the
+   * worktree, and the reap is audited per ticket — disk hygiene is a real
+   * event in the Ticket's life, not silent housekeeping. Ticket state is
+   * untouched; Done stays Done.
+   */
+  reapTicket(
+    ticketId: number,
+    detail: { worktreePath: string | null },
+  ): { previewRemoved: boolean } {
+    const existing = this.getTicket(ticketId);
+    if (!existing) throw new NotFoundError(`ticket ${ticketId} not found`);
+    const { previewRemoved, audit } = withTransaction(this.db, () => {
+      const deleted = this.db.prepare("DELETE FROM previews WHERE ticket_id = ?").run(ticketId);
+      const previewRemoved = Number(deleted.changes) > 0;
+      const audit = this.insertAudit({
+        projectId: existing.projectId,
+        ticketId,
+        actor: "human",
+        type: "worktree.reaped",
+        detail: {
+          worktreePath: detail.worktreePath,
+          previewRemoved,
+          prNumber: existing.prNumber,
+        },
+      });
+      return { previewRemoved, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    return { previewRemoved };
+  }
+
+  /**
    * A reviewer answers an open "Decision for a human" from the dogfood phase
    * (ticket 37). Decisions never gate — the answer changes no Ticket state; it
    * lands in the Audit Trail as a human event so the reasoning survives. The

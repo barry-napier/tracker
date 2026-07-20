@@ -7,6 +7,7 @@ import {
   type Repo,
   type TicketWithAcs,
 } from "../server/types.ts";
+import type { SweepResult } from "../server/sweep.ts";
 import { apiGet, apiPost } from "./api.ts";
 import { PROVIDER_LABELS, repoName } from "./format.ts";
 import { avatarColor, Home } from "./Home.tsx";
@@ -255,6 +256,7 @@ export default function App() {
                   {label} <span className="dim">{column.length}</span>
                 </h3>
                 {key === "backlog" && <NewTicketForm projectId={project.id} />}
+                {key === "done" && <DoneSweep projectId={project.id} />}
                 {column.map((ticket) => (
                   <TicketCard
                     key={ticket.id}
@@ -448,6 +450,65 @@ function ProviderSelect({
         </option>
       ))}
     </select>
+  );
+}
+
+/**
+ * The Done-column sweep (ticket 42): Done does not auto-destroy — this
+ * button is the deliberate reap of merged-and-persisted tickets' worktrees
+ * and preview records. The report stays up until the next sweep; skips are
+ * always shown with their reason, never silent.
+ */
+function DoneSweep({ projectId }: { projectId: number }) {
+  const [report, setReport] = useState<SweepResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Switching tabs must not carry another board's sweep story along.
+  useEffect(() => {
+    setReport(null);
+    setError(null);
+  }, [projectId]);
+
+  const sweep = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      setReport(await apiPost<SweepResult>(`/api/projects/${projectId}/sweep`, {}));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="sweep">
+      <button
+        type="button"
+        className="newticket"
+        onClick={() => void sweep()}
+        disabled={busy}
+        title="Reap merged tickets' worktrees and preview records"
+      >
+        {busy ? "Sweeping…" : "⌁ Sweep worktrees"}
+      </button>
+      {error && <p className="sweep-note sweep-error">{error}</p>}
+      {report && (
+        <div className="sweep-note">
+          <p>
+            {report.reaped.length === 0
+              ? "Nothing to reap."
+              : `Reaped ${report.reaped.map((r) => r.displayKey).join(", ")}.`}
+          </p>
+          {report.skipped.map((skip) => (
+            <p key={skip.ticketId}>
+              {skip.displayKey} skipped — {skip.reason}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import path from "node:path";
 import { NotFoundError, StateError, type Store } from "./store.ts";
@@ -227,6 +227,17 @@ export class PreviewManager {
   /** App quit: every live preview goes down with the server. */
   async stopAll(): Promise<void> {
     await Promise.all([...this.#live.keys()].map((ticketId) => this.stop(ticketId)));
+  }
+
+  /**
+   * The Done sweep's process-and-file half (ticket 42): take down whatever
+   * still runs and drop the captured log. The record row itself falls in
+   * store.reapTicket, same transaction as the reap audit.
+   */
+  async discard(ticketId: number): Promise<void> {
+    await this.stop(ticketId);
+    const logPath = this.store.getPreview(ticketId)?.logPath;
+    if (logPath != null) rmSync(path.join(this.dataDir, logPath), { force: true });
   }
 
   async #watchReadiness(

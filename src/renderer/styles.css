@@ -397,6 +397,28 @@ body {
   background: var(--overlay-hover);
 }
 
+/* -- Done-column sweep (ticket 42) -- */
+
+.sweep {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.sweep-note {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.sweep-note p {
+  margin: 0 0 0.2rem 0.1rem;
+}
+
+.sweep-error {
+  color: var(--danger-fg);
+}
+
 /* -- forms & controls: opencode neutral/contrast buttons -- */
 
 .newform {
