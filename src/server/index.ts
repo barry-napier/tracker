@@ -74,6 +74,10 @@ export async function startServer(options: {
   await sweepOrphanedRuns(store, artifacts);
   await worktrees.removeOrphanDirs(accountedWorktreePaths(store, worktrees));
   const previews = new PreviewManager(options.dataDir, store, options.previewPortBase);
+  const providers =
+    typeof options.providers === "function"
+      ? options.providers((provider) => store.getProviderConfig(provider))
+      : (options.providers ?? {});
   const app = createApp(
     store,
     bus,
@@ -84,11 +88,8 @@ export async function startServer(options: {
     previews,
     new DoneSweeper(store, worktrees, previews, artifacts, github),
     options.dataDir,
+    providers,
   );
-  const providers =
-    typeof options.providers === "function"
-      ? options.providers((provider) => store.getProviderConfig(provider))
-      : (options.providers ?? {});
   const engine = new WorkflowEngine(store, providers, runLogs, previews, options.phaseTimeouts);
   const pool = new WorkerPool(
     store,

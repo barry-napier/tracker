@@ -12,6 +12,9 @@ import { DraftInvalidError, NotFoundError, StateError, ValidationError, type Sto
 import type { DoneSweeper } from "./sweep.ts";
 import { isProvider, PROVIDERS, type PreviewKind, type ProviderConfig } from "./types.ts";
 import { DriftError, type Verdicts } from "./verdicts.ts";
+import type { ProviderRegistry } from "./provider.ts";
+import { runWorkflowChat } from "./workflow-chat.ts";
+import { validateDraftGraph } from "./workflow-validate.ts";
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
@@ -47,6 +50,9 @@ export function createApp(
   sweeper: DoneSweeper,
   /** Where the ArtifactStore blobbed run evidence; content serves from here. */
   dataDir: string,
+  /** For the draft-edit chat (one provider phase per message); empty in
+   *  tests that never chat. */
+  providers: ProviderRegistry = {},
 ): Hono {
   const app = new Hono();
 
@@ -181,6 +187,57 @@ export function createApp(
   app.delete("/api/workflows/:id/draft", (c) =>
     c.json(store.discardWorkflowDraft(Number(c.req.param("id")))),
   );
+
+  // The draft-edit chat (ticket 48 follow-on): one provider phase per
+  // message. The model answers with a full replacement graph; the same
+  // shape check as PUT guards the save, so a hallucinated graph is a 502
+  // and the draft stays as it was.
+  app.post("/api/workflows/:id/draft/chat", async (c) => {
+    const body = await c.req.json<{ message?: string; provider?: string }>();
+    if (!isNonEmptyString(body.message)) {
+      return c.json({ error: "message is required" }, 400);
+    }
+    const providerName = body.provider ?? "claude-code";
+    if (!isProvider(providerName)) {
+      return c.json({ error: `provider must be one of ${PROVIDERS.join(", ")}` }, 400);
+    }
+    const provider = providers[providerName];
+    if (!provider) {
+      return c.json({ error: `provider ${providerName} is not available` }, 503);
+    }
+    const id = Number(c.req.param("id"));
+    // Read without cutting a draft: a chat that fails must leave no trace,
+    // so the head graph stands in until a successful save (which is the
+    // first touch that cuts the draft, same as the editor's PUT).
+    const head = store.getWorkflowHeadGraph(id);
+    const graph = head.hasDraft ? store.getWorkflowDraft(id).graph : head.graph;
+    const outcome = await runWorkflowChat(provider, graph, body.message, dataDir);
+    if (!outcome.ok) return c.json({ error: outcome.error }, 502);
+    // Manual edits may leave a draft invalid until Publish, but a chat edit
+    // is refused outright: the publish validator's verdict is the reason the
+    // user sees, and the draft stays exactly as it was.
+    let violations;
+    try {
+      violations = validateDraftGraph(outcome.graph);
+    } catch {
+      // The validator assumes a shaped graph; a throw means it wasn't one.
+      return c.json({ error: "the model returned an invalid graph: not a graph shape" }, 502);
+    }
+    if (violations.length > 0) {
+      return c.json(
+        { error: `that edit was refused: ${violations.map((v) => v.message).join("; ")}` },
+        422,
+      );
+    }
+    try {
+      return c.json({ reply: outcome.reply, draft: store.updateWorkflowDraft(id, outcome.graph) });
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        return c.json({ error: `the model returned an invalid graph: ${error.message}` }, 502);
+      }
+      throw error;
+    }
+  });
 
   // App-level provider config (ticket 38): one row per provider name, shared
   // by every Project. Adapters read it fresh per phase, so a save here lands

@@ -4,10 +4,16 @@
 
 **Blocked by:** 47 — drafts and publish; 48 — canvas editor.
 
-**Status:** ready-for-agent
+**Status:** done (2026-07-20) — server side committed; the ChatPanel renderer half is live in the working tree and rides the concurrent canvas/router session's sweep
 
-- [ ] Chat request produces draft mutations via the same store ops the canvas uses; canvas reflects them immediately
-- [ ] The chat cannot publish, discard, or touch published versions — human-only actions stay human-only
-- [ ] Stage, edge-label, and step edits all reachable through chat (add stage with steps proven end-to-end)
-- [ ] Invalid requests (cycle, second trigger) are refused with the validator's reason, draft untouched
-- [ ] Panel matches the prototype's placement and oc-2 look; works in both color schemes
+- [x] Chat request produces draft mutations via the same store ops the canvas uses; canvas reflects them immediately
+- [x] The chat cannot publish, discard, or touch published versions — human-only actions stay human-only
+- [x] Stage, edge-label, and step edits all reachable through chat (add stage with steps proven end-to-end)
+- [x] Invalid requests (cycle, second trigger) are refused with the validator's reason, draft untouched
+- [x] Panel matches the prototype's placement and oc-2 look; works in both color schemes (verified visually in both schemes; code uncommitted here)
+
+**Resolution notes (2026-07-20):**
+- Mechanism differs from the spec's "tool surface = draft mutation API": one provider phase per message, model returns a fenced JSON `{reply, graph}` full-replacement graph (`src/server/workflow-chat.ts`), saved through `store.updateWorkflowDraft` — the same single mutation surface the canvas PUT uses. Granular-op tooling deferred to the Tracker-as-MCP-server steal (t3code #2); prompt rules guard key stability until then.
+- Route `POST /api/workflows/:id/draft/chat`: 400 blank message, 503 no provider, 502 unparseable/shape-invalid answer, 422 with the publish validator's reasons (cycle, second trigger, …) — draft untouched on every failure path, including no draft materialized on a draftless workflow (reads head, only a successful save cuts the draft).
+- Chat cannot publish/discard: the route's only write is `updateWorkflowDraft`.
+- Tests: tests/workflow-chat.test.ts (7) — success end-to-end with a steps-bearing stage, validator refusal, no-draft-on-failure, parse edge cases.
