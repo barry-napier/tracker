@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .dev-data/
+.dev-data.bak-*/
 build/
 out/
 .DS_Store
