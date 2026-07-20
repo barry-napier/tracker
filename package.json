@@ -47,6 +47,7 @@
     "electron-builder": "^26.15.3",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-router": "^8.2.0",
     "typescript": "^7.0.2",
     "vite": "^8.1.5",
     "vitest": "^4.1.10"
@@ -54,6 +55,7 @@
   "dependencies": {
     "@github/copilot-sdk": "^1.0.7",
     "@hono/node-server": "^2.0.10",
+    "@xyflow/react": "^12.11.2",
     "hono": "^4.12.30"
   }
 }

@@ -1,4 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Navigate,
+  Outlet,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useOutletContext,
+  useParams,
+} from "react-router";
 import { getThemePref, setThemePref, type ThemePref } from "./theme.ts";
 import {
   PROVIDERS,
@@ -24,15 +34,29 @@ import { loadTabs, saveTabs } from "./tabsState.ts";
 import { Icon } from "./icons.tsx";
 
 /**
- * Workspace state: open Project tabs plus one active view. Home is the
- * no-active-tab view — the Home button switches to it without closing tabs,
- * so an open board is always one click away. Opening a project adds a tab
- * (or re-activates an existing one); only the tab's × removes it.
+ * The URL is the view state: every surface has a route (hash-based, since
+ * Electron loads the renderer over file://), so refresh and back/forward
+ * land where you were. The /projects/:id prefix IS the "active tab" —
+ * nothing else remembers which board is showing.
+ */
+function projectIdFromPath(pathname: string): number | null {
+  const match = /^\/projects\/(\d+)/.exec(pathname);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Workspace state: open Project tabs plus the URL-derived active view. Home
+ * is the no-project route — the Home button navigates there without closing
+ * tabs, so an open board is always one click away. Opening a project adds a
+ * tab (or re-activates an existing one); only the tab's × removes it. A deep
+ * link to a project with no tab fetches the row and opens one.
  */
 function useWorkspace() {
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const activeId = projectIdFromPath(pathname);
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [tabs, setTabs] = useState<Project[]>([]);
-  const [activeId, setActiveId] = useState<number | null>(null);
   const project = tabs.find((t) => t.id === activeId) ?? null;
   const [repos, setRepos] = useState<Repo[]>([]);
 
@@ -40,28 +64,40 @@ function useWorkspace() {
   // live rows, so vanished projects drop instead of resurrecting.
   const restoredRef = useRef(false);
   const [fetchTick, setFetchTick] = useState(0);
+  // Effects read the path at fire time without re-running on every navigation.
+  const pathRef = useRef(pathname);
+  pathRef.current = pathname;
 
   // Refetched on every return to Home so recents reorder by latest activity.
   useEffect(() => {
-    if (project !== null) return;
+    if (activeId !== null) return;
     void apiGet<ProjectListItem[]>("/api/projects")
       .then((rows) => {
         setProjects(rows);
         if (restoredRef.current) return;
         restoredRef.current = true;
         const saved = loadTabs(rows);
-        setTabs(saved.tabs);
-        setActiveId(saved.activeId);
+        // Merge, not replace: a deep link's ensure-tab fetch may already
+        // have landed its tab before this restore ran.
+        setTabs((current) => [
+          ...saved.tabs,
+          ...current.filter((t) => !saved.tabs.some((s) => s.id === t.id)),
+        ]);
         // Write back now: restore may have dropped vanished projects, and a
         // no-op setState won't re-fire the save effect below.
         saveTabs(saved.tabs, saved.activeId);
+        // Fresh boot lands on "/" (packaged loads carry no hash): reopen the
+        // last session's active board. A deep link anywhere else wins.
+        if (saved.activeId !== null && pathRef.current === "/") {
+          navigate(`/projects/${saved.activeId}`, { replace: true });
+        }
       })
       .catch(() => {
         // Boot race with the server: retry shortly. Persistence stays off
         // until a fetch lands, so a stale save can't clobber good storage.
         window.setTimeout(() => setFetchTick((tick) => tick + 1), 2000);
       });
-  }, [project, fetchTick]);
+  }, [activeId, fetchTick, navigate]);
 
   // Saves only after restore has run, so boot's empty state can't clobber
   // what the last session left behind.
@@ -70,6 +106,24 @@ function useWorkspace() {
     saveTabs(tabs, activeId);
   }, [tabs, activeId]);
 
+  // A deep link (or restored URL) to a project with no open tab: fetch the
+  // row and open one. An unknown id degrades to Home rather than a dead view.
+  useEffect(() => {
+    if (activeId === null || tabs.some((t) => t.id === activeId)) return;
+    let live = true;
+    void apiGet<Project>(`/api/projects/${activeId}`)
+      .then((row) => {
+        if (!live) return;
+        setTabs((open) => (open.some((t) => t.id === row.id) ? open : [...open, row]));
+      })
+      .catch(() => {
+        if (live) navigate("/", { replace: true });
+      });
+    return () => {
+      live = false;
+    };
+  }, [activeId, tabs, navigate]);
+
   // Repos follow the active tab.
   useEffect(() => {
     setRepos([]);
@@ -77,10 +131,13 @@ function useWorkspace() {
     void apiGet<Repo[]>(`/api/repos?projectId=${activeId}`).then(setRepos);
   }, [activeId]);
 
-  const openProject = useCallback((opened: Project) => {
-    setTabs((open) => (open.some((t) => t.id === opened.id) ? open : [...open, opened]));
-    setActiveId(opened.id);
-  }, []);
+  const openProject = useCallback(
+    (opened: Project) => {
+      setTabs((open) => (open.some((t) => t.id === opened.id) ? open : [...open, opened]));
+      navigate(`/projects/${opened.id}`);
+    },
+    [navigate],
+  );
 
   // Fetch fallback: an "already tracked" click must open its Project even
   // when the recents list is stale or still in flight.
@@ -92,14 +149,13 @@ function useWorkspace() {
     [projects, openProject],
   );
 
-  const goHome = useCallback(() => setActiveId(null), []);
-
-  const activateTab = useCallback((id: number) => setActiveId(id), []);
-
-  const closeTab = useCallback((id: number) => {
-    setTabs((open) => open.filter((t) => t.id !== id));
-    setActiveId((current) => (current === id ? null : current));
-  }, []);
+  const closeTab = useCallback(
+    (id: number) => {
+      setTabs((open) => open.filter((t) => t.id !== id));
+      if (projectIdFromPath(pathRef.current) === id) navigate("/");
+    },
+    [navigate],
+  );
 
   // Removed from recents (ticket 50): drop the row without a refetch. An open
   // tab survives — hiding is a Home-list concern, not a tab concern.
@@ -115,45 +171,50 @@ function useWorkspace() {
     repos,
     openProject,
     openProjectById,
-    activateTab,
     closeTab,
     forgetProject,
-    goHome,
   };
 }
 
+/** Everything the routed views need, provided once by the Shell's Outlet. */
+type ShellContext = ReturnType<typeof useWorkspace> & ReturnType<typeof useBoard>;
+
+function useShell(): ShellContext {
+  return useOutletContext<ShellContext>();
+}
+
 export default function App() {
-  const { board, error, loadAudit, loadRuns } = useBoard();
-  const {
-    projects,
-    tabs,
-    activeId,
-    project,
-    repos,
-    openProject,
-    openProjectById,
-    activateTab,
-    closeTab,
-    forgetProject,
-    goHome,
-  } = useWorkspace();
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [reviewId, setReviewId] = useState<number | null>(null);
-  // Home hosts two views (CONTEXT.md): Recent Projects and the app-global
-  // Workflow library (plus its full-page create form, ticket 51). Pure view
-  // state — the tab model never hears about it.
-  const [homeView, setHomeView] = useState<"projects" | "workflows" | "workflow-new">("projects");
-  // The canvas editor (ticket 48): a Home view reached only from a library
-  // row. Same hosting reasoning as the library — the tab model never hears
-  // about it; leaving the workflows view drops it.
-  const [editingWorkflow, setEditingWorkflow] = useState<WorkflowListing | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  // The stream carries every project; the board shows only the active tab's.
-  const tickets = project ? board.tickets.filter((t) => t.projectId === project.id) : [];
-  // Scoped to the active tab, so switching tabs drops another board's overlays.
-  const selected = tickets.find((t) => t.id === selectedId) ?? null;
-  // Live row from board state, so SSE updates keep the wizard chrome honest.
-  const reviewing = tickets.find((t) => t.id === reviewId) ?? null;
+  return (
+    <Routes>
+      <Route element={<Shell />}>
+        <Route index element={<HomeRoute />} />
+        <Route path="workflows" element={<WorkflowsRoute />} />
+        <Route path="workflows/new" element={<WorkflowCreateRoute />} />
+        <Route path="workflows/:workflowId" element={<WorkflowEditorRoute />} />
+        <Route path="projects/:projectId" element={<BoardRoute />} />
+        <Route path="projects/:projectId/settings" element={<BoardRoute overlay="settings" />} />
+        <Route path="projects/:projectId/tickets/:ticketId" element={<TicketRoute />} />
+        <Route
+          path="projects/:projectId/tickets/:ticketId/review"
+          element={<BoardRoute overlay="review" />}
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  );
+}
+
+/** Topbar + home-nav chrome around every route; state flows via Outlet context. */
+function Shell() {
+  const boardApi = useBoard();
+  const workspace = useWorkspace();
+  const { tabs, project } = workspace;
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  // The canvas editor is a focused surface — no view switcher there; its own
+  // back button is the way out.
+  const inCanvasEditor = /^\/workflows\/\d+/.test(pathname);
+  const workflowsActive = pathname.startsWith("/workflows");
 
   return (
     <div className="app">
@@ -162,7 +223,7 @@ export default function App() {
           type="button"
           className="icon-btn"
           title="Home"
-          onClick={goHome}
+          onClick={() => navigate("/")}
           aria-pressed={project === null}
         >
           <Icon name="grid-plus" size={16} />
@@ -171,8 +232,8 @@ export default function App() {
           <button
             key={tab.id}
             type="button"
-            className={tab.id === activeId ? "tab active" : "tab"}
-            onClick={() => activateTab(tab.id)}
+            className={tab.id === project?.id ? "tab active" : "tab"}
+            onClick={() => navigate(`/projects/${tab.id}`)}
           >
             <span className="avatar" style={{ background: avatarColor(tab.name) }}>
               {tab.name.slice(0, 1).toUpperCase()}
@@ -185,12 +246,12 @@ export default function App() {
               title="Close tab"
               onClick={(e) => {
                 e.stopPropagation();
-                closeTab(tab.id);
+                workspace.closeTab(tab.id);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.stopPropagation();
-                  closeTab(tab.id);
+                  workspace.closeTab(tab.id);
                 }
               }}
             >
@@ -205,7 +266,7 @@ export default function App() {
               type="button"
               className="icon-btn"
               title={`${project.name} settings`}
-              onClick={() => setSettingsOpen(true)}
+              onClick={() => navigate(`/projects/${project.id}/settings`)}
             >
               <Icon name="settings-gear" />
             </button>
@@ -213,103 +274,188 @@ export default function App() {
         </span>
       </header>
       <main className="main">
-        {error && <p className="banner error">Can't reach the Tracker server: {error}</p>}
-        {!project && homeView === "projects" && (
-          <Home
-            projects={projects}
-            onOpen={(id) => void openProjectById(id)}
-            onCreated={openProject}
-            onHidden={forgetProject}
-          />
+        {boardApi.error && (
+          <p className="banner error">Can't reach the Tracker server: {boardApi.error}</p>
         )}
-        {!project && homeView === "workflows" && editingWorkflow && (
-          <WorkflowCanvasEditor
-            key={editingWorkflow.id}
-            workflow={editingWorkflow}
-            onClose={() => setEditingWorkflow(null)}
-          />
-        )}
-        {!project && homeView === "workflows" && !editingWorkflow && (
-          <WorkflowLibrary
-            onCreateNew={() => setHomeView("workflow-new")}
-            onOpenEditor={setEditingWorkflow}
-          />
-        )}
-        {!project && homeView === "workflow-new" && (
-          <WorkflowCreate onDone={() => setHomeView("workflows")} />
-        )}
-        {!project && (
+        <Outlet context={{ ...boardApi, ...workspace }} />
+        {!project && !inCanvasEditor && (
           <nav className="home-nav">
-            {(["projects", "workflows"] as const).map((view) => (
-              <button
-                key={view}
-                type="button"
-                className={
-                  homeView === view || (view === "workflows" && homeView === "workflow-new")
-                    ? "active"
-                    : undefined
-                }
-                onClick={() => {
-                  setEditingWorkflow(null);
-                  setHomeView(view);
-                }}
-              >
-                {view === "projects" ? "Projects" : "Workflows"}
-              </button>
-            ))}
+            <button
+              type="button"
+              className={workflowsActive ? undefined : "active"}
+              onClick={() => navigate("/")}
+            >
+              Projects
+            </button>
+            <button
+              type="button"
+              className={workflowsActive ? "active" : undefined}
+              onClick={() => navigate("/workflows")}
+            >
+              Workflows
+            </button>
           </nav>
         )}
-        {project && selected && (
-          <TicketDetail
-            ticket={selected}
-            projectName={project.name}
-            repos={repos}
-            audit={board.auditByTicket[selected.id] ?? []}
-            runs={board.runsByTicket[selected.id] ?? []}
-            loadAudit={loadAudit}
-            loadRuns={loadRuns}
-            onClose={() => setSelectedId(null)}
-          />
-        )}
-        {project && !selected && (
-        <div className="board">
-          {STATES.map(({ key, label }) => {
-            const column = tickets.filter((t) => t.state === key);
-            return (
-              <section key={key} className="column">
-                <h3>
-                  {label} <span className="dim">{column.length}</span>
-                </h3>
-                {key === "backlog" && <NewTicketForm projectId={project.id} />}
-                {key === "done" && <DoneSweep projectId={project.id} />}
-                {column.map((ticket) => (
-                  <TicketCard
-                    key={ticket.id}
-                    ticket={ticket}
-                    project={ticket.state === "backlog" ? project : null}
-                    repos={repos}
-                    onOpen={() => setSelectedId(ticket.id)}
-                    onReview={
-                      ticket.state === "human_review" ? () => setReviewId(ticket.id) : null
-                    }
-                  />
-                ))}
-              </section>
-            );
-          })}
-        </div>
-        )}
       </main>
-      {project && reviewing && (
-        <ReviewWizard ticket={reviewing} onClose={() => setReviewId(null)} />
+    </div>
+  );
+}
+
+function HomeRoute() {
+  const { projects, openProject, openProjectById, forgetProject } = useShell();
+  return (
+    <Home
+      projects={projects}
+      onOpen={(id) => void openProjectById(id)}
+      onCreated={openProject}
+      onHidden={forgetProject}
+    />
+  );
+}
+
+function WorkflowsRoute() {
+  const navigate = useNavigate();
+  return (
+    <WorkflowLibrary
+      onCreateNew={() => navigate("/workflows/new")}
+      onOpenEditor={(row) => navigate(`/workflows/${row.id}`)}
+    />
+  );
+}
+
+function WorkflowCreateRoute() {
+  const navigate = useNavigate();
+  return <WorkflowCreate onDone={() => navigate("/workflows")} />;
+}
+
+/**
+ * The canvas editor deep-links by id, but there's no single-row GET — the
+ * listing is small, so refetch it and pick the row. A vanished workflow
+ * bounces to the library rather than rendering a dead editor.
+ */
+function WorkflowEditorRoute() {
+  const { workflowId } = useParams();
+  const navigate = useNavigate();
+  const id = Number(workflowId);
+  const [row, setRow] = useState<WorkflowListing | null | undefined>(undefined);
+  useEffect(() => {
+    let live = true;
+    setRow(undefined);
+    void apiGet<WorkflowListing[]>("/api/workflows")
+      .then((rows) => {
+        if (live) setRow(rows.find((r) => r.id === id) ?? null);
+      })
+      .catch(() => {
+        if (live) setRow(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [id]);
+  if (row === undefined) return null;
+  if (row === null) return <Navigate to="/workflows" replace />;
+  return <WorkflowCanvasEditor key={row.id} workflow={row} onClose={() => navigate("/workflows")} />;
+}
+
+/** The active tab's slice of the board stream. */
+function useProjectTickets(): TicketWithAcs[] {
+  const { board, project } = useShell();
+  return project ? board.tickets.filter((t) => t.projectId === project.id) : [];
+}
+
+/**
+ * The board, optionally with a route-driven overlay: settings and the review
+ * wizard are still modals visually, but the URL owns whether they're open —
+ * refresh restores them, back closes them.
+ */
+function BoardRoute({ overlay }: { overlay?: "settings" | "review" }) {
+  const { project, repos } = useShell();
+  const navigate = useNavigate();
+  const { ticketId } = useParams();
+  const tickets = useProjectTickets();
+  // Tab still opening (deep link's fetch in flight) — or about to bounce Home.
+  if (!project) return null;
+  // Live row from board state, so SSE updates keep the wizard chrome honest.
+  const reviewing =
+    overlay === "review" ? (tickets.find((t) => t.id === Number(ticketId)) ?? null) : null;
+  return (
+    <>
+      <Board project={project} tickets={tickets} repos={repos} />
+      {reviewing && (
+        <ReviewWizard ticket={reviewing} onClose={() => navigate(`/projects/${project.id}`)} />
       )}
-      {project && settingsOpen && (
+      {overlay === "settings" && (
         <ProjectSettings
           key={project.id}
           project={project}
-          onClose={() => setSettingsOpen(false)}
+          onClose={() => navigate(`/projects/${project.id}`)}
         />
       )}
+    </>
+  );
+}
+
+function TicketRoute() {
+  const { project, repos, board, loadAudit, loadRuns } = useShell();
+  const navigate = useNavigate();
+  const { ticketId } = useParams();
+  const tickets = useProjectTickets();
+  if (!project) return null;
+  const selected = tickets.find((t) => t.id === Number(ticketId)) ?? null;
+  // Not (yet) in the stream — show the board rather than a dead detail view.
+  if (!selected) return <Board project={project} tickets={tickets} repos={repos} />;
+  return (
+    <TicketDetail
+      ticket={selected}
+      projectName={project.name}
+      repos={repos}
+      audit={board.auditByTicket[selected.id] ?? []}
+      runs={board.runsByTicket[selected.id] ?? []}
+      loadAudit={loadAudit}
+      loadRuns={loadRuns}
+      onClose={() => navigate(`/projects/${project.id}`)}
+    />
+  );
+}
+
+function Board({
+  project,
+  tickets,
+  repos,
+}: {
+  project: Project;
+  tickets: TicketWithAcs[];
+  repos: Repo[];
+}) {
+  const navigate = useNavigate();
+  return (
+    <div className="board">
+      {STATES.map(({ key, label }) => {
+        const column = tickets.filter((t) => t.state === key);
+        return (
+          <section key={key} className="column">
+            <h3>
+              {label} <span className="dim">{column.length}</span>
+            </h3>
+            {key === "backlog" && <NewTicketForm projectId={project.id} />}
+            {key === "done" && <DoneSweep projectId={project.id} />}
+            {column.map((ticket) => (
+              <TicketCard
+                key={ticket.id}
+                ticket={ticket}
+                project={ticket.state === "backlog" ? project : null}
+                repos={repos}
+                onOpen={() => navigate(`/projects/${project.id}/tickets/${ticket.id}`)}
+                onReview={
+                  ticket.state === "human_review"
+                    ? () => navigate(`/projects/${project.id}/tickets/${ticket.id}/review`)
+                    : null
+                }
+              />
+            ))}
+          </section>
+        );
+      })}
     </div>
   );
 }
