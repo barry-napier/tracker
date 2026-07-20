@@ -1,32 +1,22 @@
 import type { ComponentProps } from "react";
 
 /**
- * oc-2 icon set (opencode packages/ui icon.tsx + v2/components/icon.tsx):
- * 1px currentColor stroke, square caps. Only the icons Tracker uses.
- * v1 icons draw on a 20×20 grid, v2 on 16×16 — hence per-icon viewBoxes.
+ * oc-2 icon set, vendored from assets/icons/core/icon.tsx (opencode, MIT):
+ * 1px currentColor stroke, square caps, 20×20 grid. Only the icons Tracker uses.
+ * Icons with no opencode equivalent are hand-drawn on a 16×16 grid — hence
+ * the per-icon viewBox overrides.
  */
 const VIEWBOXES: Partial<Record<IconName, string>> = {
   "grid-plus": "0 0 16 16",
-  "chevron-down": "0 0 16 16",
-  "chevron-left": "0 0 16 16",
   "dots-horizontal": "0 0 16 16",
-  search: "0 0 16 16",
   "arrows-sort": "0 0 16 16",
-  check: "0 0 16 16",
   sparkle: "0 0 16 16",
   bolt: "0 0 16 16",
   globe: "0 0 16 16",
   book: "0 0 16 16",
-  folder: "0 0 16 16",
-  code: "0 0 16 16",
   play: "0 0 16 16",
-  pencil: "0 0 16 16",
-  import: "0 0 16 16",
   paperclip: "0 0 16 16",
   mic: "0 0 16 16",
-  "arrow-up": "0 0 16 16",
-  warning: "0 0 16 16",
-  "chat-new": "0 0 16 16",
 };
 
 const PATHS = {
@@ -56,10 +46,14 @@ const PATHS = {
     </>
   ),
   "chevron-down": (
-    <path d="M3.5 6L8 10.5L12.5 6" stroke="currentColor" strokeLinecap="square" />
+    <path
+      d="M6.6665 8.33325L9.99984 11.6666L13.3332 8.33325"
+      stroke="currentColor"
+      strokeLinecap="square"
+    />
   ),
   "chevron-left": (
-    <path d="M10 3.5L5.5 8L10 12.5" stroke="currentColor" strokeLinecap="square" />
+    <path d="M12 15L7 10L12 5" stroke="currentColor" strokeLinecap="square" />
   ),
   "arrows-sort": (
     <path
@@ -69,7 +63,11 @@ const PATHS = {
     />
   ),
   check: (
-    <path d="M2.5 8.5L6 12L13.5 4.5" stroke="currentColor" strokeLinecap="square" />
+    <path
+      d="M5 11.9657L8.37838 14.7529L15 5.83398"
+      stroke="currentColor"
+      strokeLinecap="square"
+    />
   ),
   sparkle: (
     <path
@@ -80,9 +78,10 @@ const PATHS = {
   ),
   search: (
     <path
-      d="M11.0625 11.0625L14 14M12.5 7.25C12.5 10.1495 10.1495 12.5 7.25 12.5C4.35051 12.5 2 10.1495 2 7.25C2 4.35051 4.35051 2 7.25 2C10.1495 2 12.5 4.35051 12.5 7.25Z"
+      d="M13 13L10.6418 10.6418M11.9552 7.47761C11.9552 9.95053 9.95053 11.9552 7.47761 11.9552C5.0047 11.9552 3 9.95053 3 7.47761C3 5.0047 5.0047 3 7.47761 3C9.95053 3 11.9552 5.0047 11.9552 7.47761Z"
       stroke="currentColor"
       strokeLinecap="square"
+      vectorEffect="non-scaling-stroke"
     />
   ),
   "settings-gear": (
@@ -107,7 +106,11 @@ const PATHS = {
   globe: (
     <>
       <circle cx="8" cy="8" r="6" stroke="currentColor" />
-      <path d="M2 8H14M8 2C10 4 10 12 8 14C6 12 6 4 8 2Z" stroke="currentColor" strokeLinecap="square" />
+      <path
+        d="M2 8H14M8 2C10 4 10 12 8 14C6 12 6 4 8 2Z"
+        stroke="currentColor"
+        strokeLinecap="square"
+      />
     </>
   ),
   book: (
@@ -119,16 +122,15 @@ const PATHS = {
   ),
   folder: (
     <path
-      d="M2 3.5H6.5L8 5.5H14V12.5H2V3.5Z"
+      d="M2.08301 2.91675V16.2501H17.9163V5.41675H9.99967L8.33301 2.91675H2.08301Z"
       stroke="currentColor"
-      strokeLinecap="square"
+      strokeLinecap="round"
     />
   ),
   code: (
     <path
-      d="M5 4.5L1.5 8L5 11.5M11 4.5L14.5 8L11 11.5"
+      d="M8.7513 7.5013L6.2513 10.0013L8.7513 12.5013M11.2513 7.5013L13.7513 10.0013L11.2513 12.5013M2.91797 2.91797H17.0846V17.0846H2.91797V2.91797Z"
       stroke="currentColor"
-      strokeLinecap="square"
     />
   ),
   play: (
@@ -136,14 +138,14 @@ const PATHS = {
   ),
   pencil: (
     <path
-      d="M2.5 13.5L3 11L11.5 2.5L13.5 4.5L5 13L2.5 13.5ZM10.25 3.75L12.25 5.75"
+      d="M9.58301 17.9166H17.9163M17.9163 5.83325L14.1663 2.08325L2.08301 14.1666V17.9166H5.83301L17.9163 5.83325Z"
       stroke="currentColor"
       strokeLinecap="square"
     />
   ),
   import: (
     <path
-      d="M8 11V2.5M8 11L5 8M8 11L11 8M2 11.5V14H14V11.5"
+      d="M13.9583 10.6257L10 14.584L6.04167 10.6257M10 2.08398V13.959M16.25 17.9173H3.75"
       stroke="currentColor"
       strokeLinecap="square"
     />
@@ -158,24 +160,32 @@ const PATHS = {
   mic: (
     <>
       <rect x="6" y="1.5" width="4" height="8" rx="2" stroke="currentColor" />
-      <path d="M3.5 7.5C3.5 10 5.5 11.5 8 11.5C10.5 11.5 12.5 10 12.5 7.5M8 11.5V14.5" stroke="currentColor" strokeLinecap="square" />
+      <path
+        d="M3.5 7.5C3.5 10 5.5 11.5 8 11.5C10.5 11.5 12.5 10 12.5 7.5M8 11.5V14.5"
+        stroke="currentColor"
+        strokeLinecap="square"
+      />
     </>
   ),
   "arrow-up": (
-    <path d="M8 13.5V2.5M8 2.5L3.5 7M8 2.5L12.5 7" stroke="currentColor" strokeLinecap="square" />
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M9.99991 2.24121L16.0921 8.33343L15.2083 9.21731L10.6249 4.63397V17.5001H9.37492V4.63398L4.7916 9.21731L3.90771 8.33343L9.99991 2.24121Z"
+      fill="currentColor"
+    />
   ),
   warning: (
     <path
-      d="M8 1.5L15 14H1L8 1.5ZM8 6V9.5M8 11.25V12"
+      d="M10 7.91667V11.6667M10 13.7417V13.75M10 2.5L1.875 16.25H18.125L10 2.5Z"
       stroke="currentColor"
-      strokeLinejoin="bevel"
+      strokeLinecap="square"
     />
   ),
   "chat-new": (
     <path
-      d="M14 8.5V13.5H2V3.5H8M12.5 1.5V6.5M10 4H15"
+      d="M12 2H2V18H18V8M6 11.3818V14H8.61818L18 4.61818L15.3818 2L6 11.3818Z"
       stroke="currentColor"
-      strokeLinecap="square"
     />
   ),
 } as const;
