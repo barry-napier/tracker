@@ -136,7 +136,11 @@ export interface Ticket {
   updatedAt: string;
 }
 
-/** "failed" is legacy — see PhaseState; runs now end completed or crashed. */
+/**
+ * "crashed" is the retryable kind (the crash policy and cap apply);
+ * "failed" is a deterministic setup failure — worktree/branch setup died
+ * before any provider ran, so the ticket parks in Human Review at once.
+ */
 export type RunState = "running" | "completed" | "failed" | "crashed";
 
 /** A single agent attempt at a Ticket: claim = Run creation (ticket 08). */
@@ -517,6 +521,12 @@ export interface AcCheck {
 
 export interface TicketWithAcs extends Ticket {
   acceptanceCriteria: AcceptanceCriterion[];
+  /**
+   * The latest run's failure reason, or null when there is none or the
+   * latest run succeeded. Derived, never stored: the board card wears the
+   * last failure so nobody has to open sqlite to learn why nothing ran.
+   */
+  lastFailureReason: string | null;
 }
 
 export type Actor = "human" | "agent";

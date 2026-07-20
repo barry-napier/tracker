@@ -164,6 +164,43 @@ describe("the crash cap", () => {
   }, 30_000);
 });
 
+describe("setup failure", () => {
+  test("a deterministic setup error parks the ticket at once, no cap burned", async () => {
+    // A target branch the repo doesn't have: worktree setup can never
+    // succeed, so retrying is pointless. One run ends "failed" — not three
+    // "crashed" — and the ticket parks wearing the reason.
+    const calls: PhaseCall[] = [];
+    const provider = scriptedProvider(calls);
+    const { server, ticket } = await bootWorkspace(provider, {
+      repo: { targetBranch: "no-such-branch" },
+    });
+    const parked = await waitForTicketState(server, ticket.id, "human_review");
+
+    const runs = (await api(server, "GET", `/api/tickets/${ticket.id}/runs`)).json;
+    expect(runs).toHaveLength(1);
+    expect(runs[0].state).toBe("failed");
+    expect(runs[0].crashReason).toContain("setup failed");
+    // No provider ever ran, and the park is not the crash cap's doing.
+    expect(calls).toHaveLength(0);
+    expect(parked.arrivedByCap).toBe(false);
+    // The board card wears the reason (steal 1): derived off the latest run.
+    expect(parked.lastFailureReason).toContain("setup failed");
+
+    // Retry: a human sends the parked ticket back to Todo; the pool wakes on
+    // the emit and attempts again (the repo is still broken, so it parks
+    // again — proving the whole loop, not just the state flip).
+    const retried = await api(server, "POST", `/api/tickets/${ticket.id}/retry`, {});
+    expect(retried.json.state).toBe("todo");
+    // Retry is only legal from human_review — an immediate second call 409s.
+    const again = await api(server, "POST", `/api/tickets/${ticket.id}/retry`, {});
+    expect(again.status).toBe(409);
+    await waitForSettledRuns(server, ticket.id, 2);
+    await waitForTicketState(server, ticket.id, "human_review");
+    const audit = await auditOf(server, ticket.id);
+    expect(audit.some((event: any) => event.type === "ticket.retried")).toBe(true);
+  }, 25_000);
+});
+
 describe("the watchdogs", () => {
   test("15 minutes of silence kills the phase — a death like any other", async () => {
     const calls: PhaseCall[] = [];

@@ -357,7 +357,14 @@ export class Store {
       )
       .all(id)
       .map(acFromRow);
-    return { ...ticketFromRow(row), acceptanceCriteria: acs };
+    // The LATEST run only: an old crash must not haunt a ticket whose most
+    // recent attempt completed.
+    const lastRun = this.db
+      .prepare("SELECT crash_reason FROM runs WHERE ticket_id = ? ORDER BY id DESC LIMIT 1")
+      .get(id);
+    const lastFailureReason =
+      lastRun === undefined || lastRun.crash_reason === null ? null : String(lastRun.crash_reason);
+    return { ...ticketFromRow(row), acceptanceCriteria: acs, lastFailureReason };
   }
 
   listTickets(projectId?: number): TicketWithAcs[] {
@@ -366,6 +373,37 @@ export class Store {
         ? this.db.prepare("SELECT * FROM tickets ORDER BY id").all()
         : this.db.prepare("SELECT * FROM tickets WHERE project_id = ? ORDER BY id").all(projectId);
     return rows.map((row) => this.getTicket(Number(row.id))!);
+  }
+
+  /**
+   * A human sending a parked ticket back to Todo for another attempt — the
+   * recovery for setup failures and cap-parked tickets, where the verdict
+   * path has no reviewable work to judge. The ticket.updated emit is what
+   * wakes the pool: the claim follows immediately if a slot is free.
+   */
+  retryTicket(id: number): TicketWithAcs {
+    const existing = this.getTicket(id);
+    if (!existing) throw new NotFoundError(`ticket ${id} not found`);
+    if (existing.state !== "human_review") {
+      throw new StateError(`ticket ${existing.displayKey} is ${existing.state}, not human_review`);
+    }
+    const { ticket, audit } = withTransaction(this.db, () => {
+      this.db
+        .prepare("UPDATE tickets SET state = 'todo', arrived_by_cap = 0, updated_at = ? WHERE id = ?")
+        .run(nowIso(), id);
+      const ticket = this.getTicket(id)!;
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "human",
+        type: "ticket.retried",
+        detail: { from: existing.state, lastFailureReason: existing.lastFailureReason },
+      });
+      return { ticket, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    this.bus.emit("ticket.updated", ticket);
+    return ticket;
   }
 
   updateTicket(id: number, patch: { title?: string; description?: string }): TicketWithAcs {
@@ -538,7 +576,7 @@ export class Store {
    */
   finishRun(
     runId: number,
-    outcome: "completed" | "crashed",
+    outcome: "completed" | "crashed" | "failed",
     reason?: string,
     extra: { treeState?: TreeState | null } = {},
   ): Run {
@@ -551,7 +589,7 @@ export class Store {
       const now = nowIso();
       this.db
         .prepare("UPDATE runs SET state = ?, crash_reason = ?, ended_at = ? WHERE id = ?")
-        .run(outcome, outcome === "crashed" ? (reason ?? null) : null, now, runId);
+        .run(outcome, outcome === "completed" ? null : (reason ?? null), now, runId);
       const run = this.getRun(runId)!;
       const crashCount =
         outcome === "crashed"
@@ -564,7 +602,15 @@ export class Store {
             )
           : 0;
       const parked = crashCount >= CRASH_CAP;
-      const ticketState = outcome === "completed" ? "verifying" : parked ? "human_review" : "todo";
+      // "failed" is a deterministic setup failure (empty repo, missing
+      // binary): retrying the identical setup can never succeed, so it goes
+      // straight to Human Review without burning the crash cap.
+      const ticketState =
+        outcome === "completed"
+          ? "verifying"
+          : outcome === "failed" || parked
+            ? "human_review"
+            : "todo";
       this.db
         .prepare("UPDATE tickets SET state = ?, arrived_by_cap = ?, updated_at = ? WHERE id = ?")
         .run(ticketState, parked ? 1 : 0, now, run.ticketId);

@@ -79,7 +79,10 @@ export class WorkerPool {
       worktreePath = result.worktreePath;
     } catch (error) {
       if (this.#stopped) return;
-      this.store.finishRun(run.id, "crashed", messageOf(error));
+      // Setup errors are deterministic (empty repo, bad target branch), not
+      // weather: "failed" parks the ticket with the reason instead of letting
+      // the crash cap burn three identical attempts in milliseconds.
+      this.store.finishRun(run.id, "failed", `setup failed: ${messageOf(error)}`);
       return;
     }
 

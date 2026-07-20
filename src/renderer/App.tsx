@@ -794,6 +794,11 @@ function TicketCard({
             `${ticket.acceptanceCriteria.length} AC${ticket.acceptanceCriteria.length === 1 ? "" : "s"}`}
         </em>
       )}
+      {ticket.lastFailureReason && (
+        <em className="error" title={ticket.lastFailureReason}>
+          {ticket.lastFailureReason}
+        </em>
+      )}
       {project && <PromoteControl ticket={ticket} project={project} repos={repos} />}
       {onReview && (
         <button
@@ -804,6 +809,18 @@ function TicketCard({
           }}
         >
           Review →
+        </button>
+      )}
+      {onReview && ticket.lastFailureReason && (
+        <button
+          className="reviewbtn"
+          title="Send back to Todo for another attempt"
+          onClick={(e) => {
+            e.stopPropagation();
+            void apiPost(`/api/tickets/${ticket.id}/retry`, {});
+          }}
+        >
+          ↺ Retry
         </button>
       )}
     </article>

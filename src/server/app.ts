@@ -676,6 +676,12 @@ export function createApp(
     return c.json(store.waiveAc(Number(c.req.param("id")), body.reason));
   });
 
+  // Send a parked ticket back to Todo for another attempt (setup failure or
+  // crash cap). Distinct from a verdict: there is no reviewed work to judge.
+  app.post("/api/tickets/:id/retry", (c) =>
+    c.json(store.retryTicket(Number(c.req.param("id")))),
+  );
+
   app.patch("/api/tickets/:id", async (c) => {
     const body = await c.req.json<{ title?: string; description?: string }>();
     const ticket = store.updateTicket(Number(c.req.param("id")), {

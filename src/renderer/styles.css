@@ -571,6 +571,15 @@ body {
   margin: 0;
 }
 
+/* Card-borne failure reason: two lines at most, the full text in the title. */
+.card .error {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 12px;
+}
+
 .banner {
   margin: 0;
   padding: 0.4rem 1rem;
