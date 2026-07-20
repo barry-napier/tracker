@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { createRequire } from "node:module";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
@@ -11,6 +12,7 @@ import {
   ClaudeCodeProvider,
   type ClaudeCodeConfig,
 } from "../src/server/providers/claude-code.ts";
+import { CopilotProvider } from "../src/server/providers/copilot.ts";
 import { FakeProvider, phaseFromPrompt } from "../src/server/providers/fake.ts";
 import { KIRO_CAPABILITIES, KiroProvider } from "../src/server/providers/kiro.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -84,6 +86,23 @@ describeProviderContract({
   hangs: () => stubbedKiro("hang"),
 });
 
+// No chmod: the wrapper is a node argument, never executed directly.
+const FAKE_COPILOT_WRAPPER = path.join(here, "fixtures", "fake-copilot-wrapper.mjs");
+
+/** The Copilot adapter pointed at its scripted wrapper stand-in. */
+function stubbedCopilot(mode: string): CopilotProvider {
+  return new CopilotProvider(() => ({
+    wrapperPath: FAKE_COPILOT_WRAPPER,
+    env: { FAKE_COPILOT_MODE: mode },
+  }));
+}
+
+describeProviderContract({
+  name: "CopilotProvider (scripted wrapper)",
+  succeeds: () => stubbedCopilot("success"),
+  hangs: () => stubbedCopilot("hang"),
+});
+
 /**
  * The same contract against the real CLIs. Skipped when the CLI is not on
  * PATH, per the tickets — and gated behind an opt-in even when it is, because
@@ -117,6 +136,35 @@ describeProviderContract({
   skip: liveSkipReason("kiro-cli"),
   succeeds: () => new KiroProvider(() => ({})),
   hangs: () => new KiroProvider(() => ({})),
+  timeoutMs: 180_000,
+});
+
+/**
+ * Copilot's live gate keys on auth, not a PATH binary: the SDK and its
+ * bundled runtime install with `npm ci`, so on an unauthenticated machine
+ * (CI) the phase would burn ~90s of silent retries and fail — skip instead.
+ */
+function copilotLiveSkipReason(): string | undefined {
+  if (process.env.TRACKER_LIVE_PROVIDER_TESTS !== "1") {
+    return "set TRACKER_LIVE_PROVIDER_TESTS=1 to spend real premium requests";
+  }
+  try {
+    createRequire(import.meta.url).resolve("@github/copilot-sdk");
+  } catch {
+    return "@github/copilot-sdk not installed";
+  }
+  const hasToken = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"].some(
+    (name) => (process.env[name] ?? "") !== "",
+  );
+  if (hasToken || existsSync(path.join(homedir(), ".copilot"))) return undefined;
+  return "no Copilot auth (token env or ~/.copilot)";
+}
+
+describeProviderContract({
+  name: "CopilotProvider (live SDK)",
+  skip: copilotLiveSkipReason(),
+  succeeds: () => new CopilotProvider(() => ({})),
+  hangs: () => new CopilotProvider(() => ({})),
   timeoutMs: 180_000,
 });
 

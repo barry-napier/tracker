@@ -20,6 +20,7 @@ on:
       - "tests/provider-contract*"
       - "tests/claude-code-adapter.test.ts"
       - "tests/kiro-adapter.test.ts"
+      - "tests/copilot-adapter.test.ts"
       - "tests/fixtures/**"
       - ".github/workflows/live-provider.yml"
   pull_request:
@@ -29,6 +30,7 @@ on:
       - "tests/provider-contract*"
       - "tests/claude-code-adapter.test.ts"
       - "tests/kiro-adapter.test.ts"
+      - "tests/copilot-adapter.test.ts"
       - "tests/fixtures/**"
       - ".github/workflows/live-provider.yml"
   workflow_dispatch:

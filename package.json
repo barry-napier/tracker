@@ -8,7 +8,7 @@
   "main": "build/main.js",
   "scripts": {
     "start": "npm run compile && electron .",
-    "compile": "tsc -p tsconfig.build.json && vite build --config src/renderer/vite.config.ts",
+    "compile": "tsc -p tsconfig.build.json && cp src/server/providers/copilot-wrapper.mjs build/server/providers/ && vite build --config src/renderer/vite.config.ts",
     "dev:renderer": "vite --config src/renderer/vite.config.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/renderer",
     "test": "vitest run",
@@ -52,6 +52,7 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
+    "@github/copilot-sdk": "^1.0.7",
     "@hono/node-server": "^2.0.10",
     "hono": "^4.12.30"
   }

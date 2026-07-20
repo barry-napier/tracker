@@ -1,8 +1,8 @@
 import type { ProviderRegistry } from "../provider.ts";
 import type { ProviderConfig, ProviderName } from "../types.ts";
 import { ClaudeCodeProvider, type ClaudeCodeConfig } from "./claude-code.ts";
+import { CopilotProvider, type CopilotConfig } from "./copilot.ts";
 import { KiroProvider, type KiroConfig } from "./kiro.ts";
-import { demoProviders } from "./demo.ts";
 
 /** Reads the app-level config for a provider, live — never cached at boot. */
 export type ProviderConfigReader = (provider: ProviderName) => ProviderConfig;
@@ -35,14 +35,27 @@ export function toKiroConfig(stored: ProviderConfig): KiroConfig {
 }
 
 /**
- * The registry the desktop app runs with. Claude Code (ticket 38) and Kiro
- * (ticket 39) are real adapters; Copilot stays scripted until its slice (40)
- * lands, so the board still walks a full workflow on any provider.
+ * Same translation, Copilot's shape. binaryPath means the copilot CLI
+ * runtime the SDK spawns (unset = the one bundled with the SDK); the
+ * wrapper path is the adapter's own, never operator config.
+ */
+export function toCopilotConfig(stored: ProviderConfig): CopilotConfig {
+  return {
+    cliPath: stored.binaryPath ?? undefined,
+    model: stored.model ?? undefined,
+    env: stored.env,
+  };
+}
+
+/**
+ * The registry the desktop app runs with — every provider real as of ticket
+ * 40: Claude Code (38), Kiro over ACP (39), Copilot over the SDK (40). The
+ * demo stop-gap registry retired with it.
  */
 export function appProviders(config: ProviderConfigReader): ProviderRegistry {
   return {
-    ...demoProviders(),
     "claude-code": new ClaudeCodeProvider(() => toClaudeCodeConfig(config("claude-code"))),
     kiro: new KiroProvider(() => toKiroConfig(config("kiro"))),
+    copilot: new CopilotProvider(() => toCopilotConfig(config("copilot"))),
   };
 }
