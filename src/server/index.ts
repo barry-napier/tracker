@@ -5,7 +5,7 @@ import { EventBus } from "./bus.ts";
 import { openDatabase } from "./db.ts";
 import { DemoRecorder } from "./demos.ts";
 import { createApp } from "./app.ts";
-import { WorkflowEngine } from "./engine.ts";
+import { WorkflowEngine, type PhaseTimeouts } from "./engine.ts";
 import { GateBattery } from "./gates.ts";
 import { GhGitHub, type GitHubPort } from "./github.ts";
 import { Home } from "./home.ts";
@@ -16,7 +16,7 @@ import { Reviews } from "./reviews.ts";
 import { RunLogRegistry } from "./runlog.ts";
 import { Store } from "./store.ts";
 import { Verdicts } from "./verdicts.ts";
-import { WorkerPool } from "./workers.ts";
+import { sweepOrphanedRuns, WorkerPool } from "./workers.ts";
 import { WorktreeManager } from "./worktrees.ts";
 
 export interface TrackerServer {
@@ -41,6 +41,8 @@ export async function startServer(options: {
   github?: GitHubPort;
   /** Preview port-preference base (ticket 10); tests offset it per worker. */
   previewPortBase?: number;
+  /** Per-phase watchdog overrides (ticket 41); tests shrink them. */
+  phaseTimeouts?: PhaseTimeouts;
 }): Promise<TrackerServer> {
   const db = openDatabase(options.dataDir);
   const bus = new EventBus();
@@ -51,8 +53,11 @@ export async function startServer(options: {
   // One Bouncer serves both bounce triggers: the battery's (WorkerPool) and
   // the reviewer's (Verdicts) — same machinery, same report shape.
   const bouncer = new Bouncer(store, artifacts);
-  // No process survives a restart: rows still claiming live catch up first.
+  // No process survives a restart: rows still claiming live catch up first —
+  // preview records silently, orphaned Runs through the crash policy
+  // (ticket 41) before the pool below can claim anything.
   store.sweepOrphanedPreviews();
+  await sweepOrphanedRuns(store, artifacts);
   const previews = new PreviewManager(options.dataDir, store, options.previewPortBase);
   const app = createApp(
     store,
@@ -68,7 +73,7 @@ export async function startServer(options: {
     typeof options.providers === "function"
       ? options.providers((provider) => store.getProviderConfig(provider))
       : (options.providers ?? {});
-  const engine = new WorkflowEngine(store, providers, runLogs, previews);
+  const engine = new WorkflowEngine(store, providers, runLogs, previews, options.phaseTimeouts);
   const pool = new WorkerPool(
     store,
     new WorktreeManager(options.dataDir),

@@ -28,6 +28,7 @@ import type {
   RunWithPhases,
   Ticket,
   TicketWithAcs,
+  DeathMode,
   TreeState,
   Workflow,
   WorkflowEdge,
@@ -50,6 +51,9 @@ function nowIso(): string {
 
 /** Three failed cycles matches observed agent convergence (ticket 06 §6). */
 const BOUNCE_CAP = 3;
+
+/** Three crashed Runs park too (ticket 41), mirroring the bounce cap. */
+const CRASH_CAP = 3;
 
 /**
  * Canonical state lives in mutable rows; every mutation appends an Audit
@@ -371,22 +375,22 @@ export class Store {
    * re-earns machine green marks every cycle. Worktree paths land later via
    * recordWorktree — git is slow and runs outside the transaction.
    */
-  claimNextTicket(excludeTicketIds: ReadonlySet<number> = new Set()): {
+  claimNextTicket(): {
     ticket: TicketWithAcs;
     run: Run;
     repo: Repo;
   } | undefined {
     const claimed = withTransaction(this.db, () => {
-      const candidates = this.db
+      const row = this.db
         .prepare(
           `SELECT id FROM tickets
            WHERE state = 'todo'
               OR (state = 'in_progress' AND NOT EXISTS (
                     SELECT 1 FROM runs WHERE runs.ticket_id = tickets.id AND runs.state = 'running'))
-           ORDER BY id`,
+           ORDER BY id
+           LIMIT 1`,
         )
-        .all();
-      const row = candidates.find((c) => !excludeTicketIds.has(Number(c.id)));
+        .get();
       if (row === undefined) return undefined;
       const existing = this.getTicket(Number(row.id))!;
       const repo = this.getRepo(existing.repoId!);
@@ -463,45 +467,79 @@ export class Store {
 
   /**
    * The attempt is over. Completed sends the Ticket to Verifying (the gate
-   * battery arrives in slice 29 and takes it from there); failed and crashed
-   * both send it back to Todo for a fresh claim — the distinction matters to
-   * the crash policy and bounce machinery of later slices, so it's recorded
-   * honestly now.
+   * battery takes it from there); crashed sends it back to Todo for a fresh
+   * claim with no new criteria — crash = work didn't happen, bounce = work
+   * was wrong (ticket 41). The third crashed Run parks the Ticket in Human
+   * Review instead, arrived-by-cap, mirroring the bounce cap. The crash
+   * event carries the tree-state summary the re-claim inherits.
    */
   finishRun(
     runId: number,
-    outcome: "completed" | "failed" | "crashed",
+    outcome: "completed" | "crashed",
     reason?: string,
+    extra: { treeState?: TreeState | null } = {},
   ): Run {
     const existing = this.getRun(runId);
     if (!existing) throw new NotFoundError(`run ${runId} not found`);
     if (existing.state !== "running") {
       throw new StateError(`run ${runId} is ${existing.state}, not running`);
     }
-    const ticketState = outcome === "completed" ? "verifying" : "todo";
-    const { run, ticket, audit } = withTransaction(this.db, () => {
+    const { run, ticket, audit, parkAudit } = withTransaction(this.db, () => {
       const now = nowIso();
       this.db
         .prepare("UPDATE runs SET state = ?, crash_reason = ?, ended_at = ? WHERE id = ?")
         .run(outcome, outcome === "crashed" ? (reason ?? null) : null, now, runId);
       const run = this.getRun(runId)!;
+      const crashCount =
+        outcome === "crashed"
+          ? Number(
+              this.db
+                .prepare(
+                  "SELECT COUNT(*) AS n FROM runs WHERE ticket_id = ? AND state = 'crashed'",
+                )
+                .get(run.ticketId)!.n,
+            )
+          : 0;
+      const parked = crashCount >= CRASH_CAP;
+      const ticketState = outcome === "completed" ? "verifying" : parked ? "human_review" : "todo";
       this.db
-        .prepare("UPDATE tickets SET state = ?, updated_at = ? WHERE id = ?")
-        .run(ticketState, now, run.ticketId);
+        .prepare("UPDATE tickets SET state = ?, arrived_by_cap = ?, updated_at = ? WHERE id = ?")
+        .run(ticketState, parked ? 1 : 0, now, run.ticketId);
       const ticket = this.getTicket(run.ticketId)!;
+      const detail: Record<string, unknown> = { runId };
+      if (reason !== undefined) detail.reason = reason;
+      if (extra.treeState != null) detail.treeState = extra.treeState;
       const audit = this.insertAudit({
         projectId: ticket.projectId,
         ticketId: ticket.id,
         actor: "agent",
         type: `run.${outcome}`,
-        detail: reason === undefined ? { runId } : { runId, reason },
+        detail,
       });
-      return { run, ticket, audit };
+      const parkAudit = parked
+        ? this.insertAudit({
+            projectId: ticket.projectId,
+            ticketId: ticket.id,
+            actor: "agent",
+            type: "ticket.parked",
+            detail: { runId, crashCount, reason: "crash-cap" },
+          })
+        : undefined;
+      return { run, ticket, audit, parkAudit };
     });
     this.bus.emit("audit.appended", audit);
+    if (parkAudit) this.bus.emit("audit.appended", parkAudit);
     this.bus.emit("run.updated", this.runDetails(run));
     this.bus.emit("ticket.updated", ticket);
     return run;
+  }
+
+  /** Runs still claiming to be live — at app launch, every one is an orphan. */
+  listRunningRuns(): Run[] {
+    return this.db
+      .prepare("SELECT * FROM runs WHERE state = 'running' ORDER BY id")
+      .all()
+      .map(runFromRow);
   }
 
   getRun(id: number): Run | undefined {
@@ -1439,12 +1477,18 @@ export class Store {
 
   endPhase(
     executionId: number,
-    state: "completed" | "failed" | "crashed",
-    detail: { failureReason?: string; providerSessionId?: string; outcome?: string } = {},
+    state: "completed" | "crashed",
+    detail: {
+      failureReason?: string;
+      providerSessionId?: string;
+      outcome?: string;
+      /** How a crashed phase died (ticket 41) — audited distinctly. */
+      deathMode?: DeathMode;
+    } = {},
   ): PhaseExecution {
     const existing = this.getPhaseExecution(executionId);
     if (!existing) throw new NotFoundError(`phase execution ${executionId} not found`);
-    const { failureReason, providerSessionId, outcome } = detail;
+    const { failureReason, providerSessionId, outcome, deathMode } = detail;
     const { execution, ticket, audit } = withTransaction(this.db, () => {
       this.db
         .prepare(
@@ -1459,10 +1503,12 @@ export class Store {
         ticketId: ticket.id,
         actor: "agent",
         type: `phase.${state}`,
-        detail:
-          failureReason === undefined
-            ? { runId: execution.runId, phase: execution.phase }
-            : { runId: execution.runId, phase: execution.phase, reason: failureReason },
+        detail: {
+          runId: execution.runId,
+          phase: execution.phase,
+          ...(failureReason === undefined ? {} : { reason: failureReason }),
+          ...(deathMode === undefined ? {} : { deathMode }),
+        },
       });
       return { execution, ticket, audit };
     });

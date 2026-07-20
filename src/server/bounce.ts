@@ -14,7 +14,7 @@ import type {
   TicketWithAcs,
   TreeState,
 } from "./types.ts";
-import { git } from "./worktrees.ts";
+import { readTreeState } from "./worktrees.ts";
 
 /** Worktree-relative; also what the {{bounceReportPath}} template var carries. */
 export const BOUNCE_REPORT_PATH = "kb/bounce-report.md";
@@ -163,18 +163,6 @@ function reasonFrom(detail: Record<string, unknown>): string {
   if (typeof detail.exitCode === "number") return `exit ${detail.exitCode}`;
   if (typeof detail.error === "string") return detail.error;
   return "";
-}
-
-async function readTreeState(
-  worktreePath: string,
-  targetBranch: string,
-): Promise<TreeState> {
-  const branch = await git(worktreePath, "branch", "--show-current");
-  const aheadBy = Number(
-    await git(worktreePath, "rev-list", "--count", `origin/${targetBranch}..HEAD`),
-  );
-  const status = await git(worktreePath, "status", "--porcelain");
-  return { branch, aheadBy, dirtyCount: status === "" ? 0 : status.split("\n").length };
 }
 
 /** What each gate verifies, for the report's "the check" line (ticket 06). */

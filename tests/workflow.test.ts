@@ -94,53 +94,8 @@ describe("the full seeded workflow", () => {
     expect(types).toContain("artifacts.persisted");
   }, 20_000);
 
-  test("a hollow mid-workflow phase fails the run but its evidence survives", async () => {
-    const calls: PhaseCall[] = [];
-    const github = new FakeGitHub();
-    const provider = scriptedProvider(calls, {
-      sabotage: (phase, attempt) => (phase === "implement" && attempt === 1 ? false : undefined),
-      onPhase: pushesToGitHub(github),
-    });
-    const { server, ticket } = await bootWorkspace(provider, { github });
-    await waitForTicketState(server, ticket.id, "human_review");
-
-    const runs = (await api(server, "GET", `/api/tickets/${ticket.id}/runs`)).json;
-    expect(runs).toHaveLength(2);
-    expect(runs[0]).toMatchObject({ state: "completed" });
-    expect(runs[1]).toMatchObject({ state: "failed" });
-
-    // The hollow attempt stopped at implement; nothing after it ran.
-    expect(runs[1].phases.map((p: any) => [p.phase, p.state])).toEqual([
-      ["research", "completed"],
-      ["plan", "completed"],
-      ["implement", "failed"],
-    ]);
-    expect(runs[1].phases[2].failureReason).toContain("kb/implement.md");
-
-    // Pass, bounce, or crash: what the run did produce is persisted.
-    expect(runs[1].artifacts.map((a: any) => a.name).sort()).toEqual(["plan.md", "research.md"]);
-  }, 20_000);
-
-  test("a crashing phase crashes the run; the re-claim recovers", async () => {
-    const calls: PhaseCall[] = [];
-    const github = new FakeGitHub();
-    const provider = scriptedProvider(calls, {
-      sabotage: (phase, attempt) => {
-        if (phase === "research" && attempt === 1) throw new Error("provider fell over");
-      },
-      onPhase: pushesToGitHub(github),
-    });
-    const { server, ticket } = await bootWorkspace(provider, { github });
-    await waitForTicketState(server, ticket.id, "human_review");
-
-    const runs = (await api(server, "GET", `/api/tickets/${ticket.id}/runs`)).json;
-    expect(runs).toHaveLength(2);
-    expect(runs[0]).toMatchObject({ state: "completed" });
-    expect(runs[1]).toMatchObject({ state: "crashed" });
-    expect(runs[1].crashReason).toContain("provider fell over");
-    expect(runs[1].phases[0]).toMatchObject({ phase: "research", state: "crashed" });
-    expect(runs[1].artifacts).toHaveLength(0);
-  }, 20_000);
+  // Failure paths — phase deaths, the one retry, the crash cap, and the
+  // startup orphan sweep — live in crash-policy.test.ts (ticket 41).
 
   test("the per-run log stream carries every phase's blocks with unique ids", async () => {
     const calls: PhaseCall[] = [];

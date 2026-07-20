@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import type { TreeState } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -20,6 +21,23 @@ export interface WorktreeResult {
 export async function git(cwd: string, ...args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, { cwd });
   return stdout.trim();
+}
+
+/**
+ * The summary a re-claim inherits, captured whenever a worktree outlives its
+ * Run — recorded in the bounce event and Bounce Report (ticket 30) and in the
+ * crash event (ticket 41), because nothing ever resets the worktree.
+ */
+export async function readTreeState(
+  worktreePath: string,
+  targetBranch: string,
+): Promise<TreeState> {
+  const branch = await git(worktreePath, "branch", "--show-current");
+  const aheadBy = Number(
+    await git(worktreePath, "rev-list", "--count", `origin/${targetBranch}..HEAD`),
+  );
+  const status = await git(worktreePath, "status", "--porcelain");
+  return { branch, aheadBy, dirtyCount: status === "" ? 0 : status.split("\n").length };
 }
 
 /**

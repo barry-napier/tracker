@@ -21,7 +21,7 @@ import {
 // assertions raced the worker pool and happened to win on one machine's
 // timing — CI's first Linux run lost. Green paths now push to a FakeGitHub
 // so the battery passes and "human_review" is stable; failure paths wait for
-// the pool to stop claiming (MAX_FAILURES settled runs).
+// the crash cap (ticket 41) to park the ticket after 3 crashed runs.
 
 afterEach(runCleanups);
 
@@ -75,21 +75,24 @@ describe("the plan phase's extended contract", () => {
     });
   }, 20_000);
 
-  test("a plan that skips the manifest fails the phase, not the contract file", async () => {
+  test("a plan that skips the manifest breaches the contract, not the contract file", async () => {
     const calls: PhaseCall[] = [];
     const provider = scriptedProvider(calls, { planChecks: () => {} });
     const { server, ticket } = await bootWorkspace(provider);
-    // The plan fails identically every cycle; wait for the pool to give up.
+    // The plan dies identically every cycle (contract-breach, ticket 41);
+    // the third crashed run parks the ticket, which is stable to assert on.
     const runs = await waitForSettledRuns(server, ticket.id, 3);
 
     const latest = runs[0];
-    expect(latest.state).toBe("failed");
-    const plan = latest.phases.find((p: any) => p.phase === "plan");
-    expect(plan.state).toBe("failed");
-    expect(plan.failureReason).toContain("checks/manifest.json");
+    expect(latest.state).toBe("crashed");
+    const plans = latest.phases.filter((p: any) => p.phase === "plan");
+    expect(plans.map((p: any) => p.state)).toEqual(["crashed", "crashed"]);
+    expect(plans[0].failureReason).toContain("checks/manifest.json");
 
     const detail = (await api(server, "GET", `/api/tickets/${ticket.id}`)).json;
     expect(detail.acceptanceCriteria[0].check).toBeNull();
+    expect(detail.state).toBe("human_review");
+    expect(detail.arrivedByCap).toBe(true);
   }, 30_000);
 
   test("a manifest that misses a pending AC fails the plan phase naming it", async () => {
@@ -104,12 +107,12 @@ describe("the plan phase's extended contract", () => {
     const { server, ticket } = await bootWorkspace(provider, {
       acceptanceCriteria: ["Widget renders", "Widget persists"],
     });
-    // Same doomed plan every cycle; assert once the pool stops claiming.
+    // Same doomed plan every cycle; assert once the crash cap parks it.
     const runs = await waitForSettledRuns(server, ticket.id, 3);
     const plan = runs[0].phases.find((p: any) => p.phase === "plan");
     const uncoveredId = (await api(server, "GET", `/api/tickets/${ticket.id}`)).json
       .acceptanceCriteria[1].id;
-    expect(plan.state).toBe("failed");
+    expect(plan.state).toBe("crashed");
     expect(plan.failureReason).toContain(`AC-${uncoveredId}`);
   }, 30_000);
 
@@ -118,9 +121,9 @@ describe("the plan phase's extended contract", () => {
     const checksSeenAtPlanStart: boolean[] = [];
     const github = new FakeGitHub();
     const provider = scriptedProvider(calls, {
-      // First attempt goes hollow at implement so the run fails after plan
-      // registered its checks; the re-claim runs the full workflow again.
-      sabotage: (phase, attempt) => (phase === "implement" && attempt === 1 ? false : undefined),
+      // The first run dies at implement — hollow twice, past the one retry —
+      // after plan registered its checks; the re-claim runs the workflow again.
+      sabotage: (phase, attempt) => (phase === "implement" && attempt <= 2 ? false : undefined),
       planChecks: (ctx) => {
         checksSeenAtPlanStart.push(existsSync(path.join(ctx.cwd, "checks", "manifest.json")));
         writePlanChecks(ctx.cwd, ctx.prompt);

@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { NullGitHub, type GitHubPort } from "../src/server/github.ts";
+import type { PhaseTimeouts } from "../src/server/engine.ts";
 import type { ProviderRegistry } from "../src/server/provider.ts";
 import { startServer, type TrackerServer } from "../src/server/index.ts";
 import { initScratchRepo } from "./git-helpers.ts";
@@ -24,7 +25,12 @@ export function previewPortBase(): number {
 
 export async function bootServer(
   dataDir?: string,
-  options: { workers?: number; providers?: ProviderRegistry; github?: GitHubPort } = {},
+  options: {
+    workers?: number;
+    providers?: ProviderRegistry;
+    github?: GitHubPort;
+    phaseTimeouts?: PhaseTimeouts;
+  } = {},
 ): Promise<TrackerServer> {
   const dir = dataDir ?? (await mkdtemp(path.join(tmpdir(), "tracker-test-")));
   // Workers default off: earlier-slice tests register repos at fake paths
@@ -38,6 +44,7 @@ export async function bootServer(
     providers: options.providers,
     github: options.github ?? new NullGitHub(),
     previewPortBase: previewPortBase(),
+    phaseTimeouts: options.phaseTimeouts,
   });
   cleanups.push(async () => {
     await server.close();

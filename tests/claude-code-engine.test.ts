@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, expect, test } from "vitest";
 import { EventBus } from "../src/server/bus.ts";
 import { openDatabase } from "../src/server/db.ts";
-import { PhaseFailedError, WorkflowEngine, type RunContext } from "../src/server/engine.ts";
+import { PhaseDeathError, WorkflowEngine, type RunContext } from "../src/server/engine.ts";
 import { PreviewManager } from "../src/server/previews.ts";
 import { ClaudeCodeProvider } from "../src/server/providers/claude-code.ts";
 import { toClaudeCodeConfig } from "../src/server/providers/registry.ts";
@@ -127,7 +127,15 @@ test("the adapter's session id reaches the phase execution record", async () => 
   expect(research?.providerSessionId).toBe("fake-session-1");
 });
 
-test("a provider-reported error fails the phase rather than crashing the run", async () => {
-  const { ctx, engine } = await harness("error");
-  await expect(engine.execute(ctx)).rejects.toBeInstanceOf(PhaseFailedError);
+test("a provider-reported error is a death: retried once, then the run crashes", async () => {
+  const { ctx, engine, store } = await harness("error");
+  const rejection = await engine.execute(ctx).then(
+    () => undefined,
+    (error: unknown) => error,
+  );
+  expect(rejection).toBeInstanceOf(PhaseDeathError);
+  expect((rejection as PhaseDeathError).mode).toBe("non-zero-exit");
+  // Both attempts are on record — the death and its one retry (ticket 41).
+  const research = store.listPhaseExecutions(ctx.run.id).filter((p) => p.phase === "research");
+  expect(research.map((p) => p.state)).toEqual(["crashed", "crashed"]);
 });

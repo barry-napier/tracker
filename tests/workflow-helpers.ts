@@ -121,7 +121,8 @@ export function writeDogfood(
 /**
  * A well-behaved agent for every phase — misbehaves only where the test's
  * `sabotage` hook says so (return false → skip the contract file and every
- * other side effect; throw → crash). The `planChecks` hook can replace the
+ * other side effect; return "hang" → go silent forever, for the watchdog and
+ * orphan paths; throw → crash). The `planChecks` hook can replace the
  * default check-writing behavior (write scripts + full manifest); `onPhase`
  * runs after a well-behaved phase's side effects, for test-specific extras
  * (a broken recap, a GitHub push).
@@ -129,7 +130,7 @@ export function writeDogfood(
 export function scriptedProvider(
   calls: PhaseCall[],
   hooks: {
-    sabotage?: (phase: string, attempt: number) => void | false;
+    sabotage?: (phase: string, attempt: number) => void | false | "hang";
     planChecks?: (ctx: PhaseCall) => void;
     onPhase?: (ctx: PhaseCall) => void | Promise<void>;
   } = {},
@@ -147,7 +148,10 @@ export function scriptedProvider(
     const call = { ...ctx, phase, attempt };
     calls.push(call);
     yield* conversation(phase, ctx.prompt);
-    if (sabotage(phase, attempt) !== false) {
+    const verdict = sabotage(phase, attempt);
+    // A hung agent: no more output, no exit — only a kill ends it.
+    if (verdict === "hang") await new Promise<never>(() => {});
+    if (verdict !== false) {
       writeContract(ctx.cwd, phase);
       if (phase === "plan") planChecks(call);
       if (phase === "dogfood") writeDogfood(ctx.cwd);
@@ -165,6 +169,8 @@ export async function bootWorkspace(
     /** Extra fields for the repo registration (testCommand, previewCommand…). */
     repo?: Record<string, unknown>;
     github?: GitHubPort;
+    /** Watchdog overrides for the crash-policy tests (ticket 41). */
+    phaseTimeouts?: { silenceMs?: number; wallClockMs?: number };
     /** Workspace surgery (e.g. re-pointing the project's workflow) before the promotion triggers claims. */
     beforePromote?: (server: TrackerServer, project: Project) => Promise<void>;
   } = {},
@@ -175,6 +181,7 @@ export async function bootWorkspace(
     workers: 3,
     providers: { "claude-code": provider },
     github: options.github,
+    phaseTimeouts: options.phaseTimeouts,
   });
   const { project, repo } = await seedWorkspace(server, options.repo);
   await options.beforePromote?.(server, project);
@@ -235,11 +242,11 @@ export async function waitForAudit(
 
 /**
  * Wait for a repeatedly-failing ticket to come to rest: `count` runs exist
- * and every one has settled. The pool stops claiming a ticket after
- * MAX_FAILURES cycles, so this state — unlike the "todo" between cycles,
- * which a worker re-claims immediately — is stable to assert against.
- * Racing a transient state is exactly what made these tests pass on one
- * machine's timing and fail on another's.
+ * and every one has settled. The crash cap (ticket 41) parks a ticket in
+ * Human Review after 3 crashed runs, so this state — unlike the "todo"
+ * between cycles, which a worker re-claims immediately — is stable to
+ * assert against. Racing a transient state is exactly what made these tests
+ * pass on one machine's timing and fail on another's.
  */
 export async function waitForSettledRuns(
   server: TrackerServer,

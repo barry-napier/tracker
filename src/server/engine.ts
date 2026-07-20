@@ -9,16 +9,34 @@ import {
 } from "./dogfood.ts";
 import { branchLabels, nextNode, nextNodeByLabel, triggerOf } from "./graph.ts";
 import { DEFAULT_READINESS_TIMEOUT_MS, type PreviewManager } from "./previews.ts";
-import type { ProviderRegistry } from "./provider.ts";
+import type { ProviderRegistry, RunResult } from "./provider.ts";
 import { RunLogRegistry } from "./runlog.ts";
 import type { Store } from "./store.ts";
-import type { Repo, Run, TicketWithAcs, WorkflowNode } from "./types.ts";
+import type { DeathMode, Repo, Run, TicketWithAcs, WorkflowNode } from "./types.ts";
 
-/** Wrong work (hollow phase, provider-reported failure) — distinct from a crash. */
-export class PhaseFailedError extends Error {}
+/** A phase died. The engine retries once; a second one crashes the Run. */
+export class PhaseDeathError extends Error {
+  constructor(
+    readonly mode: DeathMode,
+    reason: string,
+  ) {
+    super(`[${mode}] ${reason}`);
+  }
+}
 
 /** The orchestrator cancelled the phase (app quit); nothing gets recorded. */
 export class PhaseCancelledError extends Error {}
+
+/** Watchdog overrides (ticket 41); production runs on the defaults. */
+export interface PhaseTimeouts {
+  /** Kill a provider after this long with no output. Default 15 min. */
+  silenceMs?: number;
+  /** SIGTERM a phase outliving this wall clock. Default 30 min. */
+  wallClockMs?: number;
+}
+
+const DEFAULT_SILENCE_MS = 15 * 60_000;
+const DEFAULT_WALL_CLOCK_MS = 30 * 60_000;
 
 /** Everything a Run's phases execute against. */
 export interface RunContext {
@@ -36,14 +54,21 @@ export interface RunContext {
  * Contract file `kb/<phase>.md` exists in the worktree.
  */
 export class WorkflowEngine {
+  readonly #silenceMs: number;
+  readonly #wallClockMs: number;
+
   constructor(
     private readonly store: Store,
     private readonly providers: ProviderRegistry,
     private readonly logs: RunLogRegistry,
     private readonly previews: PreviewManager,
-  ) {}
+    timeouts: PhaseTimeouts = {},
+  ) {
+    this.#silenceMs = timeouts.silenceMs ?? DEFAULT_SILENCE_MS;
+    this.#wallClockMs = timeouts.wallClockMs ?? DEFAULT_WALL_CLOCK_MS;
+  }
 
-  /** Resolves on success; throws PhaseFailedError (failed) or anything else (crashed). */
+  /** Resolves on success; throws PhaseDeathError (run crashes) or PhaseCancelledError. */
   async execute(ctx: RunContext): Promise<void> {
     const provider = this.providers[ctx.ticket.provider!];
     if (!provider) throw new Error(`no adapter registered for provider ${ctx.ticket.provider}`);
@@ -64,7 +89,15 @@ export class WorkflowEngine {
         continue;
       }
       const labels = branchLabels(workflow, node);
-      const outcome = await this.#runPhase(ctx, provider, node, priorKb, labels);
+      let outcome: string | null;
+      try {
+        outcome = await this.#runPhase(ctx, provider, node, priorKb, labels);
+      } catch (error) {
+        if (!(error instanceof PhaseDeathError)) throw error;
+        // The crash policy's one retry (ticket 41): phases are idempotent,
+        // and most deaths are weather. A second death ends the Run.
+        outcome = await this.#runPhase(ctx, provider, node, priorKb, labels);
+      }
       priorKb.push(`kb/${node.name}.md`);
       node =
         outcome === null
@@ -76,7 +109,7 @@ export class WorkflowEngine {
   /**
    * Run one phase. Returns the edge label the phase routes on when its node
    * branches (`labels` non-empty), or null for a single-unlabeled-edge node.
-   * Throws PhaseFailedError (wrong work) or a plain Error (crash).
+   * Throws PhaseDeathError (any death mode) or PhaseCancelledError.
    */
   async #runPhase(
     ctx: RunContext,
@@ -86,6 +119,39 @@ export class WorkflowEngine {
     labels: readonly string[],
   ): Promise<string | null> {
     const execution = this.store.startPhase(ctx.run.id, node);
+    // The phase's own kill switch: the pool's signal forwards into it (app
+    // quit), and the watchdogs pull it (silence, wall clock). Which one fired
+    // decides whether this is a cancellation or a death.
+    const abort = new AbortController();
+    let killed: { mode: DeathMode; reason: string } | undefined;
+    const kill = (mode: DeathMode, reason: string): void => {
+      killed = { mode, reason };
+      abort.abort();
+    };
+    const onOuterAbort = (): void => abort.abort();
+    if (ctx.signal?.aborted) abort.abort();
+    ctx.signal?.addEventListener("abort", onOuterAbort, { once: true });
+    // Armed only once the provider is actually running — the dogfood preview
+    // boot below is engine time, not provider time.
+    let silenceTimer: NodeJS.Timeout | undefined;
+    let wallClockTimer: NodeJS.Timeout | undefined;
+    const resetSilence = (): void => {
+      clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(
+        () => kill("silence", `no provider output for ${this.#silenceMs}ms — killed`),
+        this.#silenceMs,
+      );
+    };
+    // Record the death, then throw it: the phase row and audit trail carry
+    // the mode distinctly (ticket 41 AC1) before the retry decision upstream.
+    const die = (mode: DeathMode, reason: string, providerSessionId?: string): PhaseDeathError => {
+      this.store.endPhase(execution.id, "crashed", {
+        failureReason: reason,
+        deathMode: mode,
+        providerSessionId,
+      });
+      return new PhaseDeathError(mode, reason);
+    };
     // Re-entry context (spec 21, Phase Contract): follow-up criteria and the
     // Bounce Report the previous cycle left in the reused worktree. Statuses
     // ride along so a follow-up settled on an earlier cycle reads as such.
@@ -122,62 +188,93 @@ export class WorkflowEngine {
       });
 
       const log = this.logs.for(ctx.run.id);
-      const handle = provider.runPhase(prompt, ctx.worktreePath, { signal: ctx.signal });
-      for await (const event of handle.events) {
-        log.append(RunLogRegistry.decorate(event, node.name));
+      const handle = provider.runPhase(prompt, ctx.worktreePath, { signal: abort.signal });
+      resetSilence();
+      wallClockTimer = setTimeout(
+        () => kill("timeout", `phase exceeded its ${this.#wallClockMs}ms wall clock — SIGTERM`),
+        this.#wallClockMs,
+      );
+      let result: RunResult;
+      try {
+        for await (const event of handle.events) {
+          resetSilence();
+          log.append(RunLogRegistry.decorate(event, node.name));
+        }
+        result = await handle.done;
+      } catch (error) {
+        // A broken event stream with a live adapter promise is still a death,
+        // not a stuck run — unless the app itself is going down. A watchdog's
+        // SIGTERM may surface as the adapter rejecting: the kill keeps its
+        // mode, or AC1's "audited distinctly" would misfile it as a crash.
+        if (ctx.signal?.aborted) throw new PhaseCancelledError(`phase ${node.name} cancelled`);
+        if (killed !== undefined) throw die(killed.mode, killed.reason);
+        throw die("crash", `provider stream broke: ${messageOf(error)}`);
       }
-      const result = await handle.done;
 
       // Cancellation is the orchestrator's own doing (app quit): the phase
-      // execution stays "running" and the startup sweep of a later slice
-      // reaps the orphan — recording a crash here would blame the work.
-      if (result.outcome === "cancelled") {
+      // execution stays "running" and the startup sweep reaps the orphan —
+      // recording a crash here would blame the work.
+      if (ctx.signal?.aborted) {
         throw new PhaseCancelledError(`phase ${node.name} cancelled`);
       }
+      // A watchdog pulled the kill switch: the provider's "cancelled" (or
+      // whatever its dying breath reported) is our doing, not its own ending.
+      if (killed !== undefined) {
+        throw die(killed.mode, killed.reason, result.providerSessionId);
+      }
       const providerSessionId = result.providerSessionId;
+      if (result.outcome === "cancelled") {
+        throw die("crash", "provider reported cancelled without an abort", providerSessionId);
+      }
       if (result.outcome === "crashed") {
-        const reason = result.failureReason ?? "provider crashed";
-        this.store.endPhase(execution.id, "crashed", { failureReason: reason, providerSessionId });
-        throw new Error(reason);
+        throw die("crash", result.failureReason ?? "provider crashed", providerSessionId);
+      }
+      if (result.outcome === "failed") {
+        throw die(
+          "non-zero-exit",
+          result.failureReason ?? "provider exited reporting failure",
+          providerSessionId,
+        );
       }
       const contract = path.join(ctx.worktreePath, "kb", `${node.name}.md`);
-      let failure =
-        result.outcome !== "completed"
-          ? (result.failureReason ?? `provider reported ${result.outcome}`)
-          : existsSync(contract)
-            ? undefined
-            : `contract file kb/${node.name}.md missing — phase is hollow`;
+      if (!existsSync(contract)) {
+        throw die(
+          "hollow-exit",
+          `contract file kb/${node.name}.md missing — phase is hollow`,
+          providerSessionId,
+        );
+      }
       // Extended Phase Contract (ticket 07 §4): a check-emitting node must also
       // cover every pending AC in checks/manifest.json. Statuses are re-read —
       // a human may have waived an AC since claim.
-      if (failure === undefined && node.emitsChecks) {
+      let breach: string | undefined;
+      if (node.emitsChecks) {
         const acs = this.store.getTicket(ctx.ticket.id)!.acceptanceCriteria;
         const manifest = readCheckManifest(ctx.worktreePath, acs);
         if (manifest.ok) {
           this.store.registerAcChecks(ctx.run.id, manifest.entries);
         } else {
-          failure = manifest.failure;
+          breach = manifest.failure;
         }
       }
       // Branch routing (ADR-0001): a node with labeled edges must have its
       // phase declare `outcome: <label>` in the contract. The engine only
       // string-matches — routing is the phase's judgment, never a gate — but a
-      // missing or unrecognized outcome is wrong work, failed with the same
-      // teeth as a hollow contract. A single-edge node ignores any stray one.
+      // missing or unrecognized outcome breaches the contract with the same
+      // teeth as a hollow exit. A single-edge node ignores any stray one.
       let route: string | null = null;
-      if (failure === undefined && labels.length > 0) {
+      if (breach === undefined && labels.length > 0) {
         const declared = readContractOutcome(contract);
         if (declared === undefined) {
-          failure = `phase ${node.name} declared no outcome — kb/${node.name}.md must set \`outcome:\` to one of: ${labels.join(", ")}`;
+          breach = `phase ${node.name} declared no outcome — kb/${node.name}.md must set \`outcome:\` to one of: ${labels.join(", ")}`;
         } else if (!labels.includes(declared)) {
-          failure = `phase ${node.name} declared outcome "${declared}" — expected one of: ${labels.join(", ")}`;
+          breach = `phase ${node.name} declared outcome "${declared}" — expected one of: ${labels.join(", ")}`;
         } else {
           route = declared;
         }
       }
-      if (failure !== undefined) {
-        this.store.endPhase(execution.id, "failed", { failureReason: failure, providerSessionId });
-        throw new PhaseFailedError(failure);
+      if (breach !== undefined) {
+        throw die("contract-breach", breach, providerSessionId);
       }
       this.store.endPhase(execution.id, "completed", {
         providerSessionId,
@@ -185,6 +282,9 @@ export class WorkflowEngine {
       });
       return route;
     } finally {
+      clearTimeout(silenceTimer);
+      clearTimeout(wallClockTimer);
+      ctx.signal?.removeEventListener("abort", onOuterAbort);
       // The dogfood phase owns its preview for the phase's lifetime only: stop
       // it however the phase ends so the later demo step (and the wizard) boot
       // their own fresh process against the code under review.
@@ -218,6 +318,10 @@ export class WorkflowEngine {
       : { available: false, note: boot.reason };
     return { vars: dogfoodTemplateVars(handoff, persona), booted: boot.ready };
   }
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** The engine's fixed template variable set (Phase Contract). */

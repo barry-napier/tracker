@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, test } from "vitest";
 import { EventBus } from "../src/server/bus.ts";
 import { openDatabase } from "../src/server/db.ts";
-import { PhaseFailedError, WorkflowEngine, type RunContext } from "../src/server/engine.ts";
+import { PhaseDeathError, WorkflowEngine, type RunContext } from "../src/server/engine.ts";
 import { NullGitHub } from "../src/server/github.ts";
 import { GateBattery } from "../src/server/gates.ts";
 import { PreviewManager } from "../src/server/previews.ts";
@@ -226,16 +226,23 @@ describe("engine branch routing (ticket 46)", () => {
     });
     const { ctx } = claimOn(store, workflowId, "bad");
 
-    await expect(engineFor(store, dataDir, provider).execute(ctx)).rejects.toBeInstanceOf(
-      PhaseFailedError,
-    );
-    const route = store.listPhaseExecutions(ctx.run.id).find((p) => p.phase === "route")!;
-    expect(route.state).toBe("failed");
-    expect(route.failureReason).toContain(reasonPart);
+    const rejection = await engineFor(store, dataDir, provider)
+      .execute(ctx)
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    expect(rejection).toBeInstanceOf(PhaseDeathError);
+    // A breached contract is a death (ticket 41): retried once, both
+    // attempts on record, then the run crashes.
+    expect((rejection as PhaseDeathError).mode).toBe("contract-breach");
+    const routes = store.listPhaseExecutions(ctx.run.id).filter((p) => p.phase === "route");
+    expect(routes.map((p) => p.state)).toEqual(["crashed", "crashed"]);
+    expect(routes[0]!.failureReason).toContain(reasonPart);
     // The reason always names the available labels.
-    expect(route.failureReason).toContain("alpha, beta");
-    // Nothing past the failed branch ran.
-    expect(store.listPhaseExecutions(ctx.run.id).map((p) => p.phase)).toEqual(["route"]);
+    expect(routes[0]!.failureReason).toContain("alpha, beta");
+    // Nothing past the dead branch ran.
+    expect(store.listPhaseExecutions(ctx.run.id).map((p) => p.phase)).toEqual(["route", "route"]);
   });
 
   test("a single-unlabeled-edge node ignores a stray declared outcome", async () => {

@@ -122,6 +122,7 @@ export interface Ticket {
   updatedAt: string;
 }
 
+/** "failed" is legacy — see PhaseState; runs now end completed or crashed. */
 export type RunState = "running" | "completed" | "failed" | "crashed";
 
 /** A single agent attempt at a Ticket: claim = Run creation (ticket 08). */
@@ -204,7 +205,33 @@ export interface WorkflowGraph {
   edges: WorkflowEdge[];
 }
 
-/** failed = wrong work (hollow phase, provider-reported failure); crashed = infrastructure. */
+/**
+ * How a phase died (ticket 41): every mode is detected and audited
+ * distinctly, and all of them feed the same policy — retry once, then the
+ * Run crashes. Crash = work didn't happen → Todo; bounce = work was wrong →
+ * In Progress, and only the gate battery gets to say "wrong."
+ *
+ * - crash: the provider process crashed or its stream broke
+ * - non-zero-exit: the provider exited reporting failure
+ * - hollow-exit: a clean exit that never wrote the contract file
+ * - contract-breach: contract file present but its extended obligations
+ *   unmet (check manifest, branch outcome declaration) — slice 26's open
+ *   question, settled here: contract violations are deaths, not "wrong work"
+ * - silence: no output for the silence window; the orchestrator killed it
+ * - timeout: the per-phase wall clock expired; the orchestrator SIGTERMed it
+ * - orphan: the app died over it; the startup sweep reaped it
+ */
+export type DeathMode =
+  | "crash"
+  | "non-zero-exit"
+  | "hollow-exit"
+  | "contract-breach"
+  | "silence"
+  | "timeout"
+  | "orphan";
+
+/** "failed" is legacy: rows predating ticket 41, when the engine judged work
+ * wrong itself. Nothing writes it now — deaths crash, the battery bounces. */
 export type PhaseState = "running" | "completed" | "failed" | "crashed";
 
 /** One phase attempt inside a Run; history is append-only per Run. */

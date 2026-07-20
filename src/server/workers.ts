@@ -1,24 +1,24 @@
+import { existsSync } from "node:fs";
 import type { ArtifactStore } from "./artifacts.ts";
 import type { Bouncer } from "./bounce.ts";
 import type { EventBus } from "./bus.ts";
 import type { DemoOutcome, DemoRecorder } from "./demos.ts";
-import { PhaseCancelledError, PhaseFailedError, type WorkflowEngine } from "./engine.ts";
+import { PhaseCancelledError, type WorkflowEngine } from "./engine.ts";
 import type { GateBattery } from "./gates.ts";
 import type { Store } from "./store.ts";
-import type { Repo, Run, TicketWithAcs } from "./types.ts";
-import type { WorktreeManager } from "./worktrees.ts";
-
-const MAX_FAILURES = 3;
+import type { Repo, Run, TicketWithAcs, TreeState } from "./types.ts";
+import { readTreeState, type WorktreeManager } from "./worktrees.ts";
 
 /**
  * The factory's claiming half (spec: 3 workers, more melted the CPU). A slot
  * is held from claim until the Run ends — setup, workflow phases, and the
  * run's verdict all happen inside it — then freed for the next Todo ticket.
+ * A ticket that keeps dying is no longer skipped in memory: the crash cap
+ * (ticket 41, store.finishRun) parks it in Human Review after 3 crashed runs.
  */
 export class WorkerPool {
   #active = new Set<number>();
   #inFlight = new Set<Promise<void>>();
-  #failures = new Map<number, number>();
   #stopped = false;
   #abort = new AbortController();
 
@@ -44,8 +44,8 @@ export class WorkerPool {
 
   /**
    * Cancel in-flight phases and resolve once nothing is mid-git or mid-DB.
-   * Cancelled Runs stay "running" on disk — the startup orphan sweep of a
-   * later slice marks them crashed (spec: no leases, ticket 08).
+   * Cancelled Runs stay "running" on disk — the startup orphan sweep marks
+   * them crashed on the next launch (spec: no leases, ticket 08).
    */
   async stop(): Promise<void> {
     this.#stopped = true;
@@ -56,16 +56,7 @@ export class WorkerPool {
   claimUpToCapacity(): void {
     if (this.#stopped) return;
     while (this.#active.size < this.capacity) {
-      // Stop-gap until slice 41's crash policy (which parks in Human Review):
-      // a ticket that keeps dying — setup crash, hollow phase, provider
-      // crash — is skipped instead of hot-looping claim → fail. It sits in
-      // Todo, unclaimed, until an app restart.
-      const exclude = new Set(
-        [...this.#failures]
-          .filter(([, count]) => count >= MAX_FAILURES)
-          .map(([ticketId]) => ticketId),
-      );
-      const claimed = this.store.claimNextTicket(exclude);
+      const claimed = this.store.claimNextTicket();
       if (!claimed) return;
       this.#active.add(claimed.run.id);
       const work = this.#work(claimed);
@@ -88,7 +79,6 @@ export class WorkerPool {
       worktreePath = result.worktreePath;
     } catch (error) {
       if (this.#stopped) return;
-      this.#recordFailure(ticket.id);
       this.store.finishRun(run.id, "crashed", messageOf(error));
       return;
     }
@@ -100,7 +90,6 @@ export class WorkerPool {
       // run's artifacts crashes it rather than shipping it unevidenced.
       await this.artifacts.persistRun(run.id, worktreePath);
       this.store.finishRun(run.id, "completed");
-      this.#failures.delete(ticket.id);
       if (this.#stopped) return;
       // The demo phase (ticket 35): boot the preview from the finished
       // worktree and record against it. However it ends, it's an outcome the
@@ -137,17 +126,45 @@ export class WorkerPool {
       await this.artifacts.persistRun(run.id, worktreePath).catch((persistError: unknown) => {
         console.error(`run ${run.id}: artifact persist failed`, persistError);
       });
-      this.#recordFailure(ticket.id);
-      this.store.finishRun(
-        run.id,
-        error instanceof PhaseFailedError ? "failed" : "crashed",
-        messageOf(error),
-      );
+      // Crash = work didn't happen (ticket 41): back to Todo with no new
+      // criteria, the reused worktree summarized for the re-claim to inherit.
+      const treeState = await readTreeState(worktreePath, repo.targetBranch).catch(() => null);
+      this.store.finishRun(run.id, "crashed", messageOf(error), { treeState });
     }
   }
+}
 
-  #recordFailure(ticketId: number): void {
-    this.#failures.set(ticketId, (this.#failures.get(ticketId) ?? 0) + 1);
+/**
+ * The startup orphan sweep (ticket 41): no leases means an app death leaves
+ * Runs still marked running. Each one is fed through the same crash policy —
+ * its worktree's `kb/` persisted first (closing slice 27's "every Run end
+ * persists evidence" gap), its mid-flight phases reaped with the `orphan`
+ * death mode, the Run crashed, and the Ticket recovered (Todo, or parked at
+ * the crash cap). Runs before the pool starts claiming.
+ */
+export async function sweepOrphanedRuns(store: Store, artifacts: ArtifactStore): Promise<void> {
+  for (const run of store.listRunningRuns()) {
+    const ticket = store.getTicket(run.ticketId)!;
+    let treeState: TreeState | null = null;
+    if (run.worktreePath !== null && existsSync(run.worktreePath)) {
+      await artifacts.persistRun(run.id, run.worktreePath).catch((error: unknown) => {
+        console.error(`run ${run.id}: orphan artifact persist failed`, error);
+      });
+      const repo = ticket.repoId === null ? undefined : store.getRepo(ticket.repoId);
+      if (repo) {
+        treeState = await readTreeState(run.worktreePath, repo.targetBranch).catch(() => null);
+      }
+    }
+    for (const phase of store.listPhaseExecutions(run.id)) {
+      if (phase.state !== "running") continue;
+      store.endPhase(phase.id, "crashed", {
+        failureReason: "orphaned: the app quit mid-phase",
+        deathMode: "orphan",
+      });
+    }
+    store.finishRun(run.id, "crashed", "orphaned: still marked running at app launch", {
+      treeState,
+    });
   }
 }
 
