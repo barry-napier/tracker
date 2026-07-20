@@ -538,6 +538,14 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
       );
     `,
   },
+  {
+    version: 18,
+    sql: `
+      -- Workflow description (ticket 51): identity metadata like name —
+      -- what the library row shows; versions are untouched by edits to it.
+      ALTER TABLE workflows ADD COLUMN description TEXT NOT NULL DEFAULT '';
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

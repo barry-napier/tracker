@@ -11,6 +11,8 @@ const VIEWBOXES: Partial<Record<IconName, string>> = {
   "chevron-left": "0 0 16 16",
   "dots-horizontal": "0 0 16 16",
   search: "0 0 16 16",
+  "arrows-sort": "0 0 16 16",
+  check: "0 0 16 16",
 };
 
 const PATHS = {
@@ -44,6 +46,16 @@ const PATHS = {
   ),
   "chevron-left": (
     <path d="M10 3.5L5.5 8L10 12.5" stroke="currentColor" strokeLinecap="square" />
+  ),
+  "arrows-sort": (
+    <path
+      d="M5 3.5V13M5 13L2.5 10.5M5 13L7.5 10.5M11 12.5V3M11 3L8.5 5.5M11 3L13.5 5.5"
+      stroke="currentColor"
+      strokeLinecap="square"
+    />
+  ),
+  check: (
+    <path d="M2.5 8.5L6 12L13.5 4.5" stroke="currentColor" strokeLinecap="square" />
   ),
   search: (
     <path

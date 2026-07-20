@@ -34,6 +34,17 @@ export interface Project {
   createdAt: string;
 }
 
+/**
+ * Home's recents row: the Project plus the display/sort facts the list view
+ * needs, derived at list time (neither is a projects column).
+ */
+export interface ProjectListItem extends Project {
+  /** Latest Audit Trail event's time; null = nothing since creation. */
+  lastActivityAt: string | null;
+  /** First registered Repo's checkout path; null = no repo yet. */
+  repoPath: string | null;
+}
+
 export type PreviewKind = "ui" | "api";
 
 export interface Repo {
@@ -148,6 +159,8 @@ export type WorkflowNodeType = "trigger" | "agent_phase";
 export interface Workflow {
   id: number;
   name: string;
+  /** Identity metadata like name (ticket 51); empty = not written yet. */
+  description: string;
   /** Removed from selection but still driving Projects that reference it. */
   archived: boolean;
   /** Preselected at Project creation; exactly one active default at all times. */
@@ -162,6 +175,11 @@ export interface WorkflowListing extends Workflow {
   /** Agent-phase names of the head version, in graph walk order. */
   phases: string[];
   usedByProjects: number;
+  /**
+   * Never entered service: no project references it and no run ever pinned
+   * one of its versions — the one case hard delete is allowed (ticket 51).
+   */
+  deletable: boolean;
   /** Unpublished changes: a Draft exists (ticket 47), invisible to claims. */
   hasDraft: boolean;
 }
@@ -281,6 +299,18 @@ export interface WorkflowDraft {
   graph: DraftGraph;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * The head version's content in Draft shape (ticket 48): what the canvas
+ * editor renders before any edit exists. Read-only by construction — unlike
+ * GET /draft, reading the head never creates anything.
+ */
+export interface WorkflowHeadGraph {
+  workflowId: number;
+  version: number;
+  hasDraft: boolean;
+  graph: DraftGraph;
 }
 
 /**

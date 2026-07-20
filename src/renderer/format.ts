@@ -13,6 +13,18 @@ export function repoName(repo: Repo): string {
   return repo.path.split("/").filter(Boolean).at(-1) ?? repo.path;
 }
 
+/** Compact relative time for list rows: "26m ago", "3h ago", "134d ago". */
+export function timeAgo(iso: string, now: number = Date.now()): string {
+  const minutes = Math.floor((now - Date.parse(iso)) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 365) return `${days}d ago`;
+  return `${Math.floor(days / 365)}y ago`;
+}
+
 export const PROVIDER_LABELS: Record<ProviderName, string> = {
   "claude-code": "Claude Code",
   kiro: "Kiro CLI",

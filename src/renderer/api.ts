@@ -46,6 +46,22 @@ export function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+export async function apiDelete<T>(route: string): Promise<T> {
+  const res = await fetch(`${apiBase}${route}`, { method: "DELETE" });
+  if (!res.ok) await throwApiError("DELETE", route, res);
+  return (await res.json()) as T;
+}
+
+export async function apiPut<T>(route: string, body: unknown): Promise<T> {
+  const res = await fetch(`${apiBase}${route}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await throwApiError("PUT", route, res);
+  return (await res.json()) as T;
+}
+
 export async function apiPatch<T>(route: string, body: unknown): Promise<T> {
   const res = await fetch(`${apiBase}${route}`, {
     method: "PATCH",

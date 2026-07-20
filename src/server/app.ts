@@ -106,13 +106,42 @@ export function createApp(
   // The app-global Workflow library (ticket 43): identity ops only — content
   // is immutable versions, and creation is duplicate-only until the editor.
   app.get("/api/workflows", (c) => c.json(store.listWorkflows()));
+  app.post("/api/workflows", async (c) => {
+    const body = await c.req
+      .json<{ name?: string; description?: string }>()
+      .catch(() => ({}) as { name?: string; description?: string });
+    if (body.name !== undefined && typeof body.name !== "string") {
+      return c.json({ error: "name must be a string" }, 400);
+    }
+    if (body.description !== undefined && typeof body.description !== "string") {
+      return c.json({ error: "description must be a string" }, 400);
+    }
+    return c.json(store.createWorkflow(body.name, body.description), 201);
+  });
+  app.delete("/api/workflows/:id", (c) => {
+    store.deleteWorkflow(Number(c.req.param("id")));
+    return c.json({ ok: true });
+  });
   app.post("/api/workflows/:id/duplicate", (c) =>
     c.json(store.duplicateWorkflow(Number(c.req.param("id"))), 201),
   );
   app.patch("/api/workflows/:id", async (c) => {
-    const body = await c.req.json<{ name?: string }>();
-    if (typeof body.name !== "string") return c.json({ error: "name is required" }, 400);
-    return c.json(store.renameWorkflow(Number(c.req.param("id")), body.name));
+    const body = await c.req.json<{ name?: string; description?: string }>();
+    if (body.name !== undefined && typeof body.name !== "string") {
+      return c.json({ error: "name must be a string" }, 400);
+    }
+    if (body.description !== undefined && typeof body.description !== "string") {
+      return c.json({ error: "description must be a string" }, 400);
+    }
+    if (body.name === undefined && body.description === undefined) {
+      return c.json({ error: "name or description is required" }, 400);
+    }
+    return c.json(
+      store.updateWorkflow(Number(c.req.param("id")), {
+        name: body.name,
+        description: body.description,
+      }),
+    );
   });
   app.post("/api/workflows/:id/default", (c) =>
     c.json(store.setDefaultWorkflow(Number(c.req.param("id")))),
@@ -133,6 +162,10 @@ export function createApp(
   // the graph (shape-checked only — a mid-edit draft may be invalid),
   // validate returns the full violation list, publish appends the new head
   // or answers 400 with that same list, DELETE discards.
+  // The head version, read-only (ticket 48): the editor's opening render.
+  app.get("/api/workflows/:id/head", (c) =>
+    c.json(store.getWorkflowHeadGraph(Number(c.req.param("id")))),
+  );
   app.get("/api/workflows/:id/draft", (c) =>
     c.json(store.getWorkflowDraft(Number(c.req.param("id")))),
   );

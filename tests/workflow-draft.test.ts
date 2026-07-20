@@ -399,3 +399,26 @@ describe("workflow drafts", () => {
     expect(copiedResearch.steps.map((s: any) => s.title)).toEqual(["Web search", "Write the doc"]);
   });
 });
+
+// -- head graph, read-only (ticket 48) -------------------------------------
+
+describe("the head graph endpoint", () => {
+  test("reads the head in draft shape without cutting a draft", async () => {
+    const server = await bootServer();
+    const head = (await api(server, "GET", "/api/workflows/1/head")).json;
+    expect(head).toMatchObject({ workflowId: 1, version: 1, hasDraft: false });
+    expect([...head.graph.nodes.map((n: any) => n.name)].sort()).toEqual(
+      ["ticket-claimed", ...PHASES].sort(),
+    );
+    // Reading the head never creates the draft — that is GET /draft's job.
+    const listed = (await api(server, "GET", "/api/workflows")).json;
+    expect(listed.find((w: any) => w.id === 1).hasDraft).toBe(false);
+  });
+
+  test("reports an existing draft and 404s on a missing workflow", async () => {
+    const server = await bootServer();
+    await api(server, "GET", "/api/workflows/1/draft");
+    expect((await api(server, "GET", "/api/workflows/1/head")).json.hasDraft).toBe(true);
+    expect((await api(server, "GET", "/api/workflows/99/head")).status).toBe(404);
+  });
+});

@@ -3,6 +3,7 @@ import { getThemePref, setThemePref, type ThemePref } from "./theme.ts";
 import {
   PROVIDERS,
   type Project,
+  type ProjectListItem,
   type ProviderName,
   type Repo,
   type TicketWithAcs,
@@ -12,11 +13,9 @@ import { apiGet, apiPost } from "./api.ts";
 import { PROVIDER_LABELS, repoName } from "./format.ts";
 import { avatarColor, Home } from "./Home.tsx";
 import { ProjectSettings } from "./ProjectSettings.tsx";
-import { WorkflowLibrary } from "./WorkflowLibrary.tsx";
-// PROTOTYPE (ticket 48) — mount gated behind /?prototype=canvas; remove with the prototype.
-import { WorkflowCanvasPrototype } from "./WorkflowCanvasPrototype.tsx";
-
-const CANVAS_PROTOTYPE = new URLSearchParams(location.search).get("prototype") === "canvas";
+import { WorkflowCreate, WorkflowLibrary } from "./WorkflowLibrary.tsx";
+import { WorkflowCanvasEditor } from "./WorkflowCanvasEditor.tsx";
+import type { WorkflowListing } from "../server/types.ts";
 import { useBoard } from "./useBoard.ts";
 import { ReviewWizard } from "./ReviewWizard.tsx";
 import { TicketDetail } from "./TicketDetail.tsx";
@@ -31,7 +30,7 @@ import { Icon } from "./icons.tsx";
  * (or re-activates an existing one); only the tab's × removes it.
  */
 function useWorkspace() {
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [tabs, setTabs] = useState<Project[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const project = tabs.find((t) => t.id === activeId) ?? null;
@@ -45,7 +44,7 @@ function useWorkspace() {
   // Refetched on every return to Home so recents reorder by latest activity.
   useEffect(() => {
     if (project !== null) return;
-    void apiGet<Project[]>("/api/projects")
+    void apiGet<ProjectListItem[]>("/api/projects")
       .then((rows) => {
         setProjects(rows);
         if (restoredRef.current) return;
@@ -141,8 +140,13 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [reviewId, setReviewId] = useState<number | null>(null);
   // Home hosts two views (CONTEXT.md): Recent Projects and the app-global
-  // Workflow library. Pure view state — the tab model never hears about it.
-  const [homeView, setHomeView] = useState<"projects" | "workflows">("projects");
+  // Workflow library (plus its full-page create form, ticket 51). Pure view
+  // state — the tab model never hears about it.
+  const [homeView, setHomeView] = useState<"projects" | "workflows" | "workflow-new">("projects");
+  // The canvas editor (ticket 48): a Home view reached only from a library
+  // row. Same hosting reasoning as the library — the tab model never hears
+  // about it; leaving the workflows view drops it.
+  const [editingWorkflow, setEditingWorkflow] = useState<WorkflowListing | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // The stream carries every project; the board shows only the active tab's.
   const tickets = project ? board.tickets.filter((t) => t.projectId === project.id) : [];
@@ -210,8 +214,7 @@ export default function App() {
       </header>
       <main className="main">
         {error && <p className="banner error">Can't reach the Tracker server: {error}</p>}
-        {!project && CANVAS_PROTOTYPE && <WorkflowCanvasPrototype />}
-        {!project && !CANVAS_PROTOTYPE && homeView === "projects" && (
+        {!project && homeView === "projects" && (
           <Home
             projects={projects}
             onOpen={(id) => void openProjectById(id)}
@@ -219,15 +222,37 @@ export default function App() {
             onHidden={forgetProject}
           />
         )}
-        {!project && !CANVAS_PROTOTYPE && homeView === "workflows" && <WorkflowLibrary />}
+        {!project && homeView === "workflows" && editingWorkflow && (
+          <WorkflowCanvasEditor
+            key={editingWorkflow.id}
+            workflow={editingWorkflow}
+            onClose={() => setEditingWorkflow(null)}
+          />
+        )}
+        {!project && homeView === "workflows" && !editingWorkflow && (
+          <WorkflowLibrary
+            onCreateNew={() => setHomeView("workflow-new")}
+            onOpenEditor={setEditingWorkflow}
+          />
+        )}
+        {!project && homeView === "workflow-new" && (
+          <WorkflowCreate onDone={() => setHomeView("workflows")} />
+        )}
         {!project && (
           <nav className="home-nav">
             {(["projects", "workflows"] as const).map((view) => (
               <button
                 key={view}
                 type="button"
-                className={homeView === view ? "active" : undefined}
-                onClick={() => setHomeView(view)}
+                className={
+                  homeView === view || (view === "workflows" && homeView === "workflow-new")
+                    ? "active"
+                    : undefined
+                }
+                onClick={() => {
+                  setEditingWorkflow(null);
+                  setHomeView(view);
+                }}
               >
                 {view === "projects" ? "Projects" : "Workflows"}
               </button>

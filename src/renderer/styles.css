@@ -1444,18 +1444,54 @@ body {
   color: var(--text-base);
 }
 
+/* Blends into the page until pointed at or focused, opencode-style. */
 .home-search {
-  background: var(--surface-input);
-  border: 1px solid var(--border-base);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
-  color: var(--text-base);
-  font: inherit;
-  padding: 0.5rem 0.75rem;
+  color: var(--text-faint);
+  /* Horizontal inset matches .home-header (0.15rem) so the search icon and
+     text sit flush with the Projects line below. */
+  padding: 0.5rem 0.15rem;
 }
 
-.home-search:focus {
-  outline: none;
+.home-search:hover {
+  background: var(--overlay-hover);
+}
+
+.home-search:focus-within {
+  background: var(--surface-input);
   border-color: var(--border-focus);
+}
+
+.home-search svg {
+  flex: none;
+}
+
+.home-search input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-base);
+  font: inherit;
+  padding: 0;
+}
+
+.home-search kbd {
+  flex: none;
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  background: var(--overlay-hover);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  padding: 0 0.4rem;
+  line-height: 1.4;
 }
 
 .home-list {
@@ -1540,6 +1576,137 @@ body {
 
 .row-menu button:hover {
   background: var(--overlay-hover);
+}
+
+.row-menu button.danger {
+  color: var(--danger-fg);
+}
+
+/* Sort/group popover: anchored under the header's action buttons. */
+.home-header-actions {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.sort-menu {
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 220px;
+  padding-bottom: 0.4rem;
+}
+
+.menu-label {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  padding: 0.5rem 0.6rem 0.2rem;
+  user-select: none;
+}
+
+.menu-divider {
+  border: none;
+  border-top: 1px solid var(--border-muted);
+  margin: 0.35rem 0 0;
+  width: 100%;
+}
+
+.sort-menu .menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.sort-menu .menu-tick {
+  flex: none;
+  width: 16px;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.menu-stepper {
+  display: flex;
+  align-items: center;
+  margin: 0.2rem 0.6rem 0.1rem;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+}
+
+.menu-stepper button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font: inherit;
+  padding: 0.2rem 0;
+  cursor: pointer;
+}
+
+.menu-stepper button:hover {
+  background: var(--overlay-hover);
+  color: var(--text-base);
+}
+
+.menu-stepper span {
+  flex: 1;
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--text-base);
+}
+
+/* Folder-grouping section headers; the chevron doubles as collapse state. */
+.home-group-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 0.45rem 0.35rem 0.15rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.home-group-toggle:hover {
+  color: var(--text-muted);
+}
+
+.home-group-toggle svg {
+  flex: none;
+  transition: transform 120ms ease;
+}
+
+.home-group-toggle[aria-expanded="false"] svg {
+  transform: rotate(-90deg);
+}
+
+.home-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Sits where the hover kebab lands — fade it out of the way, oc-2 style. */
+.home-time {
+  margin-left: auto;
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  transition: opacity 100ms ease;
+}
+
+.home-row:hover .home-time,
+.home-row:focus-within .home-time {
+  opacity: 0;
 }
 
 .home-list .avatar {
@@ -2002,10 +2169,6 @@ body {
   box-shadow: var(--shadow-raised);
 }
 
-.wf-picker {
-  width: min(560px, 100%);
-}
-
 /* Workflow rows carry more per-line (phases, counts, actions) than project
    rows — give the library a bit more room than the base picker's 480px. */
 .wf-picker {
@@ -2023,12 +2186,28 @@ body {
   overflow-y: auto;
 }
 
+/* Same anatomy as .home-row: avatar, text, faint time at the right edge that
+   yields to the hover-revealed actions. */
 .wf-row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0.6rem;
+  gap: 0.6rem;
+  padding: 0.45rem 0.6rem;
   border-radius: var(--radius-md);
+}
+
+.wf-list .avatar {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-md);
+  color: #fff;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .wf-row:hover {
@@ -2053,8 +2232,8 @@ body {
   gap: 0.5rem;
 }
 
+/* Same weight as a project row's name — the lists should read as siblings. */
 .wf-name {
-  font-weight: 600;
   color: var(--text-base);
 }
 
@@ -2099,11 +2278,10 @@ body {
 
 .wf-sub {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.15rem;
-  font-size: var(--fs-sm);
-  color: var(--text-muted);
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
 }
 
 .wf-phases {
@@ -2115,15 +2293,53 @@ body {
 
 .wf-used {
   flex: none;
-  color: var(--text-faint);
 }
 
-/* Row actions surface on hover, lindy-style; the toggle is always visible. */
-.wf-actions {
+/* Mirrors .home-time: far right, fades as the hover actions land on top. */
+.wf-time {
+  margin-left: auto;
   flex: none;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  transition: opacity 100ms ease;
+}
+
+.wf-row:hover .wf-time,
+.wf-row:focus-within .wf-time {
+  opacity: 0;
+}
+
+/* Inline "show archived" affordance inside the hidden-count footer line. */
+.wf-linklike {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text-accent);
+  cursor: pointer;
+}
+
+.wf-linklike:hover {
+  color: var(--text-accent-hover);
+  text-decoration: underline;
+}
+
+/* Row actions overlay the time on hover/focus, like Home's row kebab. */
+.wf-actions {
+  position: absolute;
+  top: 50%;
+  right: 0.35rem;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   gap: 0.35rem;
+  opacity: 0;
+}
+
+.wf-row:hover .wf-actions,
+.wf-row:focus-within .wf-actions,
+.wf-actions:has([aria-expanded="true"]) {
+  opacity: 1;
 }
 
 .wf-action {
@@ -2148,39 +2364,90 @@ body {
   color: var(--text-accent-hover);
 }
 
-/* Archived state as an enabled-style switch: on = active, off = archived. */
-.wf-toggle {
-  flex: none;
-  width: 30px;
-  height: 18px;
+/* The full-page create form (ticket 51): fields sit directly on the page
+   background — no card — with generous breathing room between them. */
+.wf-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1rem 0.15rem 0;
+}
+
+.wf-create-form input,
+.wf-create-form textarea {
+  background: var(--surface-input);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  color: var(--text-base);
+  font: inherit;
+  padding: 0.5rem 0.6rem;
+  resize: vertical;
+}
+
+.wf-create-form input:focus,
+.wf-create-form textarea:focus {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--border-focus) 25%, transparent);
+}
+
+.wf-create-form .wf-field {
+  gap: 0.4rem;
+}
+
+.wf-create-form .formrow {
+  margin-top: 0.5rem;
+  gap: 0.5rem;
+}
+
+.wf-create-form button {
+  background: var(--surface-raised);
   border: none;
-  border-radius: var(--radius-full);
-  padding: 2px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-button);
+  color: var(--text-base);
+  font: inherit;
+  padding: 0.4rem 0.9rem;
   cursor: pointer;
-  display: inline-flex;
-  transition: background 120ms ease;
 }
 
-.wf-toggle.on {
+.wf-create-form button[type="submit"]:not(:disabled) {
   background: var(--contrast-bg);
-  justify-content: flex-end;
+  color: var(--contrast-fg);
 }
 
-.wf-toggle.off {
-  background: var(--border-strong);
-  justify-content: flex-start;
+.wf-create-form button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
-.wf-knob {
-  width: 14px;
-  height: 14px;
-  border-radius: var(--radius-full);
-  background: var(--surface-panel);
+.wf-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font: inherit;
+  padding: 0.2rem 0.5rem 0.2rem 0.25rem;
+  cursor: pointer;
 }
 
-/* On-track is --contrast-bg (light in dark mode): the knob must invert with it. */
-.wf-toggle.on .wf-knob {
-  background: var(--contrast-fg);
+.wf-back:hover {
+  background: var(--overlay-hover);
+  color: var(--text-base);
+}
+
+.wf-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.wf-field-label {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
 }
 
 .wf-overlay {
@@ -2353,3 +2620,322 @@ body {
   background: none;
   color: var(--text-muted);
 }
+
+/* -- workflow canvas editor (ticket 48) --------------------------------- */
+
+/* Lindy-style canvas: flatten the .main card, dotted grid instead. */
+.main:has(.wfc-root) {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+  margin: 0;
+  padding: 0;
+}
+.wfc-root {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: var(--fs-base);
+}
+.wf-row { cursor: pointer; }
+.wfc-loading { padding: 24px; }
+.wfc-error { margin: 0 16px; }
+.wfc-chrome {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  z-index: 6;
+}
+.wfc-chrome-actions { display: flex; gap: 8px; margin-left: auto; }
+.wfc-chrome button {
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 5px 14px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-button);
+  color: var(--text-base);
+  cursor: pointer;
+}
+.wfc-chrome button:hover { background: var(--surface-raised-hover); }
+.wfc-chrome button.primary {
+  background: var(--info-bg);
+  color: var(--info-fg);
+  box-shadow: inset 0 0 0 1px var(--info-border);
+}
+.wfc-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.wfc-chrome .wfc-back {
+  background: none;
+  box-shadow: none;
+  color: var(--text-muted);
+  padding-left: 4px;
+}
+.wfc-chrome .wfc-back:hover { background: var(--overlay-hover); }
+.wfc-title { font-weight: 600; }
+.wfc-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  border: none;
+  font-family: inherit;
+}
+.wfc-pill.ok { background: var(--ok-bg); color: var(--ok-fg); box-shadow: inset 0 0 0 1px var(--ok-border); }
+.wfc-pill.info { background: var(--info-bg); color: var(--info-fg); box-shadow: inset 0 0 0 1px var(--info-border); }
+.wfc-pill.warn { background: var(--warn-bg); color: var(--warn-fg); box-shadow: inset 0 0 0 1px var(--warn-border); }
+.wfc-pill.danger { background: var(--danger-bg); color: var(--danger-fg); box-shadow: inset 0 0 0 1px var(--danger-border); }
+.wfc-pill.label { background: var(--surface-raised); color: var(--text-muted); box-shadow: var(--shadow-raised); }
+button.wfc-pill.label { cursor: pointer; }
+.wfc-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  background-image: radial-gradient(var(--border-strong) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+.wfc-canvas:active { cursor: grabbing; }
+.wfc-world { position: absolute; inset: 0; transform-origin: 0 0; }
+.wfc-edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.wfc-edge-path { fill: none; stroke: var(--border-strong); stroke-width: 1.5; pointer-events: none; }
+.wfc-edge-path.selected { stroke: var(--border-focus); stroke-width: 2; }
+.wfc-edge-path.violation { stroke: var(--danger-fg); stroke-width: 2; }
+.wfc-edge-path.linking { stroke: var(--border-focus); stroke-dasharray: 4 4; }
+.wfc-edge-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
+.wfc-edge-label { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.wfc-edge-tools {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--surface-panel);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-floating);
+  padding: 4px;
+}
+.wfc-edge-tools input {
+  width: 110px;
+  font: inherit;
+  font-size: var(--fs-xs);
+  color: var(--text-base);
+  background: var(--surface-input);
+  border: none;
+  box-shadow: var(--shadow-raised);
+  border-radius: var(--radius-sm);
+  padding: 3px 6px;
+}
+.wfc-edge-tools input:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--border-focus); }
+.wfc-edge-tools button {
+  display: inline-flex;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+}
+.wfc-edge-tools button:hover { background: var(--overlay-hover); color: var(--danger-fg); }
+.wfc-edge-violation {
+  font-size: var(--fs-xs);
+  color: var(--danger-fg);
+  background: var(--danger-bg);
+  border-radius: var(--radius-sm);
+  padding: 1px 6px;
+  text-align: center;
+}
+.wfc-node {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-raised);
+  cursor: grab;
+  user-select: none;
+  color: var(--text-base);
+}
+.wfc-node.selected { box-shadow: var(--shadow-floating), 0 0 0 2px var(--border-focus); }
+.wfc-node.trigger { background: var(--info-bg); color: var(--info-fg); }
+.wfc-node.violation { box-shadow: var(--shadow-raised), 0 0 0 2px var(--danger-border); }
+.wfc-node.selected.violation { box-shadow: var(--shadow-floating), 0 0 0 2px var(--danger-fg); }
+.wfc-node-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wfc-badges { display: inline-flex; gap: 4px; margin-left: auto; }
+.wfc-port {
+  position: absolute;
+  bottom: -7px;
+  left: 50%;
+  margin-left: -7px;
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-full);
+  background: var(--surface-raised);
+  box-shadow: inset 0 0 0 1.5px var(--border-strong);
+  cursor: crosshair;
+}
+.wfc-port:hover { box-shadow: inset 0 0 0 2px var(--border-focus); }
+.wfc-violations {
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-xs);
+  color: var(--danger-fg);
+  background: var(--danger-bg);
+  border-radius: var(--radius-md);
+  box-shadow: inset 0 0 0 1px var(--danger-border);
+}
+.wfc-add {
+  position: absolute;
+  bottom: 18px;
+  left: 18px;
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  border: none;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-floating);
+  color: var(--text-base);
+  cursor: pointer;
+  z-index: 6;
+}
+.wfc-add:hover { background: var(--surface-raised-hover); }
+.wfc-zoom {
+  position: absolute;
+  bottom: 18px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--radius-full);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-floating);
+  z-index: 6;
+}
+.wfc-zoom button {
+  font: inherit;
+  font-size: var(--fs-sm);
+  border: none;
+  background: none;
+  color: var(--text-base);
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+.wfc-zoom button:hover { background: var(--overlay-hover); }
+.wfc-zoom-pct { min-width: 44px; text-align: center; color: var(--text-muted); }
+.wfc-inspector {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  width: 280px;
+  max-height: calc(100% - 24px);
+  overflow: auto;
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-overlay);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 5;
+  cursor: default;
+}
+.wfc-inspector h3 { margin: 0; font-size: var(--fs-base); }
+.wfc-inspector > .wfc-pill { align-self: flex-start; }
+.wfc-inspector label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+.wfc-inspector label.row { flex-direction: row; align-items: center; gap: 8px; }
+.wfc-inspector input,
+.wfc-inspector textarea {
+  font: inherit;
+  color: var(--text-base);
+  background: var(--surface-input);
+  border: none;
+  box-shadow: var(--shadow-raised);
+  border-radius: var(--radius-md);
+  padding: 6px 8px;
+}
+.wfc-inspector input:focus-visible,
+.wfc-inspector textarea:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--border-focus); }
+.wfc-steps { display: flex; flex-direction: column; gap: 6px; }
+.wfc-steps-head {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
+.wfc-step-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  border: none;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-base);
+  cursor: pointer;
+  text-align: left;
+}
+.wfc-step-row:hover { background: var(--overlay-hover); }
+.wfc-step-num { font-size: var(--fs-xs); color: var(--text-faint); min-width: 12px; }
+.wfc-step-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wfc-step-plus { color: var(--text-faint); }
+.wfc-step-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken-faint);
+  box-shadow: inset 0 0 0 1px var(--border-muted);
+}
+.wfc-linklike {
+  align-self: flex-start;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.wfc-linklike.danger { color: var(--danger-fg); }
+.wfc-hint { font-size: var(--fs-xs); }

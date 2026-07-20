@@ -315,3 +315,86 @@ describe("runs pin workflow versions", () => {
     }
   }, 20_000);
 });
+
+describe("workflow create and delete (ticket 51)", () => {
+  test("create makes a blank v1: trigger only, zero phases, named or defaulted", async () => {
+    const server = await bootServer();
+    const created = await api(server, "POST", "/api/workflows", { name: "  Fresh loop  " });
+    expect(created.status).toBe(201);
+    expect(created.json).toMatchObject({
+      name: "Fresh loop",
+      archived: false,
+      isDefault: false,
+      version: 1,
+      phases: [],
+      usedByProjects: 0,
+      deletable: true,
+    });
+
+    const unnamed = await api(server, "POST", "/api/workflows", {});
+    expect(unnamed.json.name).toBe("New Workflow");
+    expect((await api(server, "GET", "/api/workflows")).json).toHaveLength(3);
+  });
+
+  test("deletable tracks service entry: default and project-referenced rows are not", async () => {
+    const server = await bootServer();
+    // Seeded RPIRD is the default → never deletable.
+    const listed = await api(server, "GET", "/api/workflows");
+    expect(listed.json[0].deletable).toBe(false);
+
+    const copy = await api(server, "POST", "/api/workflows/1/duplicate");
+    expect(copy.json.deletable).toBe(true);
+
+    // A project selecting the copy takes it into service.
+    const project = await api(server, "POST", "/api/projects", { name: "Adopter" });
+    await api(server, "PATCH", `/api/projects/${project.json.id}`, {
+      workflowId: copy.json.id,
+    });
+    const after = await api(server, "GET", "/api/workflows");
+    expect(after.json.find((w: any) => w.id === copy.json.id).deletable).toBe(false);
+  });
+
+  test("delete removes a never-used workflow entirely; guards 409 otherwise", async () => {
+    const server = await bootServer();
+    const created = await api(server, "POST", "/api/workflows", { name: "Disposable" });
+    const gone = await api(server, "DELETE", `/api/workflows/${created.json.id}`);
+    expect(gone.status).toBe(200);
+    expect((await api(server, "GET", "/api/workflows")).json).toHaveLength(1);
+
+    // The default refuses deletion outright.
+    expect((await api(server, "DELETE", "/api/workflows/1")).status).toBe(409);
+
+    // A project-referenced workflow must archive, not delete.
+    const copy = await api(server, "POST", "/api/workflows/1/duplicate");
+    const project = await api(server, "POST", "/api/projects", { name: "Adopter" });
+    await api(server, "PATCH", `/api/projects/${project.json.id}`, {
+      workflowId: copy.json.id,
+    });
+    expect((await api(server, "DELETE", `/api/workflows/${copy.json.id}`)).status).toBe(409);
+    expect((await api(server, "DELETE", "/api/workflows/999")).status).toBe(404);
+  });
+});
+
+describe("workflow description (ticket 51)", () => {
+  test("set at creation, editable via PATCH, copied by duplicate", async () => {
+    const server = await bootServer();
+    const created = await api(server, "POST", "/api/workflows", {
+      name: "Described",
+      description: "  What it is for.  ",
+    });
+    expect(created.json.description).toBe("What it is for.");
+
+    const patched = await api(server, "PATCH", `/api/workflows/${created.json.id}`, {
+      description: "Sharper now.",
+    });
+    // Description-only PATCH leaves the name untouched.
+    expect(patched.json).toMatchObject({ name: "Described", description: "Sharper now." });
+
+    const copy = await api(server, "POST", `/api/workflows/${created.json.id}/duplicate`);
+    expect(copy.json.description).toBe("Sharper now.");
+
+    // Neither field present → 400; the seeded workflow has an empty default.
+    expect((await api(server, "PATCH", `/api/workflows/1`, {})).status).toBe(400);
+    expect((await api(server, "GET", "/api/workflows")).json[0].description).toBe("");
+  });
+});

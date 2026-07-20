@@ -14,6 +14,20 @@ function initLocalRepo(name: string, remote = `git@github.com:barry/${name}.git`
   return source;
 }
 
+describe("Home: recents rows", () => {
+  test("carry repoPath and lastActivityAt for the list's sort/group controls", async () => {
+    const server = await bootServer();
+    const { source, project } = await seedWorkspace(server);
+
+    const res = await api(server, "GET", "/api/projects");
+    expect(res.status).toBe(200);
+    const row = res.json.find((p: any) => p.id === project.id);
+    expect(row.repoPath).toBe(source);
+    // Registration itself audited (project.created, repo.created) → non-null.
+    expect(typeof row.lastActivityAt).toBe("string");
+  });
+});
+
 describe("Home: add a local repo", () => {
   test("registers Project + Repo with name, remote, and branch derived from the checkout", async () => {
     const server = await bootServer();

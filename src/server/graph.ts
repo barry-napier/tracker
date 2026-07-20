@@ -56,3 +56,27 @@ export function walkPhases(workflow: WorkflowGraph): WorkflowNode[] {
   }
   return phases;
 }
+
+/**
+ * Every agent phase in walk order, branches included — the library's
+ * phase-preview line (ticket 51). Where walkPhases follows only the single
+ * unlabeled edge (an execution walk stops at a branch), this walk follows a
+ * branch's labeled edges too, depth-first in edge order, each phase once.
+ * Preview only — the engine keeps routing with walkPhases/nextNodeByLabel.
+ */
+export function previewPhases(workflow: WorkflowGraph): WorkflowNode[] {
+  const phases: WorkflowNode[] = [];
+  const seen = new Set<number>();
+  const visit = (node: WorkflowNode) => {
+    if (seen.has(node.id)) return;
+    seen.add(node.id);
+    if (node.type === "agent_phase") phases.push(node);
+    for (const edge of workflow.edges) {
+      if (edge.fromNodeId !== node.id) continue;
+      const target = workflow.nodes.find((candidate) => candidate.id === edge.toNodeId);
+      if (target) visit(target);
+    }
+  };
+  visit(triggerOf(workflow));
+  return phases;
+}

@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { EventBus } from "./bus.ts";
 import { withTransaction } from "./db.ts";
-import { walkPhases } from "./graph.ts";
+import { previewPhases } from "./graph.ts";
 import { branchNameFor, type WorktreeResult } from "./worktrees.ts";
 import type { CheckRegistration } from "./checks.ts";
 import { PROVIDERS } from "./types.ts";
@@ -19,6 +19,7 @@ import type {
   PreviewRecord,
   PreviewStatus,
   Project,
+  ProjectListItem,
   ProviderConfig,
   ProviderName,
   Repo,
@@ -40,6 +41,7 @@ import type {
   DraftStep,
   DraftViolation,
   WorkflowDraft,
+  WorkflowHeadGraph,
   WorkflowStep,
   WorkflowStepType,
 } from "./types.ts";
@@ -135,17 +137,24 @@ export class Store {
    * Event ids order the same as time and never tie. Hidden projects (ticket
    * 50) are the one exclusion; getProject still resolves them.
    */
-  listProjects(): Project[] {
+  listProjects(): ProjectListItem[] {
     return this.db
       .prepare(
-        `SELECT p.* FROM projects p
+        `SELECT p.*, le.created_at AS last_activity_at,
+           (SELECT path FROM repos r WHERE r.project_id = p.id ORDER BY r.id LIMIT 1) AS repo_path
+         FROM projects p
          LEFT JOIN (SELECT project_id, MAX(id) AS last_event FROM events GROUP BY project_id) e
            ON e.project_id = p.id
+         LEFT JOIN events le ON le.id = e.last_event
          WHERE p.hidden_at IS NULL
          ORDER BY COALESCE(e.last_event, 0) DESC, p.id DESC`,
       )
       .all()
-      .map(projectFromRow);
+      .map((row) => ({
+        ...projectFromRow(row),
+        lastActivityAt: row.last_activity_at == null ? null : String(row.last_activity_at),
+        repoPath: row.repo_path == null ? null : String(row.repo_path),
+      }));
   }
 
   /**
@@ -1270,6 +1279,79 @@ export class Store {
   }
 
   /**
+   * A from-scratch workflow (ticket 51): identity plus a version 1 holding
+   * only the trigger node. Zero phases is legal to hold but not to select —
+   * selectableWorkflow guards claims, and the editor ticket fills the graph.
+   */
+  createWorkflow(name?: string, description?: string): WorkflowListing {
+    const trimmed = (name ?? "").trim();
+    const created = withTransaction(this.db, () => {
+      const now = nowIso();
+      const inserted = this.db
+        .prepare(
+          "INSERT INTO workflows (name, description, archived, is_default, created_at) VALUES (?, ?, 0, 0, ?)",
+        )
+        .run(trimmed === "" ? "New Workflow" : trimmed, (description ?? "").trim(), now);
+      const workflowId = Number(inserted.lastInsertRowid);
+      const versionResult = this.db
+        .prepare("INSERT INTO workflow_versions (workflow_id, version, created_at) VALUES (?, 1, ?)")
+        .run(workflowId, now);
+      this.db
+        .prepare(
+          "INSERT INTO workflow_nodes (workflow_version_id, type, name, prompt_template, gate_requirements, emits_checks, boots_preview) VALUES (?, 'trigger', 'ticket-claimed', NULL, NULL, 0, 0)",
+        )
+        .run(Number(versionResult.lastInsertRowid));
+      return this.getWorkflow(workflowId)!;
+    });
+    return this.listingFor(created);
+  }
+
+  /**
+   * Hard delete, allowed only for a workflow that never entered service
+   * (ticket 51): no project references it, no run pinned any of its
+   * versions, and it is not the default. Everything else archives instead
+   * (CONTEXT.md: archived, never hard-deleted — this row has no history to
+   * preserve).
+   */
+  deleteWorkflow(id: number): void {
+    const workflow = this.getWorkflow(id);
+    if (!workflow) throw new NotFoundError(`workflow ${id} not found`);
+    if (workflow.isDefault) {
+      throw new StateError(`"${workflow.name}" is the Default Workflow — archive with a successor instead`);
+    }
+    if (!this.workflowNeverUsed(id)) {
+      throw new StateError(`"${workflow.name}" has been used — archive it instead of deleting`);
+    }
+    withTransaction(this.db, () => {
+      this.db
+        .prepare(
+          "DELETE FROM workflow_edges WHERE workflow_version_id IN (SELECT id FROM workflow_versions WHERE workflow_id = ?)",
+        )
+        .run(id);
+      this.db
+        .prepare(
+          "DELETE FROM workflow_nodes WHERE workflow_version_id IN (SELECT id FROM workflow_versions WHERE workflow_id = ?)",
+        )
+        .run(id);
+      this.db.prepare("DELETE FROM workflow_versions WHERE workflow_id = ?").run(id);
+      this.db.prepare("DELETE FROM workflows WHERE id = ?").run(id);
+    });
+  }
+
+  /** No project selection and no run pin — nothing on disk or in history points here. */
+  private workflowNeverUsed(id: number): boolean {
+    const projects = this.db
+      .prepare("SELECT COUNT(*) AS n FROM projects WHERE workflow_id = ?")
+      .get(id)!;
+    const runs = this.db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM runs r JOIN workflow_versions v ON r.workflow_version_id = v.id WHERE v.workflow_id = ?",
+      )
+      .get(id)!;
+    return Number(projects.n) === 0 && Number(runs.n) === 0;
+  }
+
+  /**
    * Create-by-duplicate (the only creation path until the editor ticket):
    * the head version's graph becomes the new workflow's own version 1 —
    * fresh node rows, so no future edit can ever touch the source.
@@ -1282,9 +1364,9 @@ export class Store {
       const now = nowIso();
       const inserted = this.db
         .prepare(
-          "INSERT INTO workflows (name, archived, is_default, created_at) VALUES (?, 0, 0, ?)",
+          "INSERT INTO workflows (name, description, archived, is_default, created_at) VALUES (?, ?, 0, 0, ?)",
         )
-        .run(`${source.name} (copy)`, now);
+        .run(`${source.name} (copy)`, source.description, now);
       const workflowId = Number(inserted.lastInsertRowid);
       const versionResult = this.db
         .prepare("INSERT INTO workflow_versions (workflow_id, version, created_at) VALUES (?, 1, ?)")
@@ -1326,13 +1408,20 @@ export class Store {
     return this.listingFor(copy);
   }
 
-  /** Rename edits identity only — every version, past pin, and project follows. */
-  renameWorkflow(id: number, name: string): WorkflowListing {
+  /** Identity edits only — every version, past pin, and project follows. */
+  updateWorkflow(id: number, patch: { name?: string; description?: string }): WorkflowListing {
     const workflow = this.getWorkflow(id);
     if (!workflow) throw new NotFoundError(`workflow ${id} not found`);
-    const trimmed = name.trim();
-    if (trimmed === "") throw new ValidationError("a workflow needs a name");
-    this.db.prepare("UPDATE workflows SET name = ? WHERE id = ?").run(trimmed, id);
+    if (patch.name !== undefined) {
+      const trimmed = patch.name.trim();
+      if (trimmed === "") throw new ValidationError("a workflow needs a name");
+      this.db.prepare("UPDATE workflows SET name = ? WHERE id = ?").run(trimmed, id);
+    }
+    if (patch.description !== undefined) {
+      this.db
+        .prepare("UPDATE workflows SET description = ? WHERE id = ?")
+        .run(patch.description.trim(), id);
+    }
     return this.listingFor(this.getWorkflow(id)!);
   }
 
@@ -1463,6 +1552,22 @@ export class Store {
   // The mutable editing layer over immutable versions (ADR-0004). A draft
   // lives in its own table as a JSON blob: claims resolve workflow_versions
   // and can never see it. Same audit carve-out as the library ops above.
+
+  /**
+   * The head version in Draft shape, read-only (ticket 48): the editor's
+   * opening render. Never creates a draft — an open is not an edit.
+   */
+  getWorkflowHeadGraph(workflowId: number): WorkflowHeadGraph {
+    const workflow = this.getWorkflow(workflowId);
+    if (!workflow) throw new NotFoundError(`workflow ${workflowId} not found`);
+    const head = this.getWorkflowGraph(this.headVersionId(workflowId));
+    return {
+      workflowId,
+      version: head.version,
+      hasDraft: this.readDraft(workflowId) !== undefined,
+      graph: draftGraphFromVersion(head),
+    };
+  }
 
   /** Get-or-create: first touch cuts the Draft from the head version. */
   getWorkflowDraft(workflowId: number): WorkflowDraft {
@@ -1621,8 +1726,9 @@ export class Store {
     return {
       ...workflow,
       version: graph.version,
-      phases: walkPhases(graph).map((node) => node.name),
+      phases: previewPhases(graph).map((node) => node.name),
       usedByProjects: Number(usedBy.n),
+      deletable: !workflow.isDefault && this.workflowNeverUsed(workflow.id),
       hasDraft:
         this.db
           .prepare("SELECT 1 AS one FROM workflow_drafts WHERE workflow_id = ?")
@@ -1929,6 +2035,7 @@ function workflowFromRow(row: Row): Workflow {
   return {
     id: Number(row.id),
     name: String(row.name),
+    description: String(row.description ?? ""),
     archived: Number(row.archived) === 1,
     isDefault: Number(row.is_default) === 1,
     createdAt: String(row.created_at),

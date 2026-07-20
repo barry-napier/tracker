@@ -1,19 +1,63 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { WorkflowListing } from "../server/types.ts";
-import { apiGet, apiPatch, apiPost, errorMessage } from "./api.ts";
+import { apiDelete, apiGet, apiPatch, apiPost, errorMessage } from "./api.ts";
+import { avatarColor } from "./Home.tsx";
+import { timeAgo } from "./format.ts";
+import { Icon } from "./icons.tsx";
+import {
+  clampWfVisible,
+  filterWorkflows,
+  loadWorkflowPrefs,
+  saveWorkflowPrefs,
+  sortWorkflows,
+  WF_SORTS,
+  type WorkflowPrefs,
+  type WorkflowSort,
+} from "./workflowPrefs.ts";
+
+const SORT_LABELS: Record<WorkflowSort, string> = {
+  name: "Name",
+  created: "Created at",
+  usage: "Most used",
+};
 
 /**
- * The app-global Workflow library, hosted as a view within Home (ticket 44).
- * Identity ops only — duplicate, rename, archive/unarchive, set default;
- * content is immutable versions and creation is duplicate-only until the
- * editor ticket. Every action refetches: default and archive move flags
- * across rows, so the server's listing is the only honest render source.
+ * The app-global Workflow library, hosted as a view within Home (ticket 44),
+ * with Home's list ergonomics (ticket 51): search, sort, visible cap, and
+ * archived rows hidden until asked for. Identity ops only — content is
+ * immutable versions; creation is a full page (WorkflowCreate), and delete
+ * exists solely for never-used rows. Every action refetches: default and
+ * archive move flags across rows, so the server's listing is the only
+ * honest render source.
  */
-export function WorkflowLibrary() {
+export function WorkflowLibrary({
+  onCreateNew,
+  onOpenEditor,
+}: {
+  onCreateNew: () => void;
+  /** Opens the canvas editor (ticket 48) on this row's workflow. */
+  onOpenEditor: (row: WorkflowListing) => void;
+}) {
   const [rows, setRows] = useState<WorkflowListing[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   // The one workflow whose archive needs a successor named (it's the default).
   const [leaving, setLeaving] = useState<WorkflowListing | null>(null);
+  // Rename lives up here so a fresh creation can land already-renaming.
+  const [renamingId, setRenamingId] = useState<number | null>(null);
+  // Same fixed-position anchor dance as Home's row menu: the list scrolls,
+  // so the open state carries the trigger's viewport anchor with the row id.
+  const [menuFor, setMenuFor] = useState<{ id: number; top: number; right: number } | null>(null);
+  const [sortOpen, setSortOpen] = useState(false);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [prefs, setPrefs] = useState<WorkflowPrefs>(loadWorkflowPrefs);
+  const updatePrefs = (patch: Partial<WorkflowPrefs>) => {
+    setPrefs((prev) => {
+      const next = { ...prev, ...patch };
+      saveWorkflowPrefs(next);
+      return next;
+    });
+  };
 
   const load = () =>
     apiGet<WorkflowListing[]>("/api/workflows")
@@ -24,6 +68,44 @@ export function WorkflowLibrary() {
       .catch((e) => setError(errorMessage(e)));
   useEffect(() => {
     void load();
+  }, []);
+
+  // Menus close the way native ones do: any click elsewhere, Escape, or a
+  // scroll (the row menu is viewport-anchored and would drift).
+  useEffect(() => {
+    if (menuFor === null && !sortOpen) return;
+    const close = () => {
+      setMenuFor(null);
+      setSortOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("click", close);
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("scroll", close, true);
+    return () => {
+      document.removeEventListener("click", close);
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("scroll", close, true);
+    };
+  }, [menuFor, sortOpen]);
+
+  // "/" jumps to search from anywhere in the library, same rule as Home.
+  useEffect(() => {
+    const onSlash = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target;
+      if (
+        target instanceof HTMLElement &&
+        target.closest("input, textarea, select, [contenteditable]")
+      )
+        return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    document.addEventListener("keydown", onSlash);
+    return () => document.removeEventListener("keydown", onSlash);
   }, []);
 
   const act = async (call: () => Promise<unknown>) => {
@@ -43,27 +125,156 @@ export function WorkflowLibrary() {
     void act(() => apiPost(`/api/workflows/${row.id}/archive`, {}));
   };
 
+  const filtered = sortWorkflows(filterWorkflows(rows ?? [], query, prefs), prefs.sort);
+  // The visible cap applies only to the idle list — a search always sweeps
+  // everything, so no workflow is ever unreachable.
+  const capped = query === "" ? filtered.slice(0, prefs.visible) : filtered;
+  const hiddenCount = filtered.length - capped.length;
+  const archivedHidden =
+    query === "" && !prefs.showArchived ? (rows ?? []).filter((row) => row.archived).length : 0;
+
   return (
     <div className="home wf-library">
       <h1 className="wordmark">tracker</h1>
       <div className="home-picker wf-picker">
+        <div className="home-search">
+          <Icon name="search" size={16} />
+          <input
+            autoFocus
+            ref={searchRef}
+            placeholder="Search workflows…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <kbd>/</kbd>
+        </div>
         <div className="home-header">
           <span className="home-title">Workflows</span>
+          <span className="home-header-actions">
+            <button
+              type="button"
+              className="icon-btn"
+              title="Sort and filter"
+              aria-haspopup="menu"
+              aria-expanded={sortOpen}
+              onClick={(e) => {
+                // The document-level closer sees this click too; stop it so
+                // the toggle isn't immediately undone.
+                e.stopPropagation();
+                setSortOpen((open) => !open);
+              }}
+            >
+              <Icon name="arrows-sort" size={16} />
+            </button>
+            <button type="button" className="icon-btn" title="New workflow" onClick={onCreateNew}>
+              <Icon name="grid-plus" size={16} />
+            </button>
+            {sortOpen && (
+              <div
+                className="row-menu sort-menu"
+                role="menu"
+                // Clicks inside adjust preferences; only outside clicks close.
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span className="menu-label">Sort workflows</span>
+                {WF_SORTS.map((sort) => (
+                  <button
+                    key={sort}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={prefs.sort === sort}
+                    className="menu-item"
+                    onClick={() => updatePrefs({ sort })}
+                  >
+                    <span className="menu-tick">
+                      {prefs.sort === sort && <Icon name="check" size={14} />}
+                    </span>
+                    {SORT_LABELS[sort]}
+                  </button>
+                ))}
+                <span className="menu-label">Visible workflows</span>
+                <div className="menu-stepper">
+                  <button
+                    type="button"
+                    aria-label="Show fewer workflows"
+                    onClick={() => updatePrefs({ visible: clampWfVisible(prefs.visible - 1) })}
+                  >
+                    −
+                  </button>
+                  <span>{prefs.visible}</span>
+                  <button
+                    type="button"
+                    aria-label="Show more workflows"
+                    onClick={() => updatePrefs({ visible: clampWfVisible(prefs.visible + 1) })}
+                  >
+                    +
+                  </button>
+                </div>
+                <hr className="menu-divider" />
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={prefs.showArchived}
+                  className="menu-item"
+                  onClick={() => updatePrefs({ showArchived: !prefs.showArchived })}
+                >
+                  <span className="menu-tick">
+                    {prefs.showArchived && <Icon name="check" size={14} />}
+                  </span>
+                  Show archived
+                </button>
+              </div>
+            )}
+          </span>
         </div>
         {error && <p className="banner error">{error}</p>}
         <ul className="wf-list">
-          {rows?.map((row) => (
+          {capped.map((row) => (
             <WorkflowRow
               key={row.id}
               row={row}
+              renaming={renamingId === row.id}
+              onRenameStart={() => {
+                setMenuFor(null);
+                setRenamingId(row.id);
+              }}
+              onRenameEnd={(name) => {
+                setRenamingId(null);
+                if (name !== null) void act(() => apiPatch(`/api/workflows/${row.id}`, { name }));
+              }}
+              menuAnchor={menuFor?.id === row.id ? menuFor : null}
+              onMenuToggle={(anchor) =>
+                setMenuFor((open) => (open?.id === row.id || anchor === null ? null : anchor))
+              }
               onDuplicate={() => void act(() => apiPost(`/api/workflows/${row.id}/duplicate`, {}))}
-              onRename={(name) => void act(() => apiPatch(`/api/workflows/${row.id}`, { name }))}
               onMakeDefault={() => void act(() => apiPost(`/api/workflows/${row.id}/default`, {}))}
+              onDelete={() => void act(() => apiDelete(`/api/workflows/${row.id}`))}
               onToggleArchived={() => toggleArchived(row)}
+              onOpen={() => onOpenEditor(row)}
             />
           ))}
+          {hiddenCount > 0 && (
+            <li className="dim home-empty">
+              +{hiddenCount} more — search, or raise visible workflows
+            </li>
+          )}
+          {archivedHidden > 0 && (
+            <li className="dim home-empty">
+              {archivedHidden} archived hidden —{" "}
+              <button
+                type="button"
+                className="wf-linklike"
+                onClick={() => updatePrefs({ showArchived: true })}
+              >
+                show archived
+              </button>
+            </li>
+          )}
+          {rows !== null && filtered.length === 0 && rows.length > 0 && query !== "" && (
+            <li className="dim home-empty">No workflow matches “{query}”</li>
+          )}
           {rows !== null && rows.length === 0 && (
-            <li className="dim home-empty">The library is empty</li>
+            <li className="dim home-empty">The library is empty — create a workflow</li>
           )}
         </ul>
       </div>
@@ -84,30 +295,57 @@ export function WorkflowLibrary() {
 
 function WorkflowRow({
   row,
+  renaming,
+  onRenameStart,
+  onRenameEnd,
+  menuAnchor,
+  onMenuToggle,
   onDuplicate,
-  onRename,
   onMakeDefault,
+  onDelete,
   onToggleArchived,
+  onOpen,
 }: {
   row: WorkflowListing;
+  renaming: boolean;
+  onRenameStart: () => void;
+  /** null = cancelled or unchanged; a string commits the new name. */
+  onRenameEnd: (name: string | null) => void;
+  menuAnchor: { top: number; right: number } | null;
+  onMenuToggle: (anchor: { id: number; top: number; right: number } | null) => void;
   onDuplicate: () => void;
-  onRename: (name: string) => void;
   onMakeDefault: () => void;
+  onDelete: () => void;
   onToggleArchived: () => void;
+  /** Row click — opens the canvas editor. */
+  onOpen: () => void;
 }) {
-  const [draft, setDraft] = useState<string | null>(null);
+  const [draft, setDraft] = useState(row.name);
+  // A rename begun elsewhere (the kebab, or creation) seeds the draft fresh.
+  useEffect(() => {
+    if (renaming) setDraft(row.name);
+  }, [renaming, row.name]);
 
   const submitRename = () => {
-    const name = (draft ?? "").trim();
-    setDraft(null);
-    if (name !== "" && name !== row.name) onRename(name);
+    const name = draft.trim();
+    onRenameEnd(name !== "" && name !== row.name ? name : null);
   };
 
   return (
-    <li className={row.archived ? "wf-row archived" : "wf-row"}>
+    // Clicking the row opens the canvas editor (ticket 48); the kebab, its
+    // menu, and a live rename input all stop propagation to stay row-local.
+    <li
+      className={row.archived ? "wf-row archived" : "wf-row"}
+      onClick={() => {
+        if (!renaming) onOpen();
+      }}
+    >
+      <span className="avatar" style={{ background: avatarColor(row.name) }}>
+        {row.name.slice(0, 1).toUpperCase()}
+      </span>
       <div className="wf-main">
         <div className="wf-titleline">
-          {draft === null ? (
+          {!renaming ? (
             <span className="wf-name">{row.name}</span>
           ) : (
             <input
@@ -118,7 +356,7 @@ function WorkflowRow({
               onBlur={submitRename}
               onKeyDown={(e) => {
                 if (e.key === "Enter") submitRename();
-                if (e.key === "Escape") setDraft(null);
+                if (e.key === "Escape") onRenameEnd(null);
               }}
             />
           )}
@@ -127,38 +365,82 @@ function WorkflowRow({
           {row.archived && <span className="wf-badge archived">Archived</span>}
           {row.hasDraft && <span className="wf-badge draft">Unpublished changes</span>}
         </div>
+        <div className="wf-sub" title={row.phases.join(" › ") || undefined}>
+          {/* Description is the row's second line; the phase breadcrumb fills
+              in for legacy rows without one and lives in the tooltip. */}
+          <span className="wf-phases">
+            {row.description !== ""
+              ? row.description
+              : row.phases.length === 0
+                ? "no phases yet"
+                : row.phases.join(" › ")}
+          </span>
+        </div>
         <div className="wf-sub">
-          <span className="wf-phases">{row.phases.join(" › ")}</span>
           <span className="wf-used">
             {row.usedByProjects === 1 ? "1 project" : `${row.usedByProjects} projects`}
           </span>
         </div>
       </div>
+      <span className="wf-time">{timeAgo(row.createdAt)}</span>
       <div className="wf-actions">
-        {draft === null && (
-          <button type="button" className="wf-action" onClick={() => setDraft(row.name)}>
-            Rename
-          </button>
-        )}
-        <button type="button" className="wf-action" onClick={onDuplicate}>
-          Duplicate
-        </button>
-        {!row.isDefault && !row.archived && (
-          <button type="button" className="wf-action" onClick={onMakeDefault}>
-            Make default
-          </button>
-        )}
         <button
           type="button"
-          role="switch"
-          aria-checked={!row.archived}
-          className={row.archived ? "wf-toggle off" : "wf-toggle on"}
-          title={row.archived ? "Unarchive — restore to selection" : "Archive — remove from selection"}
-          onClick={onToggleArchived}
+          className="icon-btn row-kebab"
+          title="More options"
+          aria-haspopup="menu"
+          aria-expanded={menuAnchor !== null}
+          onClick={(e) => {
+            // The document-level closer sees this click too; stop it so the
+            // toggle isn't immediately undone.
+            e.stopPropagation();
+            const anchor = e.currentTarget.getBoundingClientRect();
+            onMenuToggle({
+              id: row.id,
+              top: anchor.bottom + 2,
+              right: window.innerWidth - anchor.right,
+            });
+          }}
         >
-          <span className="wf-knob" />
+          <Icon name="dots-horizontal" size={16} />
         </button>
       </div>
+      {/* Outside .wf-actions on purpose: a transformed ancestor would turn
+          position:fixed into ancestor-relative and strand the menu. */}
+      {menuAnchor !== null && (
+        <div
+          className="row-menu"
+          role="menu"
+          style={{ position: "fixed", top: menuAnchor.top, right: menuAnchor.right }}
+          // Menu actions are row-local: without this, a menu click would
+          // bubble to the row and open the editor it sits on. Stopping it
+          // also skips the document-level closer, so close explicitly.
+          onClick={(e) => {
+            e.stopPropagation();
+            onMenuToggle(null);
+          }}
+        >
+          <button type="button" role="menuitem" onClick={onRenameStart}>
+            Rename
+          </button>
+          <button type="button" role="menuitem" onClick={onDuplicate}>
+            Duplicate
+          </button>
+          {!row.isDefault && !row.archived && (
+            <button type="button" role="menuitem" onClick={onMakeDefault}>
+              Make default
+            </button>
+          )}
+          <button type="button" role="menuitem" onClick={onToggleArchived}>
+            {row.archived ? "Unarchive" : "Archive"}
+          </button>
+          {row.deletable && (
+            <button type="button" role="menuitem" className="danger" onClick={onDelete}>
+              Delete
+            </button>
+          )}
+        </div>
+      )}
     </li>
   );
 }
@@ -222,6 +504,82 @@ function SuccessorDialog({
             Cancel
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The full-page create form (ticket 51): a brand-new workflow starts with a
+ * name and description; the version is always v1 (a trigger-only graph the
+ * editor fills). Create lands back in the library; so does Cancel.
+ */
+export function WorkflowCreate({ onDone }: { onDone: () => void }) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (name.trim() === "") {
+      setError("A workflow needs a name");
+      return;
+    }
+    setBusy(true);
+    try {
+      await apiPost("/api/workflows", { name, description });
+      onDone();
+    } catch (e) {
+      setError(errorMessage(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="home wf-library">
+      <h1 className="wordmark">tracker</h1>
+      <div className="home-picker wf-picker">
+        <div className="home-header">
+          <button type="button" className="wf-back" title="Back to workflows" onClick={onDone}>
+            <Icon name="chevron-left" size={16} />
+            Back
+          </button>
+        </div>
+        {error && <p className="banner error">{error}</p>}
+        <form
+          className="wf-create-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+        >
+          <label className="wf-field">
+            <span className="wf-field-label">Name</span>
+            <input
+              autoFocus
+              value={name}
+              placeholder="e.g. RPIRD (Aflac KB)"
+              onChange={(e) => setName(e.target.value)}
+            />
+          </label>
+          <label className="wf-field">
+            <span className="wf-field-label">Description</span>
+            <textarea
+              rows={3}
+              value={description}
+              placeholder="What this workflow is for — shown in the library list"
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </label>
+          <div className="formrow">
+            <button type="submit" disabled={busy || name.trim() === ""}>
+              Create workflow
+            </button>
+            <button type="button" onClick={onDone}>
+              Cancel
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
