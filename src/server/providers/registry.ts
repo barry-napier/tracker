@@ -1,6 +1,7 @@
 import type { ProviderRegistry } from "../provider.ts";
 import type { ProviderConfig, ProviderName } from "../types.ts";
 import { ClaudeCodeProvider, type ClaudeCodeConfig } from "./claude-code.ts";
+import { KiroProvider, type KiroConfig } from "./kiro.ts";
 import { demoProviders } from "./demo.ts";
 
 /** Reads the app-level config for a provider, live — never cached at boot. */
@@ -24,14 +25,24 @@ export function toClaudeCodeConfig(stored: ProviderConfig): ClaudeCodeConfig {
   };
 }
 
+/** Same translation, Kiro's shape — it has no budget field to carry. */
+export function toKiroConfig(stored: ProviderConfig): KiroConfig {
+  return {
+    binaryPath: stored.binaryPath ?? undefined,
+    model: stored.model ?? undefined,
+    env: stored.env,
+  };
+}
+
 /**
- * The registry the desktop app runs with. Claude Code is a real adapter from
- * ticket 38 on; Kiro and Copilot stay scripted until their own slices (39,
- * 40) land, so the board still walks a full workflow on any provider.
+ * The registry the desktop app runs with. Claude Code (ticket 38) and Kiro
+ * (ticket 39) are real adapters; Copilot stays scripted until its slice (40)
+ * lands, so the board still walks a full workflow on any provider.
  */
 export function appProviders(config: ProviderConfigReader): ProviderRegistry {
   return {
     ...demoProviders(),
     "claude-code": new ClaudeCodeProvider(() => toClaudeCodeConfig(config("claude-code"))),
+    kiro: new KiroProvider(() => toKiroConfig(config("kiro"))),
   };
 }

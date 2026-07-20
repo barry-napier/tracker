@@ -19,6 +19,7 @@ on:
       - "src/server/providers/**"
       - "tests/provider-contract*"
       - "tests/claude-code-adapter.test.ts"
+      - "tests/kiro-adapter.test.ts"
       - "tests/fixtures/**"
       - ".github/workflows/live-provider.yml"
   pull_request:
@@ -27,6 +28,7 @@ on:
       - "src/server/providers/**"
       - "tests/provider-contract*"
       - "tests/claude-code-adapter.test.ts"
+      - "tests/kiro-adapter.test.ts"
       - "tests/fixtures/**"
       - ".github/workflows/live-provider.yml"
   workflow_dispatch:

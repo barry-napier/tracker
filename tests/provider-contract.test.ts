@@ -12,6 +12,7 @@ import {
   type ClaudeCodeConfig,
 } from "../src/server/providers/claude-code.ts";
 import { FakeProvider, phaseFromPrompt } from "../src/server/providers/fake.ts";
+import { KIRO_CAPABILITIES, KiroProvider } from "../src/server/providers/kiro.ts";
 import { mkdirSync, writeFileSync } from "node:fs";
 import {
   CONTRACT_PROMPT,
@@ -64,36 +65,144 @@ describeProviderContract({
   hangs: () => stubbed("hang"),
 });
 
+const FAKE_KIRO = path.join(here, "fixtures", "fake-kiro.mjs");
+chmodSync(FAKE_KIRO, 0o755);
+
+/** The Kiro adapter pointed at its scripted ACP stub. */
+function stubbedKiro(mode: string): KiroProvider {
+  return new KiroProvider(() => ({
+    binaryPath: FAKE_KIRO,
+    env: { FAKE_KIRO_MODE: mode },
+  }));
+}
+
+describeProviderContract({
+  name: "KiroProvider (scripted binary)",
+  succeeds: () => stubbedKiro("success"),
+  // hang ignores the ACP cancel on purpose: the contract's abort test then
+  // proves the kill half of graceful-then-kill.
+  hangs: () => stubbedKiro("hang"),
+});
+
 /**
- * The same contract against the real CLI. Skipped when `claude` is not on
- * PATH, per the ticket — and gated behind an opt-in even when it is, because
+ * The same contract against the real CLIs. Skipped when the CLI is not on
+ * PATH, per the tickets — and gated behind an opt-in even when it is, because
  * this spends real money and real seconds on every `npm test`. The scripted
- * binary above covers the identical spawn path for free; this run exists to
- * catch the CLI changing its wire format underneath us.
+ * binaries above cover the identical spawn paths for free; these runs exist
+ * to catch a CLI changing its wire format underneath us — which the Claude
+ * one already did once (the block-id collision).
  */
-function liveClaudeSkipReason(): string | undefined {
+function liveSkipReason(binary: string): string | undefined {
   if (process.env.TRACKER_LIVE_PROVIDER_TESTS !== "1") {
     return "set TRACKER_LIVE_PROVIDER_TESTS=1 to spend real tokens";
   }
   try {
-    execFileSync("which", ["claude"], { stdio: "ignore" });
+    execFileSync("which", [binary], { stdio: "ignore" });
     return undefined;
   } catch {
-    return "claude CLI not on PATH";
+    return `${binary} CLI not on PATH`;
   }
 }
 
 describeProviderContract({
   name: "ClaudeCodeProvider (live CLI)",
-  skip: liveClaudeSkipReason(),
+  skip: liveSkipReason("claude"),
   succeeds: () => new ClaudeCodeProvider(() => ({})),
   hangs: () => new ClaudeCodeProvider(() => ({})),
+  timeoutMs: 180_000,
+});
+
+describeProviderContract({
+  name: "KiroProvider (live CLI)",
+  skip: liveSkipReason("kiro-cli"),
+  succeeds: () => new KiroProvider(() => ({})),
+  hangs: () => new KiroProvider(() => ({})),
   timeoutMs: 180_000,
 });
 
 // ---------------------------------------------------------------------------
 // Claude-specific endings the shared contract does not cover.
 // ---------------------------------------------------------------------------
+
+describe("KiroProvider endings", () => {
+  async function runKiro(provider: KiroProvider, opts?: { signal?: AbortSignal }) {
+    const cwd = mkdtempSync(path.join(tmpdir(), "kiro-adapter-"));
+    try {
+      const handle = provider.runPhase(CONTRACT_PROMPT, cwd, opts);
+      const events = await collectEvents(handle);
+      const result = await handle.done;
+      return { result, events, wroteContract: existsSync(path.join(cwd, "kb", "contract.md")) };
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }
+
+  test("declares ticket 39's capabilities — deltas yes, cost no", () => {
+    expect(KIRO_CAPABILITIES).toEqual({
+      costReporting: false,
+      streamsPartialText: true,
+      emitsThinking: true,
+    });
+    expect(stubbedKiro("success").capabilities).toBe(KIRO_CAPABILITIES);
+  });
+
+  test("text streams as deltas onto open blocks — the live-typing contract", async () => {
+    const { result, events } = await runKiro(stubbedKiro("success"));
+    expect(result.outcome).toBe("completed");
+    expect(result.providerSessionId).toBe("fake-kiro-session-1");
+    const deltas = events.filter((e) => e.type === "block.delta");
+    // The stub streams thought and message chunks; each must ride as a delta,
+    // not a whole block — that is what streamsPartialText promises.
+    expect(deltas.length).toBeGreaterThanOrEqual(4);
+    const kinds = events
+      .filter((e) => e.type === "block.open")
+      .map((e) => (e.type === "block.open" ? e.block.kind : ""));
+    expect(kinds).toEqual(
+      expect.arrayContaining(["prompt", "thinking", "text", "tool_call", "tool_result"]),
+    );
+  });
+
+  test("a graceful ACP cancel resolves cancelled without waiting for the axe", async () => {
+    const controller = new AbortController();
+    const provider = stubbedKiro("cancel-graceful");
+    const cwd = mkdtempSync(path.join(tmpdir(), "kiro-adapter-"));
+    try {
+      const handle = provider.runPhase(CONTRACT_PROMPT, cwd, { signal: controller.signal });
+      // Let the stream get going, then cancel mid-turn.
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const started = Date.now();
+      controller.abort();
+      const result = await handle.done;
+      expect(result.outcome).toBe("cancelled");
+      // Graceful path: the stub answered the cancel, so the phase ended well
+      // inside the SIGTERM grace window rather than waiting it out.
+      expect(Date.now() - started).toBeLessThan(1_500);
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test("a non-end_turn stop reason is provider-reported failure", async () => {
+    const { result } = await runKiro(stubbedKiro("refusal"));
+    expect(result.outcome).toBe("failed");
+    expect(result.failureReason).toContain("refusal");
+  });
+
+  test("dying mid-stream with no response is a crash", async () => {
+    const { result } = await runKiro(stubbedKiro("crash-mid"));
+    expect(result.outcome).toBe("crashed");
+    expect(result.failureReason).toMatch(/exited/);
+  });
+
+  test("a missing binary crashes with a legible reason", async () => {
+    const provider = new KiroProvider(() => ({
+      binaryPath: path.join(here, "fixtures", "definitely-not-here"),
+    }));
+    const { result } = await runKiro(provider);
+    expect(result.outcome).toBe("crashed");
+    expect(result.failureReason).toContain("ENOENT");
+  });
+});
 
 test("Claude Code declares the capabilities ticket 38 specifies", () => {
   // Named values, not just booleans: streamsPartialText false is a claim
