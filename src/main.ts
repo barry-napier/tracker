@@ -11,10 +11,27 @@ if (!app.requestSingleInstanceLock()) {
 
 let server: TrackerServer | undefined;
 
-function createWindow(apiBase: string): void {
+/** Frameless holding card while the orchestrator boots — closed on main-window ready-to-show. */
+function createSplash(): BrowserWindow {
+  const splash = new BrowserWindow({
+    width: 360,
+    height: 300,
+    frame: false,
+    resizable: false,
+    movable: false,
+    alwaysOnTop: true,
+    backgroundColor: "#0d0e10",
+    webPreferences: { contextIsolation: true, nodeIntegration: false },
+  });
+  void splash.loadFile(path.join(app.getAppPath(), "src", "splash.html"));
+  return splash;
+}
+
+function createWindow(apiBase: string, splash?: BrowserWindow): void {
   const win = new BrowserWindow({
     width: 1400,
     height: 860,
+    show: false,
     backgroundColor: "#0d0e10",
     webPreferences: {
       preload: path.join(app.getAppPath(), "src", "preload.cjs"),
@@ -29,6 +46,11 @@ function createWindow(apiBase: string): void {
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  win.once("ready-to-show", () => {
+    if (splash && !splash.isDestroyed()) splash.close();
+    win.show();
   });
 
   void win.loadFile(path.join(app.getAppPath(), "build", "renderer", "index.html"), {
@@ -57,6 +79,7 @@ ipcMain.handle("tracker:pick-folder", async () => {
 void app
   .whenReady()
   .then(async () => {
+    const splash = createSplash();
     const boot = (port: number) =>
       startServer({
         dataDir: app.getPath("userData"),
@@ -76,7 +99,7 @@ void app
     }
     const apiBase = server.url;
 
-    createWindow(apiBase);
+    createWindow(apiBase, splash);
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow(apiBase);
