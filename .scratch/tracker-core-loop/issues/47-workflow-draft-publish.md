@@ -6,10 +6,12 @@
 
 **Blocked by:** 43 — workflow versions store (done).
 
-**Status:** ready-for-agent
+**Status:** done (2026-07-20, commit 506c294)
 
-- [ ] Draft is invisible to claims: a claim during editing pins the head version, never draft content
-- [ ] Publish appends a version atomically; the previous head and all pinned Runs are untouched; discard leaves head identical
-- [ ] Validator rejects each rule individually with a per-violation message (cycle, orphan, mixed edges, duplicate labels, uncovered path, duplicate names, empty prompt, missing/multiple triggers) and accepts RPIRD's graph
-- [ ] Path-coverage rule proven both ways: a branch bypassing every check-emitting node fails; adding `emitsChecks` on the bypass path passes
-- [ ] Re-opening the editor resumes the existing draft; publish and discard both clear it
+- [x] Draft is invisible to claims: a claim during editing pins the head version, never draft content
+- [x] Publish appends a version atomically; the previous head and all pinned Runs are untouched; discard leaves head identical
+- [x] Validator rejects each rule individually with a per-violation message (cycle, orphan, mixed edges, duplicate labels, uncovered path, duplicate names, empty prompt, missing/multiple triggers) and accepts RPIRD's graph
+- [x] Path-coverage rule proven both ways: a branch bypassing every check-emitting node fails; adding `emitsChecks` on the bypass path passes
+- [x] Re-opening the editor resumes the existing draft; publish and discard both clear it
+
+**Resolution:** Draft = one JSON blob row in `workflow_drafts` (invisible to claims by construction — claims resolve `workflow_versions` only); publish materializes it into fresh version/node/edge/step rows inside one transaction and clears the draft. Routes: GET (get-or-create) / PUT (whole-graph replace, shape-checked) / POST validate / POST publish / DELETE under `/api/workflows/:id/draft`; publish refusal is 400 with the full violation list (`DraftInvalidError`). Pure validator in `src/server/workflow-validate.ts`; the trigger is fixed (`ticket-claimed`), not merely unique, and a cyclic graph still reports coverage violations. `workflow_steps` rows carry `ON DELETE CASCADE` so ticket 51's never-used hard delete stays correct; `duplicateWorkflow` copies steps. Listing + library view gained `hasDraft` ("Unpublished changes"). Note for 48/49: the draft-mutation surface is the whole-graph PUT — field-level ops compose client-side (or in 49's tool layer) on top of it.
