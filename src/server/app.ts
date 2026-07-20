@@ -378,7 +378,7 @@ export function createApp(
     const body = await c.req.json<{
       projectId?: number;
       path?: string;
-      githubRemote?: string;
+      githubRemote?: string | null;
       targetBranch?: string;
       previewCommand?: string;
       previewKind?: string;
@@ -389,8 +389,14 @@ export function createApp(
     }>();
     if (typeof body.projectId !== "number") return c.json({ error: "projectId is required" }, 400);
     if (!isNonEmptyString(body.path)) return c.json({ error: "path is required" }, 400);
-    if (!isNonEmptyString(body.githubRemote)) {
-      return c.json({ error: "githubRemote is required" }, 400);
+    // Null/omitted = a local-only Repo (docs/tickets/local-only-projects.md);
+    // when given, the remote must at least be a non-empty string.
+    if (
+      body.githubRemote !== undefined &&
+      body.githubRemote !== null &&
+      !isNonEmptyString(body.githubRemote)
+    ) {
+      return c.json({ error: "githubRemote must be a non-empty string or null" }, 400);
     }
     if (body.previewKind !== undefined && body.previewKind !== "ui" && body.previewKind !== "api") {
       return c.json({ error: "previewKind must be ui or api" }, 400);
@@ -404,7 +410,7 @@ export function createApp(
     const repo = store.createRepo({
       projectId: body.projectId,
       path: body.path,
-      githubRemote: body.githubRemote,
+      githubRemote: body.githubRemote ?? null,
       targetBranch: isNonEmptyString(body.targetBranch) ? body.targetBranch : undefined,
       previewCommand: body.previewCommand,
       previewKind: body.previewKind as PreviewKind | undefined,

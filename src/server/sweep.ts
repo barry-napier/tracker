@@ -3,7 +3,7 @@ import type { ArtifactStore } from "./artifacts.ts";
 import type { GitHubPort } from "./github.ts";
 import type { PreviewManager } from "./previews.ts";
 import { NotFoundError, type Store } from "./store.ts";
-import type { TicketWithAcs } from "./types.ts";
+import type { Repo, TicketWithAcs } from "./types.ts";
 import type { WorktreeManager } from "./worktrees.ts";
 
 export interface SweepReap {
@@ -73,7 +73,7 @@ export class DoneSweeper {
       // One ticket's reap failing must not abort the batch or lose the
       // report — the sweep's contract is the whole story, every time.
       try {
-        const reason = await this.#unsafeReason(ticket, repo.githubRemote, onDisk ? worktreePath : null);
+        const reason = await this.#unsafeReason(ticket, repo, onDisk ? worktreePath : null);
         if (reason !== null) {
           skip(ticket, reason);
           continue;
@@ -99,19 +99,29 @@ export class DoneSweeper {
   /** Null when the reap is safe; otherwise the skip's honest reason. */
   async #unsafeReason(
     ticket: TicketWithAcs,
-    remote: string,
+    repo: Repo,
     worktreePath: string | null,
   ): Promise<string | null> {
     if (this.store.listRuns(ticket.id).some((run) => run.state === "running")) {
       return "a run is still in flight";
     }
-    if (ticket.prNumber === null) {
-      return "no PR recorded on the ticket";
-    }
-    // "Not verifiably" is exact: a NullGitHub workspace can't verify anything,
-    // and an unverifiable merge must read as unsafe, not as an accusation.
-    if (!(await this.github.prMerged(remote, ticket.prNumber))) {
-      return `PR #${ticket.prNumber} is not verifiably merged on the remote`;
+    if (repo.githubRemote === null) {
+      // Local-only: no PR exists anywhere; safe means the branch tip is
+      // reachable from the checkout's target branch (the same "verifiably
+      // merged" bar, answered by git instead of GitHub).
+      if (ticket.branch === null) return "no branch recorded on the ticket";
+      if (!(await this.worktrees.mergedIntoLocalTarget(repo, ticket.branch))) {
+        return `branch ${ticket.branch} is not verifiably merged into ${repo.targetBranch}`;
+      }
+    } else {
+      if (ticket.prNumber === null) {
+        return "no PR recorded on the ticket";
+      }
+      // "Not verifiably" is exact: a NullGitHub workspace can't verify anything,
+      // and an unverifiable merge must read as unsafe, not as an accusation.
+      if (!(await this.github.prMerged(repo.githubRemote, ticket.prNumber))) {
+        return `PR #${ticket.prNumber} is not verifiably merged on the remote`;
+      }
     }
     if (worktreePath !== null) {
       const runIds = this.store.listRuns(ticket.id).map((run) => run.id);

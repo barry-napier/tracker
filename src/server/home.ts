@@ -55,15 +55,14 @@ export class Home {
       }
     }
 
-    // Everything downstream (gates, PRs, the merge path) talks to GitHub via
-    // the Repo row's remote, so a repo without one can't be tracked yet.
-    let remote: string;
+    // No origin remote → a local-only Project (docs/tickets/local-only-
+    // projects.md): gates skip their PR half and Done merges into the local
+    // target branch. The null remote IS the mode.
+    let remote: string | null;
     try {
       remote = await git(repoPath, "remote", "get-url", "origin");
     } catch {
-      throw new StateError(
-        `repo has no "origin" remote: ${repoPath} — add one before tracking it`,
-      );
+      remote = null;
     }
 
     const name = path.basename(repoPath);
@@ -105,6 +104,7 @@ export class Home {
       return null; // No/unparseable remote — dedupe by path already ran.
     }
     for (const repo of this.store.listRepos()) {
+      if (repo.githubRemote === null) continue; // local-only rows dedupe by path alone
       try {
         if (repoSlug(repo.githubRemote).toLowerCase() === slug) return repo.projectId;
       } catch {

@@ -53,7 +53,8 @@ export interface Repo {
   id: number;
   projectId: number;
   path: string;
-  githubRemote: string;
+  /** Null = a local-only Repo: no GitHub anywhere in its ticket loop. */
+  githubRemote: string | null;
   targetBranch: string;
   // Preview config exists from registration onward but is unused until slice 34.
   previewCommand: string | null;

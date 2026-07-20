@@ -1,6 +1,7 @@
 import type { GitHubPort, Mergeability } from "./github.ts";
 import { NotFoundError, type Store } from "./store.ts";
 import type { RunWithPhases, TicketWithAcs } from "./types.ts";
+import type { WorktreeManager } from "./worktrees.ts";
 
 /**
  * Everything the review wizard's chrome needs beyond what the board already
@@ -39,6 +40,7 @@ export class Reviews {
   constructor(
     private readonly store: Store,
     private readonly github: GitHubPort,
+    private readonly worktrees: WorktreeManager,
   ) {}
 
   async forTicket(ticketId: number): Promise<ReviewPayload> {
@@ -50,15 +52,19 @@ export class Reviews {
     // GitHub answers are best-effort chrome: a gh hiccup degrades to
     // "unknown"/no banner rather than failing the whole wizard open.
     let pr: ReviewPayload["pr"] = null;
-    if (ticket.prNumber !== null && ticket.prUrl !== null && repo) {
+    if (ticket.prNumber !== null && ticket.prUrl !== null && repo && repo.githubRemote !== null) {
       const mergeability = await this.github
         .mergeability(repo.githubRemote, ticket.prNumber)
         .catch((): Mergeability => "unknown");
       pr = { number: ticket.prNumber, url: ticket.prUrl, mergeability };
     }
+    // A local-only Repo's "remote" tip is the bare clone's — the ref the
+    // Done merge will fetch; freshness means exactly the same thing.
     const branchTip =
       ticket.branch !== null && repo
-        ? await this.github.branchTip(repo.githubRemote, ticket.branch).catch(() => null)
+        ? repo.githubRemote === null
+          ? await this.worktrees.localBranchTip(repo, ticket.branch)
+          : await this.github.branchTip(repo.githubRemote, ticket.branch).catch(() => null)
         : null;
 
     // All of a run's blobs persist at one worktree HEAD; the newest row wins

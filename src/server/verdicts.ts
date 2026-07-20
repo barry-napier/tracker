@@ -10,6 +10,7 @@ import {
   type Run,
   type TicketWithAcs,
 } from "./types.ts";
+import type { WorktreeManager } from "./worktrees.ts";
 
 /**
  * Drift at the Final Verdict (ticket 33): the freshness subset found the
@@ -36,6 +37,7 @@ export class Verdicts {
     private readonly store: Store,
     private readonly github: GitHubPort,
     private readonly bouncer: Bouncer,
+    private readonly worktrees: WorktreeManager,
   ) {}
 
   async pass(ticketId: number, opts: { force?: boolean } = {}) {
@@ -54,11 +56,32 @@ export class Verdicts {
         `cannot merge: unsettled acceptance criteria ${unmet.map((ac) => `AC-${ac.id} (${ac.status})`).join(", ")}`,
       );
     }
+    const repo = ticket.repoId === null ? undefined : this.store.getRepo(ticket.repoId);
+    if (!repo) throw new StateError(`ticket ${ticket.displayKey} has no repo`);
+
+    // A local-only Repo has no PR: pass merges the ticket branch into the
+    // checkout's target branch. A conflict surfaces as a StateError (like a
+    // conflicting PR), leaving the reviewer the same choices — never a
+    // half-merge (mergeIntoLocalTarget aborts cleanly).
+    if (repo.githubRemote === null) {
+      if (ticket.branch === null) {
+        throw new StateError(`ticket ${ticket.displayKey} has no branch recorded`);
+      }
+      const drift = await this.driftReasons(ticket, repo);
+      if (drift.length > 0 && opts.force !== true) throw new DriftError(drift);
+      try {
+        await this.worktrees.mergeIntoLocalTarget(repo, ticket.branch);
+      } catch (error) {
+        throw new StateError(error instanceof Error ? error.message : String(error));
+      }
+      return this.store.mergeTicket(ticket.id, {
+        freshnessWaived: drift.length > 0 ? drift : undefined,
+      });
+    }
+
     if (ticket.prNumber === null) {
       throw new StateError(`ticket ${ticket.displayKey} has no PR recorded`);
     }
-    const repo = ticket.repoId === null ? undefined : this.store.getRepo(ticket.repoId);
-    if (!repo) throw new StateError(`ticket ${ticket.displayKey} has no repo`);
     // Conflicts block; "unknown" (GitHub still computing) falls through and
     // lets the merge itself be the arbiter rather than stalling the verdict.
     // Not forceable: force waives freshness, never a merge GitHub refuses.
@@ -146,20 +169,26 @@ export class Verdicts {
   private async driftReasons(ticket: TicketWithAcs, repo: Repo): Promise<string[]> {
     if (ticket.branch === null) return ["no branch recorded on the ticket"];
     const reasons: string[] = [];
-    const branchTip = await this.github.branchTip(repo.githubRemote, ticket.branch).catch(() => null);
+    // Local-only: the bare clone's ref is the "remote"; there is no PR half.
+    const branchTip =
+      repo.githubRemote === null
+        ? await this.worktrees.localBranchTip(repo, ticket.branch)
+        : await this.github.branchTip(repo.githubRemote, ticket.branch).catch(() => null);
     if (branchTip === null) {
       reasons.push(`branch ${ticket.branch} is no longer resolvable on the remote`);
       return reasons;
     }
-    // A port hiccup (undefined) stays non-drift; a definite "no open PR"
-    // (null) is drift — the PR the reviewer approved is gone.
-    const pr = await this.github.findPr(repo.githubRemote, ticket.branch).catch(() => undefined);
-    if (pr === null) {
-      reasons.push(`no open PR found for branch ${ticket.branch}`);
-    } else if (pr !== undefined && pr.headSha !== branchTip) {
-      reasons.push(
-        `PR #${pr.number} head ${shortSha(pr.headSha)} is not the branch tip ${shortSha(branchTip)}`,
-      );
+    if (repo.githubRemote !== null) {
+      // A port hiccup (undefined) stays non-drift; a definite "no open PR"
+      // (null) is drift — the PR the reviewer approved is gone.
+      const pr = await this.github.findPr(repo.githubRemote, ticket.branch).catch(() => undefined);
+      if (pr === null) {
+        reasons.push(`no open PR found for branch ${ticket.branch}`);
+      } else if (pr !== undefined && pr.headSha !== branchTip) {
+        reasons.push(
+          `PR #${pr.number} head ${shortSha(pr.headSha)} is not the branch tip ${shortSha(branchTip)}`,
+        );
+      }
     }
     const run = this.store.listRunsWithPhases(ticket.id)[0] ?? null;
     const artifactSha = run?.artifacts.at(-1)?.worktreeHeadSha ?? null;

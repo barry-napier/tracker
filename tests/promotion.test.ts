@@ -78,7 +78,7 @@ describe("repo registration", () => {
     });
   });
 
-  test("rejects a repo without path or remote, or on an unknown project", async () => {
+  test("rejects a repo without a path or on an unknown project; no remote = local-only", async () => {
     const server = await bootServer();
     const project = await seedProject(server);
 
@@ -88,11 +88,20 @@ describe("repo registration", () => {
     });
     expect(noPath.status).toBe(400);
 
+    // An omitted remote is a local-only Repo (docs/tickets/local-only-
+    // projects.md), never a rejection; an empty string still is one.
     const noRemote = await api(server, "POST", "/api/repos", {
       projectId: project.id,
       path: "/tmp/x",
     });
-    expect(noRemote.status).toBe(400);
+    expect(noRemote.status).toBe(201);
+    expect(noRemote.json.githubRemote).toBeNull();
+    const emptyRemote = await api(server, "POST", "/api/repos", {
+      projectId: project.id,
+      path: "/tmp/x",
+      githubRemote: "",
+    });
+    expect(emptyRemote.status).toBe(400);
 
     const badProject = await api(server, "POST", "/api/repos", {
       projectId: 999,

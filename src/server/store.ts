@@ -232,7 +232,7 @@ export class Store {
   createRepo(input: {
     projectId: number;
     path: string;
-    githubRemote: string;
+    githubRemote: string | null;
     targetBranch?: string;
     previewCommand?: string;
     previewKind?: PreviewKind;
@@ -2007,7 +2007,7 @@ function repoFromRow(row: Row): Repo {
     id: Number(row.id),
     projectId: Number(row.project_id),
     path: String(row.path),
-    githubRemote: String(row.github_remote),
+    githubRemote: row.github_remote === null ? null : String(row.github_remote),
     targetBranch: String(row.target_branch),
     previewCommand: row.preview_command === null ? null : String(row.preview_command),
     previewKind: row.preview_kind === null ? null : (String(row.preview_kind) as Repo["previewKind"]),

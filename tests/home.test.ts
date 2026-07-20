@@ -112,14 +112,20 @@ describe("Home: add a local repo", () => {
     expect(empty.status).toBe(400);
   });
 
-  test("a repo without an origin remote is refused loudly, with no ghost Project", async () => {
+  test("a repo without an origin remote becomes a local-only Project (null remote)", async () => {
     const server = await bootServer();
     const source = initScratchRepo("orphan-app"); // no remote at all
 
     const res = await api(server, "POST", "/api/projects/local", { path: source });
-    expect(res.status).toBe(409);
-    expect(res.json.error).toContain('no "origin" remote');
-    expect((await api(server, "GET", "/api/projects")).json).toHaveLength(0);
+    expect(res.status).toBe(201);
+    expect(res.json.project.name).toBe("orphan-app");
+    expect(res.json.repo.githubRemote).toBeNull();
+
+    // Dedup for local-only rows is by path alone: re-adding reopens, never forks.
+    const again = await api(server, "POST", "/api/projects/local", { path: source });
+    expect(again.status).toBe(200);
+    expect(again.json.alreadyTracked).toBe(true);
+    expect(again.json.project.id).toBe(res.json.project.id);
   });
 });
 

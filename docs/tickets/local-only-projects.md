@@ -76,7 +76,13 @@ New local merge path, used where the GitHub merge would be triggered:
 - Merge the ticket branch into `<targetBranch>` **in the user's checkout**
   (not the bare clone — the user's working copy is the source of truth the
   bare clone fetches from). Fast-forward or merge commit; on conflict the
-  ticket bounces with the conflict recorded, mirroring a failed gate.
+  merge aborts cleanly (no half-merge) and the pass verdict fails with a
+  StateError — the same surface a conflicting PR presents, leaving the
+  reviewer the existing choices (fail/reverify). *(As built: this replaced
+  the spec's original auto-bounce-on-conflict, for symmetry with the GitHub
+  path.)* When the target branch is not checked out, only a fast-forward is
+  possible; anything else is refused with instructions rather than touching
+  the user's working tree.
 - `Ticket.prNumber` stays null for local-only tickets; Done's definition for
   them is "merge commit reachable from `<targetBranch>`."
 

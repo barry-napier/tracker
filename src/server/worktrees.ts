@@ -44,7 +44,9 @@ export async function readTreeState(
  * Owns the Tracker-side git estate (ticket 08): one bare clone per Repo at
  * `<root>/repos/<name>.git`, one worktree per Ticket at
  * `<root>/worktrees/<name>--<trk-id>`. The user's checkout is only ever a
- * fetch source — no refs are written to it, no worktrees hang off it.
+ * fetch source — no refs are written to it, no worktrees hang off it — with
+ * one exception: a local-only Repo's Done merge lands on the checkout's
+ * target branch, because for those repos the checkout IS the upstream.
  */
 export class WorktreeManager {
   /** Per-repo op chains: concurrent claims must not race the bare clone. */
@@ -157,6 +159,75 @@ export class WorktreeManager {
       }
     }
     return removed;
+  }
+
+  /**
+   * A ticket branch's tip as the bare clone knows it — the local-only
+   * counterpart of GitHubPort.branchTip. Null when the bare clone doesn't
+   * exist yet or the branch was never created.
+   */
+  async localBranchTip(repo: WorktreeRepo, branch: string): Promise<string | null> {
+    const bare = path.join(this.rootDir, "repos", `${repoName(repo)}.git`);
+    if (!existsSync(bare)) return null;
+    try {
+      return await git(bare, "rev-parse", "--verify", `refs/heads/${branch}`);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The local-only Done merge (docs/tickets/local-only-projects.md): land the
+   * ticket branch on the user checkout's target branch. When the target is
+   * checked out, a real merge (conflicts abort cleanly and throw); otherwise
+   * only a fast-forward ref update is possible — anything else needs the
+   * user's working tree and is refused with instructions, never forced.
+   * Chained on the repo lock so a racing claim can't fetch mid-merge.
+   */
+  async mergeIntoLocalTarget(repo: WorktreeRepo, branch: string): Promise<string> {
+    return this.#chainOnRepoLock(repo, async () => {
+      const bare = path.join(this.rootDir, "repos", `${repoName(repo)}.git`);
+      const tip = await git(bare, "rev-parse", "--verify", `refs/heads/${branch}`);
+      const checkedOut = await git(repo.path, "rev-parse", "--abbrev-ref", "HEAD");
+      if (checkedOut === repo.targetBranch) {
+        // Objects live in the bare clone (worktrees commit there); FETCH_HEAD
+        // brings them across before the merge.
+        await git(repo.path, "fetch", bare, branch);
+        try {
+          await git(repo.path, "merge", "--no-ff", "-m", `Merge ${branch}`, tip);
+        } catch (error) {
+          await git(repo.path, "merge", "--abort").catch(() => {});
+          throw new Error(
+            `branch ${branch} conflicts with ${repo.targetBranch}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
+      } else {
+        try {
+          await git(repo.path, "fetch", bare, `${branch}:${repo.targetBranch}`);
+        } catch {
+          throw new Error(
+            `${repo.targetBranch} is not checked out in ${repo.path} and cannot fast-forward — check it out (or merge ${branch} yourself) and retry`,
+          );
+        }
+      }
+      return tip;
+    });
+  }
+
+  /**
+   * The local-only sweep-safety check: is the ticket branch's tip reachable
+   * from the checkout's target branch? False on any doubt — an unverifiable
+   * merge must read as unsafe.
+   */
+  async mergedIntoLocalTarget(repo: WorktreeRepo, branch: string): Promise<boolean> {
+    const tip = await this.localBranchTip(repo, branch);
+    if (tip === null) return false;
+    try {
+      await git(repo.path, "merge-base", "--is-ancestor", tip, repo.targetBranch);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** Clone once on first use; every later call is a cheap existence check. */

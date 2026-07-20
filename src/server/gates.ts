@@ -60,7 +60,7 @@ export class GateBattery {
       ["artifact", () => this.#artifact(ctx)],
       ["artifact-lint", () => this.#artifactLint(ctx)],
       ["dogfood-green", () => this.#dogfoodGreen(ctx)],
-      ["branch-recorded", () => this.#branchRecorded(ticket, ctx.repo)],
+      ["branch-recorded", () => this.#branchRecorded(ticket, ctx)],
       ["suite", () => this.#suite(ctx)],
       ["pr-fresh", () => this.#prFresh(ticket, ctx)],
       ["demo-fresh", () => this.#demoFresh(ticket, ctx)],
@@ -191,11 +191,17 @@ export class GateBattery {
       .includes(DOGFOOD_RESULTS_PATH);
   }
 
-  /** Branch on the ticket row AND on the GitHub remote (ticket 06 mechanics). */
-  async #branchRecorded(ticket: TicketWithAcs, repo: Repo): Promise<GateOutcome> {
+  /**
+   * Branch on the ticket row AND where the merge will read it from (ticket 06
+   * mechanics): the GitHub remote, or — local-only Repo — the shared refs the
+   * worktree sees (the bare clone's, where the Done merge fetches from).
+   */
+  async #branchRecorded(ticket: TicketWithAcs, ctx: BatteryContext): Promise<GateOutcome> {
     const recordedOnTicket = ticket.branch !== null;
     const onRemote = recordedOnTicket
-      ? await this.github.branchExists(repo.githubRemote, ticket.branch!)
+      ? ctx.repo.githubRemote === null
+        ? (await git(ctx.worktreePath, "for-each-ref", `refs/heads/${ticket.branch}`)) !== ""
+        : await this.github.branchExists(ctx.repo.githubRemote, ticket.branch!)
       : false;
     return {
       gate: "branch-recorded",
@@ -217,8 +223,12 @@ export class GateBattery {
     };
   }
 
-  /** PR head SHA == branch tip: the PR shows exactly what the run produced. */
+  /** PR head SHA == branch tip: the PR shows exactly what the run produced.
+   * Local-only Repos have no PRs anywhere — a fact-driven skip, never a fail. */
   async #prFresh(ticket: TicketWithAcs, ctx: BatteryContext): Promise<GateOutcome> {
+    if (ctx.repo.githubRemote === null) {
+      return { gate: "pr-fresh", status: "skip", detail: { reason: "local-only project" } };
+    }
     if (ticket.branch === null) {
       return { gate: "pr-fresh", status: "fail", detail: { reason: "no branch recorded" } };
     }

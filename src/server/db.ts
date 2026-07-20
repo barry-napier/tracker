@@ -565,6 +565,34 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
       ALTER TABLE workflows ADD COLUMN deleted_at TEXT;
     `,
   },
+  {
+    version: 21,
+    sql: `
+      -- Local-only Projects (docs/tickets/local-only-projects.md): a Repo
+      -- with no origin remote is trackable; null github_remote IS the mode —
+      -- no separate flag. Table rebuild to drop NOT NULL (rekeysForeignKeys).
+      CREATE TABLE repos_v2 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL REFERENCES projects(id),
+        path TEXT NOT NULL,
+        github_remote TEXT,
+        target_branch TEXT NOT NULL DEFAULT 'main',
+        preview_command TEXT,
+        preview_kind TEXT,
+        preview_readiness_path TEXT,
+        created_at TEXT NOT NULL,
+        test_command TEXT,
+        preview_readiness_timeout_ms INTEGER,
+        persona_path TEXT
+      );
+      INSERT INTO repos_v2 (id, project_id, path, github_remote, target_branch, preview_command, preview_kind, preview_readiness_path, created_at, test_command, preview_readiness_timeout_ms, persona_path)
+        SELECT id, project_id, path, github_remote, target_branch, preview_command, preview_kind, preview_readiness_path, created_at, test_command, preview_readiness_timeout_ms, persona_path
+        FROM repos;
+      DROP TABLE repos;
+      ALTER TABLE repos_v2 RENAME TO repos;
+    `,
+    rekeysForeignKeys: true,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {
