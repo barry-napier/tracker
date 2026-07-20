@@ -233,6 +233,34 @@ export async function waitForAudit(
   }
 }
 
+/**
+ * Wait for a repeatedly-failing ticket to come to rest: `count` runs exist
+ * and every one has settled. The pool stops claiming a ticket after
+ * MAX_FAILURES cycles, so this state — unlike the "todo" between cycles,
+ * which a worker re-claims immediately — is stable to assert against.
+ * Racing a transient state is exactly what made these tests pass on one
+ * machine's timing and fail on another's.
+ */
+export async function waitForSettledRuns(
+  server: TrackerServer,
+  ticketId: number,
+  count: number,
+  timeoutMs = 20_000,
+): Promise<any[]> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const { json } = await api(server, "GET", `/api/tickets/${ticketId}/runs`);
+    if (json.length === count && json.every((run: any) => run.state !== "running")) return json;
+    if (Date.now() > deadline) {
+      const states = json.map((run: any) => run.state).join(", ");
+      throw new Error(
+        `timed out waiting for ${count} settled runs on ticket ${ticketId}; have [${states}]`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
 export async function waitForTicketState(
   server: TrackerServer,
   ticketId: number,

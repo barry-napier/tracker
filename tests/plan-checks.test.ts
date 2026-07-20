@@ -1,21 +1,34 @@
 import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
+import { FakeGitHub } from "./github-fake.ts";
 import { api, runCleanups } from "./server-helpers.ts";
 import {
   bootWorkspace,
   pendingAcIdsFromPrompt,
+  pushesToGitHub,
   scriptedProvider,
+  waitForSettledRuns,
   waitForTicketState,
   writePlanChecks,
   type PhaseCall,
 } from "./workflow-helpers.ts";
+
+// These tests once waited for "verifying" or "todo" — both transient in
+// their fixtures. A NullGitHub workspace's battery is doomed (pr-fresh,
+// branch-recorded), so "verifying" lasts only until the bounce; a
+// plan-failing ticket's "todo" lasts only until the next claim. The
+// assertions raced the worker pool and happened to win on one machine's
+// timing — CI's first Linux run lost. Green paths now push to a FakeGitHub
+// so the battery passes and "human_review" is stable; failure paths wait for
+// the pool to stop claiming (MAX_FAILURES settled runs).
 
 afterEach(runCleanups);
 
 describe("the plan phase's extended contract", () => {
   test("plan registers a check per AC — scripts against rows, human routings flagged", async () => {
     const calls: PhaseCall[] = [];
+    const github = new FakeGitHub();
     // Route the first AC to a script and the second to a human.
     const provider = scriptedProvider(calls, {
       planChecks: ({ cwd, prompt }) => {
@@ -27,11 +40,15 @@ describe("the plan phase's extended contract", () => {
         };
         writeFileSync(path.join(cwd, "checks", "manifest.json"), JSON.stringify(manifest));
       },
+      onPhase: pushesToGitHub(github),
     });
     const { server, ticket } = await bootWorkspace(provider, {
       acceptanceCriteria: ["Widget renders", "Widget feels right"],
+      github,
     });
-    await waitForTicketState(server, ticket.id, "verifying");
+    // The human-routed AC skips its gate rather than failing it, so the
+    // battery lands all-green and the ticket parks stably in Human Review.
+    await waitForTicketState(server, ticket.id, "human_review");
 
     const detail = (await api(server, "GET", `/api/tickets/${ticket.id}`)).json;
     const [first, second] = detail.acceptanceCriteria;
@@ -62,9 +79,9 @@ describe("the plan phase's extended contract", () => {
     const calls: PhaseCall[] = [];
     const provider = scriptedProvider(calls, { planChecks: () => {} });
     const { server, ticket } = await bootWorkspace(provider);
-    await waitForTicketState(server, ticket.id, "todo", 20_000);
+    // The plan fails identically every cycle; wait for the pool to give up.
+    const runs = await waitForSettledRuns(server, ticket.id, 3);
 
-    const runs = (await api(server, "GET", `/api/tickets/${ticket.id}/runs`)).json;
     const latest = runs[0];
     expect(latest.state).toBe("failed");
     const plan = latest.phases.find((p: any) => p.phase === "plan");
@@ -87,9 +104,8 @@ describe("the plan phase's extended contract", () => {
     const { server, ticket } = await bootWorkspace(provider, {
       acceptanceCriteria: ["Widget renders", "Widget persists"],
     });
-    await waitForTicketState(server, ticket.id, "todo", 20_000);
-
-    const runs = (await api(server, "GET", `/api/tickets/${ticket.id}/runs`)).json;
+    // Same doomed plan every cycle; assert once the pool stops claiming.
+    const runs = await waitForSettledRuns(server, ticket.id, 3);
     const plan = runs[0].phases.find((p: any) => p.phase === "plan");
     const uncoveredId = (await api(server, "GET", `/api/tickets/${ticket.id}`)).json
       .acceptanceCriteria[1].id;
@@ -100,6 +116,7 @@ describe("the plan phase's extended contract", () => {
   test("checks persist in the worktree and re-registration is idempotent", async () => {
     const calls: PhaseCall[] = [];
     const checksSeenAtPlanStart: boolean[] = [];
+    const github = new FakeGitHub();
     const provider = scriptedProvider(calls, {
       // First attempt goes hollow at implement so the run fails after plan
       // registered its checks; the re-claim runs the full workflow again.
@@ -108,9 +125,10 @@ describe("the plan phase's extended contract", () => {
         checksSeenAtPlanStart.push(existsSync(path.join(ctx.cwd, "checks", "manifest.json")));
         writePlanChecks(ctx.cwd, ctx.prompt);
       },
+      onPhase: pushesToGitHub(github),
     });
-    const { server, ticket } = await bootWorkspace(provider);
-    await waitForTicketState(server, ticket.id, "verifying", 20_000);
+    const { server, ticket } = await bootWorkspace(provider, { github });
+    await waitForTicketState(server, ticket.id, "human_review", 20_000);
 
     const runs = (await api(server, "GET", `/api/tickets/${ticket.id}/runs`)).json;
     expect(runs).toHaveLength(2);

@@ -2,26 +2,38 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { git } from "./git-helpers.ts";
+import { FakeGitHub } from "./github-fake.ts";
 import { api, runCleanups, cleanups } from "./server-helpers.ts";
 import { SseClient } from "./sse-client.ts";
 import {
   bootWorkspace,
   PHASES,
+  pushesToGitHub,
   scriptedProvider,
   waitForTicketState,
   type PhaseCall,
 } from "./workflow-helpers.ts";
+
+// "verifying" is transient in a NullGitHub workspace: pr-fresh and
+// branch-recorded are doomed, the battery bounces, and any assertion made
+// after the wait races the re-claim (CI's first Linux run lost exactly that
+// race in plan-checks.test.ts). Every full-workflow test here pushes to a
+// FakeGitHub so the battery lands green and "human_review" is stable.
 
 afterEach(runCleanups);
 
 describe("the full seeded workflow", () => {
   test("five phases run in order with fresh sessions and kb handoff", async () => {
     const calls: PhaseCall[] = [];
-    const { dataDir, server, ticket } = await bootWorkspace(scriptedProvider(calls));
+    const github = new FakeGitHub();
+    const { dataDir, server, ticket } = await bootWorkspace(
+      scriptedProvider(calls, { onPhase: pushesToGitHub(github) }),
+      { github },
+    );
     const client = await SseClient.connect(`${server.url}/api/events`);
     cleanups.push(async () => client.close());
 
-    await waitForTicketState(server, ticket.id, "verifying");
+    await waitForTicketState(server, ticket.id, "human_review");
 
     // Every phase ran once, in graph order, in the run's worktree.
     expect(calls.map((c) => c.phase)).toEqual([...PHASES]);
@@ -84,11 +96,13 @@ describe("the full seeded workflow", () => {
 
   test("a hollow mid-workflow phase fails the run but its evidence survives", async () => {
     const calls: PhaseCall[] = [];
+    const github = new FakeGitHub();
     const provider = scriptedProvider(calls, {
       sabotage: (phase, attempt) => (phase === "implement" && attempt === 1 ? false : undefined),
+      onPhase: pushesToGitHub(github),
     });
-    const { server, ticket } = await bootWorkspace(provider);
-    await waitForTicketState(server, ticket.id, "verifying");
+    const { server, ticket } = await bootWorkspace(provider, { github });
+    await waitForTicketState(server, ticket.id, "human_review");
 
     const runs = (await api(server, "GET", `/api/tickets/${ticket.id}/runs`)).json;
     expect(runs).toHaveLength(2);
@@ -109,13 +123,15 @@ describe("the full seeded workflow", () => {
 
   test("a crashing phase crashes the run; the re-claim recovers", async () => {
     const calls: PhaseCall[] = [];
+    const github = new FakeGitHub();
     const provider = scriptedProvider(calls, {
       sabotage: (phase, attempt) => {
         if (phase === "research" && attempt === 1) throw new Error("provider fell over");
       },
+      onPhase: pushesToGitHub(github),
     });
-    const { server, ticket } = await bootWorkspace(provider);
-    await waitForTicketState(server, ticket.id, "verifying");
+    const { server, ticket } = await bootWorkspace(provider, { github });
+    await waitForTicketState(server, ticket.id, "human_review");
 
     const runs = (await api(server, "GET", `/api/tickets/${ticket.id}/runs`)).json;
     expect(runs).toHaveLength(2);
@@ -128,8 +144,12 @@ describe("the full seeded workflow", () => {
 
   test("the per-run log stream carries every phase's blocks with unique ids", async () => {
     const calls: PhaseCall[] = [];
-    const { server, ticket } = await bootWorkspace(scriptedProvider(calls));
-    await waitForTicketState(server, ticket.id, "verifying");
+    const github = new FakeGitHub();
+    const { server, ticket } = await bootWorkspace(
+      scriptedProvider(calls, { onPhase: pushesToGitHub(github) }),
+      { github },
+    );
+    await waitForTicketState(server, ticket.id, "human_review");
 
     const runs = (await api(server, "GET", `/api/tickets/${ticket.id}/runs`)).json;
     const log = await SseClient.connect(`${server.url}/api/runs/${runs[0].id}/log`);

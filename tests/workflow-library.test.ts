@@ -4,9 +4,11 @@ import { migrate } from "../src/server/db.ts";
 import type { TrackerServer } from "../src/server/index.ts";
 import { FakeProvider } from "../src/server/providers/fake.ts";
 import { api, bootServer, cleanups, runCleanups, seedWorkspace } from "./server-helpers.ts";
+import { FakeGitHub } from "./github-fake.ts";
 import {
   bootWorkspace,
   PHASES,
+  pushesToGitHub,
   scriptedProvider,
   waitForTicketState,
   type PhaseCall,
@@ -283,15 +285,23 @@ describe("runs pin workflow versions", () => {
 
   test("a re-pointed project's next claim runs the duplicate's own graph end to end", async () => {
     const calls: PhaseCall[] = [];
-    const { server, ticket } = await bootWorkspace(scriptedProvider(calls), {
-      // The duplicate's graph must drive the run — set up before promotion
-      // via the project the workspace seeded.
-      async beforePromote(server, project) {
-        const copy = (await api(server, "POST", "/api/workflows/1/duplicate")).json;
-        await api(server, "PATCH", `/api/projects/${project.id}`, { workflowId: copy.id });
+    // Push to a FakeGitHub so the battery lands green: "verifying" in a
+    // NullGitHub workspace is transient (doomed gates bounce it), and the
+    // run-count assertions below would race the re-claim.
+    const github = new FakeGitHub();
+    const { server, ticket } = await bootWorkspace(
+      scriptedProvider(calls, { onPhase: pushesToGitHub(github) }),
+      {
+        github,
+        // The duplicate's graph must drive the run — set up before promotion
+        // via the project the workspace seeded.
+        async beforePromote(server, project) {
+          const copy = (await api(server, "POST", "/api/workflows/1/duplicate")).json;
+          await api(server, "PATCH", `/api/projects/${project.id}`, { workflowId: copy.id });
+        },
       },
-    });
-    await waitForTicketState(server, ticket.id, "verifying");
+    );
+    await waitForTicketState(server, ticket.id, "human_review");
 
     const runs = (await api(server, "GET", `/api/tickets/${ticket.id}/runs`)).json;
     expect(runs).toHaveLength(1);
