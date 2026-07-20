@@ -4,9 +4,9 @@
 
 **Blocked by:** 38 — Claude Code adapter (reuses the contract-test harness and provider config).
 
-**Status:** done (2026-07-20) — live-CLI run still owed (deferred by Barry; gated suite in place)
+**Status:** done (2026-07-20) — live-CLI run executed same day: `TRACKER_LIVE_PROVIDER_TESTS=1` suite green against `kiro-cli` 2.13.0 (35/35)
 
-- [x] A real Kiro session runs a phase; deltas stream into the drawer as live-typing text *(proven against the scripted ACP stub; the live `kiro-cli` run is gated behind `TRACKER_LIVE_PROVIDER_TESTS=1` and not yet executed)*
+- [x] A real Kiro session runs a phase; deltas stream into the drawer as live-typing text *(proven against the scripted ACP stub and the live `kiro-cli` run)*
 - [x] ACP session lifecycle owned by the adapter; cancellation graceful-then-kill
 - [x] Contract-test harness green for Kiro (skippable where the CLI is absent)
 
@@ -14,4 +14,4 @@
 
 Success is structural, per issue 02's finding that Kiro's exit codes lie: `stopReason: "end_turn"` and nothing else completes; `cancelled` maps to cancelled; anything else fails. Cancellation is graceful-then-kill: ACP `session/cancel` first, SIGTERM after a 2s grace — both halves under test (a stub mode that answers the cancel, and one that ignores it). `--trust-all-tools` at launch; a stray `session/request_permission` is answered allow rather than hung on. Model pinned off the `auto` router via the app-level provider config (`--model`); no budget flag — Kiro has no native cap. Capabilities: `costReporting` no, `streamsPartialText` yes, `emitsThinking` yes.
 
-Registry: `appProviders` now runs real Claude Code and Kiro; Copilot remains scripted until 40. Harness: `tests/fixtures/fake-kiro.mjs` speaks the verified ACP handshake for every `npm test`; the live suite (contract + endings) is registered and CLI-gated. **Per the ticket-38 lesson (the stub shares its author's blind spots), AC1 is not fully discharged until the live run happens** — run `TRACKER_LIVE_PROVIDER_TESTS=1 npx vitest run tests/provider-contract.test.ts` on a machine with `kiro-cli`.
+Registry: `appProviders` now runs real Claude Code and Kiro; Copilot remains scripted until 40. Harness: `tests/fixtures/fake-kiro.mjs` speaks the verified ACP handshake for every `npm test`; the live suite (contract + endings) is registered and CLI-gated. Per the ticket-38 lesson (the stub shares its author's blind spots), AC1 needed the live run — executed 2026-07-20 against `kiro-cli` 2.13.0: `TRACKER_LIVE_PROVIDER_TESTS=1 npx vitest run tests/provider-contract.test.ts`, 35/35 green.
