@@ -1534,6 +1534,11 @@ body {
   position: relative;
 }
 
+/* Archived recents dim like the Workflow library's archived rows. */
+.home-row.archived .home-open {
+  opacity: 0.5;
+}
+
 .home-row .row-kebab {
   position: absolute;
   top: 50%;

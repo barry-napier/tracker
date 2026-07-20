@@ -160,6 +160,23 @@ describe("Home: remove from recents (ticket 50)", () => {
     expect(names[0]).toBe(project.id);
   });
 
+  test("archived rows list under includeHidden=1 and unhide restores them", async () => {
+    const server = await bootServer();
+    const { project } = await seedWorkspace(server);
+    await api(server, "POST", `/api/projects/${project.id}/hide`, {});
+
+    // Default listing excludes; the archive listing keeps the row, flagged.
+    expect((await api(server, "GET", "/api/projects")).json).toHaveLength(0);
+    const all = (await api(server, "GET", "/api/projects?includeHidden=1")).json;
+    expect(all).toHaveLength(1);
+    expect(all[0].hiddenAt).not.toBeNull();
+
+    const unhide = await api(server, "POST", `/api/projects/${project.id}/unhide`, {});
+    expect(unhide.status).toBe(200);
+    expect(unhide.json.hiddenAt).toBeNull();
+    expect((await api(server, "GET", "/api/projects")).json).toHaveLength(1);
+  });
+
   test("hiding an unknown project is a 404", async () => {
     const server = await bootServer();
     const res = await api(server, "POST", "/api/projects/999/hide", {});

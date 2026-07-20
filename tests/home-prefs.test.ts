@@ -29,7 +29,13 @@ function item(
 
 describe("home prefs persistence", () => {
   test("round-trips through JSON", () => {
-    const prefs = { sort: "name", grouping: "folder", visible: 9, collapsed: ["/a"] } as const;
+    const prefs = {
+      sort: "name",
+      grouping: "folder",
+      visible: 9,
+      collapsed: ["/a"],
+      showArchived: true,
+    } as const;
     expect(restoreHomePrefs(JSON.stringify(prefs))).toEqual(prefs);
   });
 

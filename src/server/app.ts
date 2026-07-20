@@ -282,7 +282,9 @@ export function createApp(
     return c.json(store.setProviderConfig(provider, patch));
   });
 
-  app.get("/api/projects", (c) => c.json(store.listProjects()));
+  app.get("/api/projects", (c) =>
+    c.json(store.listProjects({ includeHidden: c.req.query("includeHidden") === "1" })),
+  );
 
   // Renderers without the Electron preload (vite dev in a browser) still get
   // the native chooser: the server owns the dialog. Null path = cancelled.
@@ -303,8 +305,9 @@ export function createApp(
     return c.json(project);
   });
 
-  // Remove from Home's recents (ticket 50): forget the list entry, delete
-  // nothing. Re-adding the checkout via /api/projects/local un-hides it.
+  // Archive from Home's recents (ticket 50): the row leaves the default
+  // listing, nothing is deleted. Unarchive (or re-adding the checkout via
+  // /api/projects/local) brings it back.
   app.post("/api/projects/:id/hide", (c) =>
     c.json(store.hideProject(Number(c.req.param("id")))),
   );
@@ -337,6 +340,10 @@ export function createApp(
     const body = await c.req.json<{
       projectId?: number;
       path?: string;
+  app.post("/api/projects/:id/unhide", (c) =>
+    c.json(store.unhideProject(Number(c.req.param("id")))),
+  );
+
       githubRemote?: string;
       targetBranch?: string;
       previewCommand?: string;

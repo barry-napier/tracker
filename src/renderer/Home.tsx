@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { Project, ProjectListItem } from "../server/types.ts";
+
 import { apiPost } from "./api.ts";
 import { timeAgo } from "./format.ts";
 import {
@@ -49,14 +50,14 @@ export function Home({
   projects,
   onOpen,
   onCreated,
-  onHidden,
+  onArchivedChange,
 }: {
   projects: ProjectListItem[];
   onOpen: (projectId: number) => void;
   /** A picked repo landed as a new Project: open its board. */
   onCreated: (project: Project) => void;
-  /** A row was removed from recents (forget, not delete): drop it from state. */
-  onHidden: (projectId: number) => void;
+  /** A row was archived or unarchived (never deleted): patch its hiddenAt. */
+  onArchivedChange: (projectId: number, hiddenAt: string | null) => void;
 }) {
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -85,8 +86,14 @@ export function Home({
     });
   };
 
+  // Mirrors the Workflow library: the idle list hides archived rows unless
+  // the pref shows them; a search always sweeps everything.
   const shown = sortProjects(
-    projects.filter((p) => p.name.toLowerCase().includes(query.toLowerCase())),
+    projects.filter(
+      (p) =>
+        p.name.toLowerCase().includes(query.toLowerCase()) &&
+        (query !== "" || prefs.showArchived || p.hiddenAt === null),
+    ),
     prefs.sort,
   );
   // The visible cap applies only to the idle list — a search always sweeps
@@ -137,12 +144,13 @@ export function Home({
     return () => document.removeEventListener("keydown", onSlash);
   }, []);
 
-  /** Forget the list entry (ticket 50) — the server hides, nothing is deleted. */
-  const removeFromList = async (projectId: number) => {
+  /** Archive / unarchive the list entry (ticket 50) — nothing is deleted. */
+  const toggleArchived = async (project: ProjectListItem) => {
     setError(null);
     try {
-      await apiPost(`/api/projects/${projectId}/hide`, {});
-      onHidden(projectId);
+      const verb = project.hiddenAt === null ? "hide" : "unhide";
+      const updated = await apiPost<Project>(`/api/projects/${project.id}/${verb}`, {});
+      onArchivedChange(project.id, updated.hiddenAt);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -289,6 +297,19 @@ export function Home({
                     {GROUP_LABELS[grouping]}
                   </button>
                 ))}
+                <hr className="menu-divider" />
+                <button
+                  type="button"
+                  role="menuitemcheckbox"
+                  aria-checked={prefs.showArchived}
+                  className="menu-item"
+                  onClick={() => updatePrefs({ showArchived: !prefs.showArchived })}
+                >
+                  <span className="menu-tick">
+                    {prefs.showArchived && <Icon name="check" size={14} />}
+                  </span>
+                  Show archived
+                </button>
               </div>
             )}
           </span>
@@ -313,12 +334,18 @@ export function Home({
               )}
               {!(group.key !== null && prefs.collapsed.includes(group.key)) &&
                 group.projects.map((project) => (
-                <li key={project.id} className="home-row">
+                <li
+                  key={project.id}
+                  className={project.hiddenAt === null ? "home-row" : "home-row archived"}
+                >
                   <button type="button" className="home-open" onClick={() => onOpen(project.id)}>
                     <span className="avatar" style={{ background: avatarColor(project.name) }}>
                       {project.name.slice(0, 1).toUpperCase()}
                     </span>
                     <span className="home-name">{project.name}</span>
+                    {project.hiddenAt !== null && (
+                      <span className="wf-badge archived">Archived</span>
+                    )}
                     <span className="home-time">
                       {timeAgo(project.lastActivityAt ?? project.createdAt)}
                     </span>
@@ -359,9 +386,9 @@ export function Home({
                       <button
                         type="button"
                         role="menuitem"
-                        onClick={() => void removeFromList(project.id)}
+                        onClick={() => void toggleArchived(project)}
                       >
-                        Remove from list
+                        {project.hiddenAt === null ? "Archive" : "Unarchive"}
                       </button>
                     </div>
                   )}
@@ -374,8 +401,13 @@ export function Home({
               +{hiddenCount} more — search, or raise visible projects
             </li>
           )}
-          {shown.length === 0 && projects.length > 0 && (
+          {shown.length === 0 && projects.length > 0 && query !== "" && (
             <li className="dim home-empty">No project matches “{query}”</li>
+          )}
+          {shown.length === 0 && projects.length > 0 && query === "" && (
+            <li className="dim home-empty">
+              Everything is archived — turn on “Show archived” to see the list
+            </li>
           )}
           {projects.length === 0 && (
             <li className="dim home-empty">No projects yet — add a repo you have locally</li>

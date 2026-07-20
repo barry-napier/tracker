@@ -25,6 +25,8 @@ export interface HomePrefs {
   visible: number;
   /** Collapsed group keys (parent-folder paths) under folder grouping. */
   collapsed: string[];
+  /** Archived rows show dimmed in the idle list only when asked (ticket 50). */
+  showArchived: boolean;
 }
 
 /** activity = the server's order, so the two defaults render identically. */
@@ -33,6 +35,7 @@ export const DEFAULT_PREFS: HomePrefs = {
   grouping: "none",
   visible: 6,
   collapsed: [],
+  showArchived: false,
 };
 
 export function clampVisible(count: number): number {
@@ -61,7 +64,7 @@ export function restoreHomePrefs(raw: string | null): HomePrefs {
     return DEFAULT_PREFS;
   }
   if (typeof saved !== "object" || saved === null) return DEFAULT_PREFS;
-  const { sort, grouping, visible, collapsed } = saved as Partial<HomePrefs>;
+  const { sort, grouping, visible, collapsed, showArchived } = saved as Partial<HomePrefs>;
   return {
     sort: SORTS.includes(sort as ProjectSort) ? (sort as ProjectSort) : DEFAULT_PREFS.sort,
     grouping: GROUPINGS.includes(grouping as ProjectGrouping)
@@ -73,6 +76,8 @@ export function restoreHomePrefs(raw: string | null): HomePrefs {
     collapsed: Array.isArray(collapsed)
       ? collapsed.filter((key): key is string => typeof key === "string")
       : DEFAULT_PREFS.collapsed,
+    showArchived:
+      typeof showArchived === "boolean" ? showArchived : DEFAULT_PREFS.showArchived,
   };
 }
 

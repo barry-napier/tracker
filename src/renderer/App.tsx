@@ -71,7 +71,8 @@ function useWorkspace() {
   // Refetched on every return to Home so recents reorder by latest activity.
   useEffect(() => {
     if (activeId !== null) return;
-    void apiGet<ProjectListItem[]>("/api/projects")
+    // Archived rows come too — Home's "Show archived" pref decides visibility.
+    void apiGet<ProjectListItem[]>("/api/projects?includeHidden=1")
       .then((rows) => {
         setProjects(rows);
         if (restoredRef.current) return;
@@ -157,10 +158,11 @@ function useWorkspace() {
     [navigate],
   );
 
-  // Removed from recents (ticket 50): drop the row without a refetch. An open
-  // tab survives — hiding is a Home-list concern, not a tab concern.
-  const forgetProject = useCallback((id: number) => {
-    setProjects((rows) => rows.filter((p) => p.id !== id));
+  // Archived / unarchived from recents (ticket 50): patch the row without a
+  // refetch. An open tab survives — archiving is a Home-list concern, not a
+  // tab concern.
+  const setProjectHiddenAt = useCallback((id: number, hiddenAt: string | null) => {
+    setProjects((rows) => rows.map((p) => (p.id === id ? { ...p, hiddenAt } : p)));
   }, []);
 
   return {
@@ -172,7 +174,7 @@ function useWorkspace() {
     openProject,
     openProjectById,
     closeTab,
-    forgetProject,
+    setProjectHiddenAt,
   };
 }
 
@@ -302,13 +304,13 @@ function Shell() {
 }
 
 function HomeRoute() {
-  const { projects, openProject, openProjectById, forgetProject } = useShell();
+  const { projects, openProject, openProjectById, setProjectHiddenAt } = useShell();
   return (
     <Home
       projects={projects}
       onOpen={(id) => void openProjectById(id)}
       onCreated={openProject}
-      onHidden={forgetProject}
+      onArchivedChange={setProjectHiddenAt}
     />
   );
 }

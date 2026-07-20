@@ -134,10 +134,10 @@ export class Store {
   /**
    * Ordered for Home's recents: latest board activity first, read straight
    * off the Audit Trail — "opened" is not a recorded event (see CONTEXT.md).
-   * Event ids order the same as time and never tie. Hidden projects (ticket
-   * 50) are the one exclusion; getProject still resolves them.
+   * Event ids order the same as time and never tie. Archived projects (ticket
+   * 50) are excluded unless asked for — Home's "Show archived" pref asks.
    */
-  listProjects(): ProjectListItem[] {
+  listProjects(opts?: { includeHidden?: boolean }): ProjectListItem[] {
     return this.db
       .prepare(
         `SELECT p.*, le.created_at AS last_activity_at,
@@ -146,7 +146,7 @@ export class Store {
          LEFT JOIN (SELECT project_id, MAX(id) AS last_event FROM events GROUP BY project_id) e
            ON e.project_id = p.id
          LEFT JOIN events le ON le.id = e.last_event
-         WHERE p.hidden_at IS NULL
+         ${opts?.includeHidden ? "" : "WHERE p.hidden_at IS NULL"}
          ORDER BY COALESCE(e.last_event, 0) DESC, p.id DESC`,
       )
       .all()
@@ -158,9 +158,10 @@ export class Store {
   }
 
   /**
-   * Remove from Home's recents (ticket 50): forget the list entry, delete
-   * nothing — tickets, runs, and the audit trail all stay, and the project
-   * still resolves by id. Recovery is re-adding the checkout (Home.addLocal).
+   * Archive from Home's recents (ticket 50): the row leaves the default
+   * listing, delete nothing — tickets, runs, and the audit trail all stay,
+   * and the project still resolves by id. Recovery is unhideProject (the
+   * "Show archived" listing) or re-adding the checkout (Home.addLocal).
    */
   hideProject(id: number): Project {
     return this.setProjectHidden(id, true);
