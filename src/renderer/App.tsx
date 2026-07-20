@@ -12,6 +12,10 @@ import { PROVIDER_LABELS, repoName } from "./format.ts";
 import { avatarColor, Home } from "./Home.tsx";
 import { ProjectSettings } from "./ProjectSettings.tsx";
 import { WorkflowLibrary } from "./WorkflowLibrary.tsx";
+// PROTOTYPE (ticket 48) — mount gated behind /?prototype=canvas; remove with the prototype.
+import { WorkflowCanvasPrototype } from "./WorkflowCanvasPrototype.tsx";
+
+const CANVAS_PROTOTYPE = new URLSearchParams(location.search).get("prototype") === "canvas";
 import { useBoard } from "./useBoard.ts";
 import { ReviewWizard } from "./ReviewWizard.tsx";
 import { TicketDetail } from "./TicketDetail.tsx";
@@ -199,14 +203,15 @@ export default function App() {
       </header>
       <main className="main">
         {error && <p className="banner error">Can't reach the Tracker server: {error}</p>}
-        {!project && homeView === "projects" && (
+        {!project && CANVAS_PROTOTYPE && <WorkflowCanvasPrototype />}
+        {!project && !CANVAS_PROTOTYPE && homeView === "projects" && (
           <Home
             projects={projects}
             onOpen={(id) => void openProjectById(id)}
             onCreated={openProject}
           />
         )}
-        {!project && homeView === "workflows" && <WorkflowLibrary />}
+        {!project && !CANVAS_PROTOTYPE && homeView === "workflows" && <WorkflowLibrary />}
         {!project && (
           <nav className="home-nav">
             {(["projects", "workflows"] as const).map((view) => (
@@ -221,7 +226,19 @@ export default function App() {
             ))}
           </nav>
         )}
-        {project && (
+        {project && selected && (
+          <TicketDetail
+            ticket={selected}
+            projectName={project.name}
+            repos={repos}
+            audit={board.auditByTicket[selected.id] ?? []}
+            runs={board.runsByTicket[selected.id] ?? []}
+            loadAudit={loadAudit}
+            loadRuns={loadRuns}
+            onClose={() => setSelectedId(null)}
+          />
+        )}
+        {project && !selected && (
         <div className="board">
           {STATES.map(({ key, label }) => {
             const column = tickets.filter((t) => t.state === key);
@@ -249,17 +266,6 @@ export default function App() {
         </div>
         )}
       </main>
-      {project && selected && (
-        <TicketDetail
-          ticket={selected}
-          repos={repos}
-          audit={board.auditByTicket[selected.id] ?? []}
-          runs={board.runsByTicket[selected.id] ?? []}
-          loadAudit={loadAudit}
-          loadRuns={loadRuns}
-          onClose={() => setSelectedId(null)}
-        />
-      )}
       {project && reviewing && (
         <ReviewWizard ticket={reviewing} onClose={() => setReviewId(null)} />
       )}

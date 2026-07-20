@@ -7,6 +7,9 @@ import type { ComponentProps } from "react";
  */
 const VIEWBOXES: Partial<Record<IconName, string>> = {
   "grid-plus": "0 0 16 16",
+  "chevron-down": "0 0 16 16",
+  "chevron-left": "0 0 16 16",
+  search: "0 0 16 16",
 };
 
 const PATHS = {
@@ -27,6 +30,19 @@ const PATHS = {
   ),
   "close-small": (
     <path d="M6 6L14 14M14 6L6 14" stroke="currentColor" strokeLinecap="square" />
+  ),
+  "chevron-down": (
+    <path d="M3.5 6L8 10.5L12.5 6" stroke="currentColor" strokeLinecap="square" />
+  ),
+  "chevron-left": (
+    <path d="M10 3.5L5.5 8L10 12.5" stroke="currentColor" strokeLinecap="square" />
+  ),
+  search: (
+    <path
+      d="M11.0625 11.0625L14 14M12.5 7.25C12.5 10.1495 10.1495 12.5 7.25 12.5C4.35051 12.5 2 10.1495 2 7.25C2 4.35051 4.35051 2 7.25 2C10.1495 2 12.5 4.35051 12.5 7.25Z"
+      stroke="currentColor"
+      strokeLinecap="square"
+    />
   ),
   help: (
     <path

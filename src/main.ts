@@ -44,31 +44,46 @@ app.on("second-instance", () => {
   }
 });
 
-// Home's clone flow picks the parent folder natively; null = user cancelled.
+// Home's add-project flow picks a local repo natively; null = user cancelled.
 ipcMain.handle("tracker:pick-folder", async () => {
   const result = await dialog.showOpenDialog({
-    title: "Clone into…",
-    buttonLabel: "Clone here",
-    properties: ["openDirectory", "createDirectory"],
+    title: "Open a repository",
+    buttonLabel: "Open",
+    properties: ["openDirectory"],
   });
   return result.canceled ? null : (result.filePaths[0] ?? null);
 });
 
-void app.whenReady().then(async () => {
-  server = await startServer({
-    dataDir: app.getPath("userData"),
-    port: Number(process.env.TRACKER_PORT ?? 4400),
-    // Scripted demo phases until the real adapter slices land.
-    providers: demoProviders(),
-  });
-  const apiBase = server.url;
+void app
+  .whenReady()
+  .then(async () => {
+    const boot = (port: number) =>
+      startServer({
+        dataDir: app.getPath("userData"),
+        port,
+        // Scripted demo phases until the real adapter slices land.
+        providers: demoProviders(),
+      });
+    try {
+      server = await boot(Number(process.env.TRACKER_PORT ?? 4400));
+    } catch (error) {
+      // The dev-api often holds 4400; the renderer learns the port via the
+      // apiBase query param, so an ephemeral one works just as well.
+      if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+      server = await boot(0);
+    }
+    const apiBase = server.url;
 
-  createWindow(apiBase);
+    createWindow(apiBase);
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow(apiBase);
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow(apiBase);
+    });
+  })
+  .catch((error: unknown) => {
+    dialog.showErrorBox("Tracker failed to start", error instanceof Error ? error.message : String(error));
+    app.quit();
   });
-});
 
 app.on("before-quit", () => {
   void server?.close().catch(() => {});

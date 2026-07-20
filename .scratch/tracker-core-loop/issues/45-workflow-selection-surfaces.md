@@ -2,6 +2,8 @@
 
 **What to build:** The two places a Project's workflow gets chosen (grill session Q4/Q8). One shared picker component listing active (non-archived) workflows with the current/default selection preselected. First: the Home clone flow gains the picker step with the Default Workflow preselected — happy path stays one click. Second: the topbar settings gear (currently an unwired placeholder in App.tsx) gets wired; with a project tab active it opens project settings, whose first section is the workflow picker. A project currently on an archived workflow still shows that selection, labeled archived — the picker just won't offer archived options as new choices. Changing the selection takes effect at the next claim (Runs pin versions; ticket 43) and emits no audit event.
 
+**Design reference:** Prototype A (`src/renderer/WorkflowCanvasPrototype.tsx`, `/?prototype=canvas&variant=A`) — the workflow-builder design verdict; full verdict recorded in ticket 48.
+
 **Blocked by:** 43 — workflow versions store.
 
 **Status:** in-review — settings surface done; add-flow picker blocked on the Home add-local rework

@@ -1,134 +1,111 @@
-import { existsSync, mkdtempSync } from "node:fs";
+import { mkdirSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { git, initScratchRepo } from "./git-helpers.ts";
-import { FakeGitHub } from "./github-fake.ts";
 import { api, bootServer, runCleanups, seedWorkspace, FIXTURE_REMOTE } from "./server-helpers.ts";
 
 afterEach(runCleanups);
 
-/** An affiliated repo on the fake GitHub, backed by a real local repo so clone works. */
-function seedAffiliated(
-  github: FakeGitHub,
-  nameWithOwner: string,
-  overrides: { description?: string | null; defaultBranch?: string } = {},
-): { sshUrl: string; source: string } {
-  const source = initScratchRepo(nameWithOwner.split("/")[1]!);
-  // The local remote's HEAD branch IS the default branch, as on GitHub.
-  if (overrides.defaultBranch && overrides.defaultBranch !== "main") {
-    git(source, "branch", "-m", "main", overrides.defaultBranch);
-  }
-  const sshUrl = `git@github.com:${nameWithOwner}.git`;
-  github.registerRemote(sshUrl, source);
-  github.registerAffiliatedRepo({
-    nameWithOwner,
-    sshUrl,
-    description: overrides.description ?? null,
-    defaultBranch: overrides.defaultBranch ?? "main",
-  });
-  return { sshUrl, source };
+/** A local checkout the way Home's picker finds one: a repo with an origin. */
+function initLocalRepo(name: string, remote = `git@github.com:barry/${name}.git`): string {
+  const source = initScratchRepo(name);
+  git(source, "remote", "add", "origin", remote);
+  return source;
 }
 
-describe("Home: affiliated repo listing (ticket A)", () => {
-  test("lists affiliated repos and flags the ones already tracked", async () => {
-    const github = new FakeGitHub();
-    seedAffiliated(github, "barry/fixture-app");
-    seedAffiliated(github, "barry/other-app", { description: "spare" });
-    const server = await bootServer(undefined, { github });
-    // Registers a Repo on FIXTURE_REMOTE = git@github.com:barry/fixture-app.git.
-    const { project } = await seedWorkspace(server);
+describe("Home: add a local repo", () => {
+  test("registers Project + Repo with name, remote, and branch derived from the checkout", async () => {
+    const server = await bootServer();
+    const source = initLocalRepo("widget-press");
 
-    const res = await api(server, "GET", "/api/github/repos");
-    expect(res.status).toBe(200);
-    const byName = Object.fromEntries(
-      res.json.repos.map((r: any) => [r.nameWithOwner, r]),
-    );
-    expect(byName["barry/fixture-app"].trackedProjectId).toBe(project.id);
-    expect(byName["barry/other-app"]).toMatchObject({
-      trackedProjectId: null,
-      description: "spare",
-      defaultBranch: "main",
-    });
-  });
-
-  test("degrades honestly when no GitHub backing is configured", async () => {
-    const server = await bootServer(); // NullGitHub
-    const res = await api(server, "GET", "/api/github/repos");
-    expect(res.status).toBe(502);
-    expect(res.json.error).toContain("no GitHub backing");
-  });
-});
-
-describe("Home: clone from GitHub (ticket A)", () => {
-  test("clones into <parent>/<repo-name> and registers Project + Repo with derived defaults", async () => {
-    const github = new FakeGitHub();
-    const { sshUrl } = seedAffiliated(github, "barry/widget-press", {
-      defaultBranch: "trunk",
-    });
-    const server = await bootServer(undefined, { github });
-    const parentDir = mkdtempSync(path.join(tmpdir(), "tracker-clone-"));
-
-    const res = await api(server, "POST", "/api/github/clone", {
-      nameWithOwner: "barry/widget-press",
-      parentDir,
-    });
+    const res = await api(server, "POST", "/api/projects/local", { path: source });
     expect(res.status).toBe(201);
     expect(res.json.project.name).toBe("widget-press");
     expect(res.json.repo).toMatchObject({
       projectId: res.json.project.id,
-      path: path.join(parentDir, "widget-press"),
-      githubRemote: sshUrl,
-      targetBranch: "trunk",
+      // git answers --show-toplevel physically, so /var → /private/var on macOS.
+      path: realpathSync(source),
+      githubRemote: "git@github.com:barry/widget-press.git",
+      // No origin/HEAD recorded locally — falls back to the checked-out branch.
+      targetBranch: "main",
     });
-    // The clone is real: a git checkout exists at the registered path.
-    expect(existsSync(path.join(res.json.repo.path, ".git"))).toBe(true);
-    expect(git(res.json.repo.path, "rev-parse", "--abbrev-ref", "HEAD")).toBe("trunk");
   });
 
-  test("an already-tracked remote is never cloned twice: returns the existing Project", async () => {
-    const github = new FakeGitHub();
-    seedAffiliated(github, "barry/fixture-app");
-    const server = await bootServer(undefined, { github });
-    const { project } = await seedWorkspace(server);
-    const parentDir = mkdtempSync(path.join(tmpdir(), "tracker-clone-"));
+  test("origin's recorded HEAD wins over the checked-out branch", async () => {
+    const server = await bootServer();
+    const source = initLocalRepo("widget-press");
+    git(source, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk");
 
-    const res = await api(server, "POST", "/api/github/clone", {
-      nameWithOwner: "barry/fixture-app",
-      parentDir,
+    const res = await api(server, "POST", "/api/projects/local", { path: source });
+    expect(res.status).toBe(201);
+    expect(res.json.repo.targetBranch).toBe("trunk");
+  });
+
+  test("picking a subfolder lands on the checkout root", async () => {
+    const server = await bootServer();
+    const source = initLocalRepo("widget-press");
+    mkdirSync(path.join(source, "src", "deep"), { recursive: true });
+
+    const res = await api(server, "POST", "/api/projects/local", {
+      path: path.join(source, "src", "deep"),
     });
+    expect(res.status).toBe(201);
+    expect(res.json.repo.path).toBe(realpathSync(source));
+  });
+
+  test("an already-tracked checkout reopens its Project instead of duplicating it", async () => {
+    const server = await bootServer();
+    const { source, project } = await seedWorkspace(server);
+
+    const res = await api(server, "POST", "/api/projects/local", { path: source });
     expect(res.status).toBe(200);
     expect(res.json.alreadyTracked).toBe(true);
     expect(res.json.project.id).toBe(project.id);
-    expect(existsSync(path.join(parentDir, "fixture-app"))).toBe(false);
-    const projects = (await api(server, "GET", "/api/projects")).json;
-    expect(projects).toHaveLength(1);
+    expect((await api(server, "GET", "/api/projects")).json).toHaveLength(1);
   });
 
-  test("an existing destination directory fails loudly with no partial Project row", async () => {
-    const github = new FakeGitHub();
-    seedAffiliated(github, "barry/widget-press");
-    const server = await bootServer(undefined, { github });
-    // The destination already exists: parent contains widget-press/.
-    const parentDir = path.dirname(initScratchRepo("widget-press"));
+  test("a second checkout of a tracked remote reopens the same Project", async () => {
+    const server = await bootServer();
+    const { project } = await seedWorkspace(server); // Repo row on FIXTURE_REMOTE
+    // Same remote, different spelling (HTTPS, cased slug) and different path.
+    const other = initLocalRepo("fixture-app-elsewhere", "https://github.com/Barry/Fixture-App.git");
 
-    const res = await api(server, "POST", "/api/github/clone", {
-      nameWithOwner: "barry/widget-press",
-      parentDir,
-    });
-    expect(res.status).toBe(409);
-    expect(res.json.error).toContain("already exists");
+    const res = await api(server, "POST", "/api/projects/local", { path: other });
+    expect(res.status).toBe(200);
+    expect(res.json.alreadyTracked).toBe(true);
+    expect(res.json.project.id).toBe(project.id);
+  });
+
+  test("a folder that is not a git repository is a 400, with no ghost Project", async () => {
+    const server = await bootServer();
+    const plain = path.join(tmpdir(), `tracker-not-a-repo-${process.pid}`);
+    mkdirSync(plain, { recursive: true });
+
+    const res = await api(server, "POST", "/api/projects/local", { path: plain });
+    expect(res.status).toBe(400);
+    expect(res.json.error).toContain("not a git repository");
     expect((await api(server, "GET", "/api/projects")).json).toHaveLength(0);
   });
 
-  test("an unknown repo or missing parent dir is a 400, not a crash", async () => {
-    const github = new FakeGitHub();
-    const server = await bootServer(undefined, { github });
-    const missingParent = await api(server, "POST", "/api/github/clone", {
-      nameWithOwner: "barry/nope",
-      parentDir: path.join(tmpdir(), "does-not-exist-anywhere"),
+  test("a missing directory or missing path is a 400, not a crash", async () => {
+    const server = await bootServer();
+    const missing = await api(server, "POST", "/api/projects/local", {
+      path: path.join(tmpdir(), "does-not-exist-anywhere"),
     });
-    expect(missingParent.status).toBe(400);
+    expect(missing.status).toBe(400);
+    const empty = await api(server, "POST", "/api/projects/local", {});
+    expect(empty.status).toBe(400);
+  });
+
+  test("a repo without an origin remote is refused loudly, with no ghost Project", async () => {
+    const server = await bootServer();
+    const source = initScratchRepo("orphan-app"); // no remote at all
+
+    const res = await api(server, "POST", "/api/projects/local", { path: source });
+    expect(res.status).toBe(409);
+    expect(res.json.error).toContain('no "origin" remote');
+    expect((await api(server, "GET", "/api/projects")).json).toHaveLength(0);
   });
 });
 

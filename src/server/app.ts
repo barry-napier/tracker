@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import type { BusEvent, EventBus } from "./bus.ts";
-import { GitHubUnavailableError, type Home } from "./home.ts";
+import { pickFolderNative, type Home } from "./home.ts";
 import type { PreviewManager } from "./previews.ts";
 import type { Reviews } from "./reviews.ts";
 import type { RunLogRegistry } from "./runlog.ts";
@@ -128,19 +128,15 @@ export function createApp(
 
   app.get("/api/projects", (c) => c.json(store.listProjects()));
 
-  // Home's clone pane (ticket A): the user's own+org repos, tracked ones flagged.
-  // GitHub being unreachable disables cloning, never the recents list — the
-  // error body is the message the pane shows.
-  app.get("/api/github/repos", async (c) => {
-    try {
-      return c.json({ repos: await home.listGitHubRepos() });
-    } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : String(error) }, 502);
-    }
-  });
+  // Renderers without the Electron preload (vite dev in a browser) still get
+  // the native chooser: the server owns the dialog. Null path = cancelled.
+  app.post("/api/pick-folder", async (c) => c.json({ path: await pickFolderNative() }));
 
-  app.post("/api/github/clone", async (c) => {
-    const result = await home.clone(await c.req.json());
+  // Home's add-project flow: register a repo already on disk. Picking an
+  // already-tracked checkout (or a second checkout of a tracked remote)
+  // reopens the existing Project instead of creating a duplicate.
+  app.post("/api/projects/local", async (c) => {
+    const result = await home.addLocal(await c.req.json());
     if (result.alreadyTracked) return c.json({ alreadyTracked: true, project: result.project });
     return c.json({ project: result.project, repo: result.repo }, 201);
   });
@@ -451,7 +447,6 @@ export function createApp(
     }
     if (error instanceof StateError) return c.json({ error: error.message }, 409);
     if (error instanceof ValidationError) return c.json({ error: error.message }, 400);
-    if (error instanceof GitHubUnavailableError) return c.json({ error: error.message }, 502);
     if (error instanceof SyntaxError) return c.json({ error: "invalid JSON body" }, 400);
     console.error(error);
     return c.json({ error: "internal error" }, 500);

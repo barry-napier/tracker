@@ -54,7 +54,7 @@ export async function startServer(options: {
     runLogs,
     new Verdicts(store, github, bouncer),
     new Reviews(store, github),
-    new Home(store, github),
+    new Home(store),
     previews,
     options.dataDir,
   );
@@ -71,7 +71,7 @@ export async function startServer(options: {
   );
   pool.start(bus);
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const server = serve(
       { fetch: app.fetch, port: options.port, hostname: "127.0.0.1" },
       (info) => {
@@ -91,5 +91,16 @@ export async function startServer(options: {
         });
       },
     );
+    // Without this, a failed bind (port taken) leaves the promise pending
+    // forever — the app would sit windowless with no error.
+    server.once("error", (error) => {
+      void pool.stop().catch(() => {});
+      try {
+        db.close();
+      } catch {
+        // Already closed or busy — the reject below is the news that matters.
+      }
+      reject(error);
+    });
   });
 }

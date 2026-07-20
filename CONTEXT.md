@@ -36,6 +36,14 @@ An optional link from a Ticket to the same work item in an outside tracker (Jira
 
 A named graph of phases defining *how* work on a Ticket gets done — never *whether* it gets checked (verification is the orchestrator's, always). Workflows live in a single app-level library shared across all Projects. A Project selects exactly one Workflow by reference — one Workflow may drive many Projects — chosen at Project creation and changeable later; every Ticket on the board runs the Project's Workflow. A Workflow's content is versioned and versions are immutable; a Project follows the head version, while a Run pins the version current at claim — editing a Workflow or changing a Project's selection affects future claims, never a running or past attempt. A Workflow is archived, never hard-deleted: archiving removes it from selection but it keeps driving Projects that already reference it, and is reversible. Editing happens in the Workflow's Draft — at most one per Workflow, created from the head version, invisible to claims; publishing validates the Draft and appends it as the new head, discarding throws it away.
 
+### Stage
+
+A node in a Workflow's graph: one unit of agent work run as a single fresh provider session under the Phase Contract. "Phase" is the legacy synonym still carried by code and the Phase Contract's name — Stage is the canonical term. A Stage owns an ordered list of Steps.
+
+### Step
+
+A typed, ordered prompt fragment inside a Stage — "do a web search," "search the codebase," "write the research doc." Steps are authoring structure, not runtime machinery: the orchestrator assembles a Stage's Steps into the single prompt handed to that Stage's one session. The type classifies the Step for the builder UI; it never changes how the engine executes.
+
 ### Default Workflow
 
 The one Workflow the library designates as preselected when a Project is created. Exactly one active Workflow holds the designation at all times; archiving it requires naming a successor in the same action. The first Default Workflow is RPIRD — the standard research → plan → implement → review → document graph.
