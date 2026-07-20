@@ -46,6 +46,9 @@ export function WorkflowLibrary({
   const [query, setQuery] = useState("");
   // The one workflow whose archive needs a successor named (it's the default).
   const [leaving, setLeaving] = useState<WorkflowListing | null>(null);
+  // Delete asks first, like Home's project delete — used workflows soft-delete
+  // (run history keeps resolving), never-used ones go outright.
+  const [deleting, setDeleting] = useState<WorkflowListing | null>(null);
   // Rename lives up here so a fresh creation can land already-renaming.
   const [renamingId, setRenamingId] = useState<number | null>(null);
   // Same fixed-position anchor dance as Home's row menu: the list scrolls,
@@ -305,7 +308,7 @@ export function WorkflowLibrary({
               }
               onDuplicate={() => void act(() => apiPost(`/api/workflows/${row.id}/duplicate`, {}))}
               onMakeDefault={() => void act(() => apiPost(`/api/workflows/${row.id}/default`, {}))}
-              onDelete={() => void act(() => apiDelete(`/api/workflows/${row.id}`))}
+              onDelete={() => setDeleting(row)}
               onToggleArchived={() => toggleArchived(row)}
               onOpen={() => onOpenEditor(row)}
             />
@@ -323,6 +326,33 @@ export function WorkflowLibrary({
           )}
         </ul>
       </div>
+      {deleting && (
+        <div className="wf-overlay" onClick={() => setDeleting(null)}>
+          <div className="wf-dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>Delete “{deleting.name}”?</h3>
+            <p className="dim">
+              It leaves the library and every selection surface. Run history that pinned its
+              versions keeps resolving.
+            </p>
+            <div className="formrow">
+              <button
+                type="button"
+                className="danger"
+                onClick={() => {
+                  const row = deleting;
+                  setDeleting(null);
+                  void act(() => apiDelete(`/api/workflows/${row.id}`));
+                }}
+              >
+                Delete
+              </button>
+              <button type="button" onClick={() => setDeleting(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {leaving && rows && (
         <SuccessorDialog
           leaving={leaving}
