@@ -1,0 +1,5 @@
+{"ts":"2026-07-20T14:57:25.061Z","dir":"in","method":"initialize","id":0,"params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"Q DEV CLI","version":"1.0.0"}}}
+{"ts":"2026-07-20T14:57:25.064Z","dir":"in","method":"notifications/initialized"}
+{"ts":"2026-07-20T14:57:25.065Z","dir":"in","method":"tools/list","id":1,"params":{"_meta":{"progressToken":0}}}
+{"ts":"2026-07-20T14:57:28.653Z","dir":"in","method":"tools/call","id":2,"params":{"_meta":{"progressToken":1},"name":"declare_outcome","arguments":{"reason":"ACP MCP spike","outcome":"success"}}}
+{"ts":"2026-07-20T14:57:28.653Z","dir":"TOOL_CALL","name":"declare_outcome","arguments":{"reason":"ACP MCP spike","outcome":"success"}}
