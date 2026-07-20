@@ -1,10 +1,17 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import type { BusEvent, EventBus } from "./bus.ts";
-import { pickFolderNative, revealInFinder, type Home } from "./home.ts";
+import {
+  listLocalServers,
+  listRepoFiles,
+  pickFolderNative,
+  readRepoFile,
+  revealInFinder,
+  type Home,
+} from "./home.ts";
 import type { PreviewManager } from "./previews.ts";
 import type { Reviews } from "./reviews.ts";
 import type { RunLogRegistry } from "./runlog.ts";
@@ -12,6 +19,7 @@ import { DraftInvalidError, NotFoundError, StateError, ValidationError, type Sto
 import type { DoneSweeper } from "./sweep.ts";
 import { isProvider, PROVIDERS, type PreviewKind, type ProviderConfig } from "./types.ts";
 import { DriftError, type Verdicts } from "./verdicts.ts";
+import { git } from "./worktrees.ts";
 import type { ProviderRegistry } from "./provider.ts";
 import { runWorkflowChat } from "./workflow-chat.ts";
 import { validateDraftGraph } from "./workflow-validate.ts";
@@ -102,11 +110,15 @@ export function createApp(
   // claim pins the new head version; running Runs keep theirs. No audit
   // event by design: the Run's pinned version is the record.
   app.patch("/api/projects/:id", async (c) => {
-    const body = await c.req.json<{ workflowId?: number }>();
-    if (typeof body.workflowId !== "number") {
-      return c.json({ error: "workflowId is required" }, 400);
+    const body = await c.req.json<{ workflowId?: number; workflowConfirmed?: boolean }>();
+    if (typeof body.workflowId === "number") {
+      return c.json(store.setProjectWorkflow(Number(c.req.param("id")), body.workflowId));
     }
-    return c.json(store.setProjectWorkflow(Number(c.req.param("id")), body.workflowId));
+    // "Keep it" on the board's first-view ask: confirm without changing.
+    if (body.workflowConfirmed === true) {
+      return c.json(store.confirmProjectWorkflow(Number(c.req.param("id"))));
+    }
+    return c.json({ error: "workflowId or workflowConfirmed is required" }, 400);
   });
 
   // The app-global Workflow library (ticket 43): identity ops only — content
@@ -318,6 +330,10 @@ export function createApp(
   // the native chooser: the server owns the dialog. Null path = cancelled.
   app.post("/api/pick-folder", async (c) => c.json({ path: await pickFolderNative() }));
 
+  // The right panel's Browser surface: listening localhost ports to offer as
+  // one-click destinations.
+  app.get("/api/local-servers", async (c) => c.json(await listLocalServers()));
+
   // Home's add-project flow: register a repo already on disk. Picking an
   // already-tracked checkout (or a second checkout of a tracked remote)
   // reopens the existing Project instead of creating a duplicate.
@@ -359,6 +375,26 @@ export function createApp(
     if (!repo) throw new StateError(`project ${project.name} has no registered repo`);
     await revealInFinder(repo.path);
     return c.json({ ok: true });
+  });
+
+  // The right panel's Files surface: the repo's file list (tracked +
+  // untracked-not-ignored) and single-file reads.
+  app.get("/api/projects/:id/files", async (c) => {
+    const project = store.getProject(Number(c.req.param("id")));
+    if (!project) return c.json({ error: "not found" }, 404);
+    const repo = store.listRepos(project.id)[0];
+    if (!repo) throw new StateError(`project ${project.name} has no registered repo`);
+    return c.json({ root: path.basename(repo.path), files: await listRepoFiles(repo.path) });
+  });
+
+  app.get("/api/projects/:id/file", async (c) => {
+    const project = store.getProject(Number(c.req.param("id")));
+    if (!project) return c.json({ error: "not found" }, 404);
+    const repo = store.listRepos(project.id)[0];
+    if (!repo) throw new StateError(`project ${project.name} has no registered repo`);
+    const rel = c.req.query("path");
+    if (!rel) return c.json({ error: "path is required" }, 400);
+    return c.json(await readRepoFile(repo.path, rel));
   });
 
   app.get("/api/projects/:id/audit", (c) => {
@@ -422,9 +458,27 @@ export function createApp(
     return c.json(repo, 201);
   });
 
+  // Rows carry gitMissing, derived from disk at read time (types.ts
+  // RepoListItem): a folder registered before `git init` banners on the
+  // board, and the flag clears itself the moment init runs.
   app.get("/api/repos", (c) => {
     const projectId = c.req.query("projectId");
-    return c.json(store.listRepos(projectId === undefined ? undefined : Number(projectId)));
+    const rows = store.listRepos(projectId === undefined ? undefined : Number(projectId));
+    return c.json(
+      rows.map((repo) => ({ ...repo, gitMissing: !existsSync(path.join(repo.path, ".git")) })),
+    );
+  });
+
+  // The board banner's "Initialise git": turn a registered plain folder into
+  // a repo on its recorded target branch. Idempotent — an already-initted
+  // checkout just reports gitMissing: false.
+  app.post("/api/repos/:id/git-init", async (c) => {
+    const repo = store.getRepo(Number(c.req.param("id")));
+    if (!repo) return c.json({ error: "not found" }, 404);
+    if (!existsSync(path.join(repo.path, ".git"))) {
+      await git(repo.path, "init", "-b", repo.targetBranch);
+    }
+    return c.json({ ...repo, gitMissing: false });
   });
 
   app.post("/api/tickets", async (c) => {

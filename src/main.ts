@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
 import path from "node:path";
 import os from "node:os";
 import * as pty from "node-pty";
@@ -39,6 +39,9 @@ function createWindow(apiBase: string, splash?: BrowserWindow): void {
       preload: path.join(app.getAppPath(), "src", "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
+      // The right panel's Browser surface embeds pages in a <webview> so it
+      // can offer real chrome (history, devtools, zoom, cache/cookie clears).
+      webviewTag: true,
     },
   });
 
@@ -111,6 +114,27 @@ ipcMain.on("term:kill", (_event, id: number) => {
   const proc = ptys.get(id);
   ptys.delete(id);
   proc?.kill();
+});
+
+// The Browser surface's <webview> session. Cookie/cache clears run in the
+// main process because the webview element exposes no session API in the
+// renderer. Persistent so logins survive app restarts, like a real browser.
+export const BROWSER_PARTITION = "persist:rs-browser";
+
+ipcMain.handle("browser:clear-cache", () => session.fromPartition(BROWSER_PARTITION).clearCache());
+ipcMain.handle("browser:clear-cookies", () =>
+  session.fromPartition(BROWSER_PARTITION).clearStorageData({ storages: ["cookies"] }),
+);
+
+// Popups from embedded pages go to the system browser, same policy as the
+// main window's target=_blank links.
+app.on("web-contents-created", (_event, contents) => {
+  if (contents.getType() === "webview") {
+    contents.setWindowOpenHandler(({ url }) => {
+      void shell.openExternal(url);
+      return { action: "deny" };
+    });
+  }
 });
 
 // Home's add-project flow picks a local repo natively; null = user cancelled.

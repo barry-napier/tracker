@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { repoSlug } from "./github.ts";
@@ -33,12 +33,17 @@ export class Home {
     }
 
     // Normalize to the checkout root, so picking a subfolder still lands on
-    // the repo — and anything git won't own is refused up front.
+    // the repo. A folder git doesn't own is NOT refused: it registers as-is
+    // (realpath'd, matching --show-toplevel's physical answer) and the board
+    // offers to `git init` it — the gitMissing flag on the repo row is derived
+    // at read time, so it clears itself once init runs.
     let repoPath: string;
+    let gitOwned = true;
     try {
       repoPath = await git(picked, "rev-parse", "--show-toplevel");
     } catch {
-      throw new ValidationError(`not a git repository: ${picked}`);
+      repoPath = realpathSync(picked);
+      gitOwned = false;
     }
 
     const tracked =
@@ -57,13 +62,21 @@ export class Home {
 
     // No origin remote → a local-only Project (docs/tickets/local-only-
     // projects.md): gates skip their PR half and Done merges into the local
-    // target branch. The null remote IS the mode.
-    let remote: string | null;
-    try {
-      remote = await git(repoPath, "remote", "get-url", "origin");
-    } catch {
-      remote = null;
+    // target branch. The null remote IS the mode. A not-yet-initted folder is
+    // the extreme case: no git to ask at all, so both answers are the local-
+    // only defaults ("main" matches what the board's init will create).
+    let remote: string | null = null;
+    if (gitOwned) {
+      try {
+        remote = await git(repoPath, "remote", "get-url", "origin");
+      } catch {
+        remote = null;
+      }
     }
+
+    // All git questions answered before the first store write: a git failure
+    // here must not leave a ghost Project with no Repo row behind.
+    const targetBranch = gitOwned ? await defaultBranch(repoPath) : "main";
 
     const name = path.basename(repoPath);
     const project = this.store.createProject({ name, ticketPrefix: derivePrefix(name) });
@@ -71,7 +84,7 @@ export class Home {
       projectId: project.id,
       path: repoPath,
       githubRemote: remote,
-      targetBranch: await defaultBranch(repoPath),
+      targetBranch,
     });
     return { alreadyTracked: false, project, repo };
   }
@@ -139,6 +152,90 @@ export async function pickFolderNative(): Promise<string | null> {
   }
 }
 
+export type LocalServer = { port: number; command: string };
+
+/**
+ * Parse `lsof -F cn` output into localhost-reachable listeners. Field lines:
+ * `c<command>` names the owning process, `n<addr>` names the socket. Only
+ * loopback or wildcard binds count — a listener bound to a LAN address isn't
+ * openable via localhost.
+ */
+export function parseLsofListeners(stdout: string): LocalServer[] {
+  const byPort = new Map<number, string>();
+  let command = "";
+  for (const line of stdout.split("\n")) {
+    if (line.startsWith("c")) command = line.slice(1);
+    if (!line.startsWith("n")) continue;
+    const match = /^(\*|localhost|127\.0\.0\.1|\[::1?\]):(\d+)$/.exec(line.slice(1).trim());
+    if (!match) continue;
+    const port = Number(match[2]);
+    if (!byPort.has(port)) byPort.set(port, command);
+  }
+  return [...byPort.entries()]
+    .map(([port, cmd]) => ({ port, command: cmd }))
+    .sort((a, b) => a.port - b.port);
+}
+
+/**
+ * Listening TCP servers on this machine, for the right panel's Browser
+ * surface. Same platform posture as the pickers above: the server runs on
+ * the user's Mac, so it can ask `lsof` directly.
+ */
+export async function listLocalServers(): Promise<LocalServer[]> {
+  try {
+    const { stdout } = await promisify(execFile)("lsof", [
+      "-nP", "-iTCP", "-sTCP:LISTEN", "-F", "cn",
+    ]);
+    return parseLsofListeners(stdout);
+  } catch (error) {
+    // lsof exits 1 when nothing matches; missing binary reads the same way —
+    // an empty list, not an error the panel can act on.
+    const stdout = (error as { stdout?: string }).stdout;
+    return typeof stdout === "string" ? parseLsofListeners(stdout) : [];
+  }
+}
+
+/**
+ * The Files surface's tree: tracked plus untracked-but-not-ignored paths,
+ * exactly what a developer thinks of as "the repo's files". Git owns the
+ * ignore rules so we don't reimplement them.
+ */
+export async function listRepoFiles(repoPath: string): Promise<string[]> {
+  const { stdout } = await promisify(execFile)(
+    "git",
+    ["-C", repoPath, "ls-files", "--cached", "--others", "--exclude-standard"],
+    { maxBuffer: 32 * 1024 * 1024 },
+  );
+  return stdout.split("\n").filter(Boolean).sort();
+}
+
+const FILE_READ_LIMIT = 512 * 1024;
+
+/**
+ * Read one repo file for the Files surface. The rel path is resolved and
+ * prefix-checked against the checkout so `..` (or an absolute path) can't
+ * escape it; oversized and binary files are refused rather than truncated.
+ */
+export async function readRepoFile(
+  repoPath: string,
+  relPath: string,
+): Promise<{ content: string } | { error: string }> {
+  const root = realpathSync(repoPath);
+  const resolved = path.resolve(root, relPath);
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+    throw new ValidationError("path escapes the repository");
+  }
+  if (!existsSync(resolved) || !statSync(resolved).isFile()) {
+    throw new ValidationError(`no such file: ${relPath}`);
+  }
+  if (statSync(resolved).size > FILE_READ_LIMIT) {
+    return { error: "file is too large to display" };
+  }
+  const buffer = readFileSync(resolved);
+  if (buffer.includes(0)) return { error: "binary file" };
+  return { content: buffer.toString("utf8") };
+}
+
 /**
  * Open a project's checkout in the OS file manager (ticket 50). Server-side
  * for the same reason as the folder picker: the server runs on the user's
@@ -165,7 +262,9 @@ async function defaultBranch(repoPath: string): Promise<string> {
     const ref = await git(repoPath, "symbolic-ref", "--short", "refs/remotes/origin/HEAD");
     return ref.replace(/^origin\//, "");
   } catch {
-    return git(repoPath, "rev-parse", "--abbrev-ref", "HEAD");
+    // symbolic-ref, not rev-parse: it answers on an unborn branch too (a
+    // freshly-initted repo with no commits), where HEAD is not a revision.
+    return git(repoPath, "symbolic-ref", "--short", "HEAD");
   }
 }
 

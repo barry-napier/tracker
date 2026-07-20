@@ -16,10 +16,11 @@ import {
   type ProjectListItem,
   type ProviderName,
   type Repo,
+  type RepoListItem,
   type TicketWithAcs,
 } from "../server/types.ts";
 import type { SweepResult } from "../server/sweep.ts";
-import { apiGet, apiPost } from "./api.ts";
+import { apiGet, apiPatch, apiPost } from "./api.ts";
 import { PROVIDER_LABELS, repoName } from "./format.ts";
 import { avatarColor, Home } from "./Home.tsx";
 import { ProjectSettings } from "./ProjectSettings.tsx";
@@ -33,7 +34,7 @@ import { STATES } from "./ticketStates.ts";
 import { loadTabs, saveTabs } from "./tabsState.ts";
 import { TerminalDrawer } from "./TerminalDrawer.tsx";
 import { RightSidebar } from "./RightSidebar.tsx";
-import { Icon } from "./icons.tsx";
+import { Icon, type IconName } from "./icons.tsx";
 
 /**
  * The URL is the view state: every surface has a route (hash-based, since
@@ -58,9 +59,12 @@ function useWorkspace() {
   const { pathname } = useLocation();
   const activeId = projectIdFromPath(pathname);
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
+  // Boot splash gate: stays false until the first successful fetch, so the
+  // splash covers both the server boot race and the initial render.
+  const [booted, setBooted] = useState(false);
   const [tabs, setTabs] = useState<Project[]>([]);
   const project = tabs.find((t) => t.id === activeId) ?? null;
-  const [repos, setRepos] = useState<Repo[]>([]);
+  const [repos, setRepos] = useState<RepoListItem[]>([]);
 
   // The first fetch also restores last session's tabs — ids rehydrate from
   // live rows, so vanished projects drop instead of resurrecting.
@@ -77,6 +81,7 @@ function useWorkspace() {
     void apiGet<ProjectListItem[]>("/api/projects?includeHidden=1")
       .then((rows) => {
         setProjects(rows);
+        setBooted(true);
         if (restoredRef.current) return;
         restoredRef.current = true;
         const saved = loadTabs(rows);
@@ -117,6 +122,7 @@ function useWorkspace() {
     void apiGet<Project>(`/api/projects/${activeId}`)
       .then((row) => {
         if (!live) return;
+        setBooted(true);
         setTabs((open) => (open.some((t) => t.id === row.id) ? open : [...open, row]));
       })
       .catch(() => {
@@ -131,7 +137,7 @@ function useWorkspace() {
   useEffect(() => {
     setRepos([]);
     if (activeId === null) return;
-    void apiGet<Repo[]>(`/api/repos?projectId=${activeId}`).then(setRepos);
+    void apiGet<RepoListItem[]>(`/api/repos?projectId=${activeId}`).then(setRepos);
   }, [activeId]);
 
   const openProject = useCallback(
@@ -179,6 +185,7 @@ function useWorkspace() {
   );
 
   return {
+    booted,
     projects,
     tabs,
     activeId,
@@ -220,6 +227,64 @@ export default function App() {
   );
 }
 
+/**
+ * Boot splash: the app chrome renders as normal underneath, but Home's picker
+ * and the view switch hide (via `.app.booting`) and only the wordmark shows,
+ * centered on screen. Once the first fetch lands the wordmark flies (FLIP)
+ * into Home's wordmark — or fades out when the session restored straight into
+ * a project board — then onDone lets the hidden pieces fade in.
+ */
+function BootSplash({ booted, onDone }: { booted: boolean; onDone: () => void }) {
+  const wordmarkRef = useRef<HTMLHeadingElement>(null);
+  const shownAt = useRef(performance.now());
+  const doneRef = useRef(onDone);
+  doneRef.current = onDone;
+
+  useEffect(() => {
+    if (!booted) return;
+    // Hold briefly so a near-instant boot doesn't strobe the splash.
+    const hold = Math.max(0, 400 - (performance.now() - shownAt.current));
+    const timer = window.setTimeout(() => {
+      const splash = wordmarkRef.current;
+      const target = document.querySelector<HTMLElement>(".home .wordmark");
+      if (!splash) {
+        doneRef.current();
+        return;
+      }
+      if (target) {
+        // The real wordmark stays hidden by `.app.booting` until onDone, so
+        // only the splash copy is visible; it lands exactly, then hands off.
+        const from = splash.getBoundingClientRect();
+        const to = target.getBoundingClientRect();
+        const flight = splash.animate(
+          [
+            { transform: "translate(0, 0)" },
+            { transform: `translate(${to.left - from.left}px, ${to.top - from.top}px)` },
+          ],
+          { duration: 500, easing: "cubic-bezier(0.3, 0.9, 0.35, 1)", fill: "forwards" },
+        );
+        flight.onfinish = () => doneRef.current();
+      } else {
+        const fade = splash.animate([{ opacity: 1 }, { opacity: 0 }], {
+          duration: 350,
+          easing: "ease-out",
+          fill: "forwards",
+        });
+        fade.onfinish = () => doneRef.current();
+      }
+    }, hold);
+    return () => window.clearTimeout(timer);
+  }, [booted]);
+
+  return (
+    <div className="boot-splash" aria-hidden="true">
+      <h1 className="wordmark" ref={wordmarkRef}>
+        tracker
+      </h1>
+    </div>
+  );
+}
+
 /** Topbar + home-nav chrome around every route; state flows via Outlet context. */
 function Shell() {
   const boardApi = useBoard();
@@ -235,6 +300,9 @@ function Shell() {
   // The terminal drawer (⌘J): the main card slides up and a shell appears
   // beneath it. Closing hides the drawer but keeps the shell session alive.
   const [termOpen, setTermOpen] = useState(false);
+  // Boot splash: chrome renders from the start, but Home's picker and the
+  // view switch stay hidden until the wordmark lands, then fade in.
+  const [booting, setBooting] = useState(true);
   // The right sidebar (⌘L): a surface picker (browser, terminal, …) beside
   // the main card.
   const [rightOpen, setRightOpen] = useState(false);
@@ -255,7 +323,7 @@ function Shell() {
   }, []);
 
   return (
-    <div className="app">
+    <div className={booting ? "app booting" : "app"}>
       <header className="topbar">
         <button
           type="button"
@@ -357,8 +425,9 @@ function Shell() {
       </main>
           <TerminalDrawer open={termOpen} onClose={() => setTermOpen(false)} />
         </div>
-        <RightSidebar open={rightOpen} />
+        <RightSidebar open={rightOpen} projectId={project?.id ?? null} />
       </div>
+      {booting && <BootSplash booted={workspace.booted} onDone={() => setBooting(false)} />}
     </div>
   );
 }
@@ -486,6 +555,96 @@ function TicketRoute() {
   );
 }
 
+/**
+ * The board's one-time ask: a project created without an explicit workflow
+ * choice banners until the user keeps the default or picks another (via
+ * settings, where any pick confirms server-side). Local state hides it
+ * immediately on "Keep" — the tab's cached project row updates on next hydrate.
+ */
+function WorkflowConfirmBanner({ project }: { project: Project }) {
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const [confirmed, setConfirmed] = useState(false);
+  const [name, setName] = useState<string | null>(null);
+
+  useEffect(() => {
+    void apiGet<WorkflowListing[]>("/api/workflows")
+      .then((rows) => setName(rows.find((w) => w.id === project.workflowId)?.name ?? null))
+      .catch(() => {});
+  }, [project.workflowId]);
+
+  // A pick inside settings confirms server-side; the tab's cached row can't
+  // know. Re-check the live row whenever the route changes (settings closing
+  // included) so the banner doesn't outlive the answer.
+  useEffect(() => {
+    void apiGet<Project>(`/api/projects/${project.id}`)
+      .then((live) => setConfirmed(live.workflowConfirmed))
+      .catch(() => {});
+  }, [project.id, pathname]);
+
+  if (confirmed) return null;
+  const keep = async () => {
+    setConfirmed(true);
+    await apiPatch(`/api/projects/${project.id}`, { workflowConfirmed: true }).catch(() =>
+      setConfirmed(false),
+    );
+  };
+  return (
+    <div className="banner wf-confirm">
+      <span>
+        This project uses the <strong>{name ?? "default"}</strong> workflow. Keep it or pick
+        another?
+      </span>
+      <button type="button" onClick={() => void keep()}>
+        Keep it
+      </button>
+      <button type="button" onClick={() => navigate(`/projects/${project.id}/settings`)}>
+        Pick another…
+      </button>
+    </div>
+  );
+}
+
+/**
+ * A picked folder git doesn't own still opens as a board (the server
+ * registers it uninitialised); this is the board's offer to `git init` it.
+ * Local state hides the banner on success — the server's gitMissing flag is
+ * derived from disk, so the next repos fetch agrees on its own.
+ */
+function GitInitBanner({ repo }: { repo: RepoListItem }) {
+  const [state, setState] = useState<"idle" | "busy" | "done" | "failed">("idle");
+
+  if (state === "done") return null;
+  const init = async () => {
+    setState("busy");
+    try {
+      await apiPost(`/api/repos/${repo.id}/git-init`, {});
+      setState("done");
+    } catch {
+      setState("failed");
+    }
+  };
+  return (
+    <div className="banner git-init">
+      <span>
+        {state === "failed" ? (
+          <>
+            Couldn’t initialise git in <strong>{repoName(repo)}</strong> — try again?
+          </>
+        ) : (
+          <>
+            <strong>{repoName(repo)}</strong> isn’t a git repository yet. Tracker needs one
+            to run tickets.
+          </>
+        )}
+      </span>
+      <button type="button" disabled={state === "busy"} onClick={() => void init()}>
+        {state === "busy" ? "Initialising…" : "Initialise git"}
+      </button>
+    </div>
+  );
+}
+
 function Board({
   project,
   tickets,
@@ -493,11 +652,15 @@ function Board({
 }: {
   project: Project;
   tickets: TicketWithAcs[];
-  repos: Repo[];
+  repos: RepoListItem[];
 }) {
   const navigate = useNavigate();
+  const uninitialized = repos.find((r) => r.gitMissing) ?? null;
   return (
-    <div className="board">
+    <>
+      {uninitialized && <GitInitBanner key={uninitialized.id} repo={uninitialized} />}
+      {!project.workflowConfirmed && <WorkflowConfirmBanner key={project.id} project={project} />}
+      <div className="board">
       {STATES.map(({ key, label }) => {
         const column = tickets.filter((t) => t.state === key);
         return (
@@ -524,37 +687,83 @@ function Board({
           </section>
         );
       })}
-    </div>
+      </div>
+    </>
   );
 }
 
-const THEME_CYCLE: Record<ThemePref, ThemePref> = {
-  system: "light",
-  light: "dark",
-  dark: "system",
-};
 const THEME_LABELS: Record<ThemePref, string> = {
   system: "Auto",
   light: "Light",
   dark: "Dark",
 };
+const THEME_ICONS = {
+  system: "theme-auto",
+  light: "sun",
+  dark: "moon",
+} as const satisfies Record<ThemePref, IconName>;
 
 function ThemeToggle() {
   const [pref, setPref] = useState<ThemePref>(getThemePref);
-  const cycle = () => {
-    const next = THEME_CYCLE[pref];
-    setThemePref(next);
-    setPref(next);
-  };
+  const [open, setOpen] = useState(false);
+
+  // Any outside click or Escape closes the menu, matching the sort popover.
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("click", close);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("click", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
   return (
-    <button
-      type="button"
-      className="themebtn"
-      onClick={cycle}
-      title="Cycle color scheme (auto / light / dark)"
-    >
-      ◐ {THEME_LABELS[pref]}
-    </button>
+    <span className="theme-picker">
+      <button
+        type="button"
+        className="themebtn"
+        title="Color scheme"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={(e) => {
+          // The document-level closer sees this click too; stop it so the
+          // toggle isn't immediately undone.
+          e.stopPropagation();
+          setOpen((o) => !o);
+        }}
+      >
+        <Icon name={THEME_ICONS[pref]} size={14} /> {THEME_LABELS[pref]}
+      </button>
+      {open && (
+        <div className="row-menu sort-menu theme-menu" role="menu">
+          {(Object.keys(THEME_LABELS) as ThemePref[]).map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="menuitemradio"
+              aria-checked={pref === option}
+              className="menu-item"
+              onClick={() => {
+                setThemePref(option);
+                setPref(option);
+                setOpen(false);
+              }}
+            >
+              <span className="menu-tick">
+                {pref === option && <Icon name="check" size={14} />}
+              </span>
+              <Icon name={THEME_ICONS[option]} size={14} />
+              {THEME_LABELS[option]}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
   );
 }
 

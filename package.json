@@ -60,7 +60,8 @@
     "@xterm/xterm": "^6.0.0",
     "@xyflow/react": "^12.11.2",
     "hono": "^4.12.30",
-    "node-pty": "^1.1.0"
+    "node-pty": "^1.1.0",
+    "shiki": "^4.3.1"
   },
   "allowScripts": {
     "node-pty@1.1.0": true

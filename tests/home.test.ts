@@ -1,4 +1,4 @@
-import { mkdirSync, realpathSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -56,6 +56,18 @@ describe("Home: add a local repo", () => {
     expect(res.json.repo.targetBranch).toBe("trunk");
   });
 
+  test("a freshly-initted repo with no commits registers on its unborn branch", async () => {
+    const server = await bootServer();
+    // init only — no commit, no remote: HEAD is unborn, so `rev-parse HEAD`
+    // has nothing to answer with. Regression: this 500'd as an internal error.
+    const dir = path.join(mkdtempSync(path.join(tmpdir(), "tracker-git-")), "fresh");
+    git(path.dirname(dir), "init", "-b", "main", dir);
+
+    const res = await api(server, "POST", "/api/projects/local", { path: dir });
+    expect(res.status).toBe(201);
+    expect(res.json.repo).toMatchObject({ githubRemote: null, targetBranch: "main" });
+  });
+
   test("picking a subfolder lands on the checkout root", async () => {
     const server = await bootServer();
     const source = initLocalRepo("widget-press");
@@ -91,15 +103,32 @@ describe("Home: add a local repo", () => {
     expect(res.json.project.id).toBe(project.id);
   });
 
-  test("a folder that is not a git repository is a 400, with no ghost Project", async () => {
+  test("a folder git doesn't own registers uninitialised, and git-init cures it", async () => {
     const server = await bootServer();
-    const plain = path.join(tmpdir(), `tracker-not-a-repo-${process.pid}`);
+    const plain = path.join(mkdtempSync(path.join(tmpdir(), "tracker-plain-")), "no-git-yet");
     mkdirSync(plain, { recursive: true });
 
+    // Registers instead of refusing: the board owns the "initialise git?" ask.
     const res = await api(server, "POST", "/api/projects/local", { path: plain });
-    expect(res.status).toBe(400);
-    expect(res.json.error).toContain("not a git repository");
-    expect((await api(server, "GET", "/api/projects")).json).toHaveLength(0);
+    expect(res.status).toBe(201);
+    expect(res.json.repo).toMatchObject({ githubRemote: null, targetBranch: "main" });
+
+    const repoId = res.json.repo.id;
+    const listed = (await api(server, "GET", `/api/repos?projectId=${res.json.project.id}`)).json;
+    expect(listed[0].gitMissing).toBe(true);
+
+    // Re-picking the same folder reopens, never duplicates.
+    const again = await api(server, "POST", "/api/projects/local", { path: plain });
+    expect(again.json.alreadyTracked).toBe(true);
+
+    const init = await api(server, "POST", `/api/repos/${repoId}/git-init`, {});
+    expect(init.status).toBe(200);
+    expect(init.json.gitMissing).toBe(false);
+    expect(git(plain, "symbolic-ref", "--short", "HEAD")).toBe("main");
+
+    // Derived from disk, so the listing agrees without any store write.
+    const after = (await api(server, "GET", `/api/repos?projectId=${res.json.project.id}`)).json;
+    expect(after[0].gitMissing).toBe(false);
   });
 
   test("a missing directory or missing path is a 400, not a crash", async () => {
@@ -207,5 +236,62 @@ describe("Home: recent projects ordering (ticket A)", () => {
     names = (await api(server, "GET", "/api/projects")).json.map((p: any) => p.name);
     expect(names).toEqual(["First", "Second"]);
     void second;
+  });
+});
+
+describe("Home: local servers (Browser surface)", () => {
+  test("parses lsof field output into localhost listeners, deduped and sorted", async () => {
+    const { parseLsofListeners } = await import("../src/server/home.ts");
+    const stdout = [
+      "p101", "cnode", "n*:4400", "n127.0.0.1:4400", // dual-stack dupe
+      "p202", "cControlCenter", "n*:5000", "n*:7000",
+      "p303", "crapportd", "n192.168.1.10:49161", // LAN-only bind: excluded
+      "p404", "cvite", "nlocalhost:5199",
+      "p505", "cstable", "n[::1]:9277",
+    ].join("\n");
+    expect(parseLsofListeners(stdout)).toEqual([
+      { port: 4400, command: "node" },
+      { port: 5000, command: "ControlCenter" },
+      { port: 5199, command: "vite" },
+      { port: 7000, command: "ControlCenter" },
+      { port: 9277, command: "stable" },
+    ]);
+  });
+
+  test("GET /api/local-servers answers with a JSON array", async () => {
+    const server = await bootServer();
+    const res = await api(server, "GET", "/api/local-servers");
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.json)).toBe(true);
+  });
+});
+
+describe("Home: repo files (Files surface)", () => {
+  test("lists tracked files with the repo's basename as root", async () => {
+    const server = await bootServer();
+    const { project } = await seedWorkspace(server);
+    const res = await api(server, "GET", `/api/projects/${project.id}/files`);
+    expect(res.status).toBe(200);
+    expect(res.json.root).toBe("fixture-app");
+    expect(res.json.files).toContain("README.md");
+  });
+
+  test("reads a file's content and refuses traversal outside the repo", async () => {
+    const server = await bootServer();
+    const { project } = await seedWorkspace(server);
+    const ok = await api(
+      server,
+      "GET",
+      `/api/projects/${project.id}/file?path=${encodeURIComponent("README.md")}`,
+    );
+    expect(ok.status).toBe(200);
+    expect(ok.json.content).toContain("# scratch");
+
+    const escape = await api(
+      server,
+      "GET",
+      `/api/projects/${project.id}/file?path=${encodeURIComponent("../../etc/passwd")}`,
+    );
+    expect(escape.status).toBe(400);
   });
 });

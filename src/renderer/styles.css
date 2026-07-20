@@ -302,7 +302,19 @@ body {
   gap: 0.15rem;
 }
 
+.theme-picker {
+  position: relative;
+  display: inline-flex;
+}
+
+.theme-picker .theme-menu {
+  min-width: 120px;
+}
+
 .themebtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   background: none;
   border: none;
   border-radius: var(--radius-md);
@@ -564,6 +576,34 @@ body {
   padding: 0.4rem 1rem;
   border-bottom: 1px solid var(--danger-border);
   background: var(--danger-bg);
+}
+
+/* The board's one-time workflow ask: informational, not an error. */
+.wf-confirm {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border-bottom-color: var(--info-border);
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+
+.wf-confirm span {
+  flex: 1;
+}
+
+/* The board's git-init offer: same informational posture as .wf-confirm. */
+.git-init {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border-bottom-color: var(--info-border);
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+
+.git-init span {
+  flex: 1;
 }
 
 .props {
@@ -1394,7 +1434,8 @@ body {
   padding: 14vh 2rem 2rem;
 }
 
-.home .wordmark {
+.home .wordmark,
+.boot-splash .wordmark {
   font-size: 8rem;
   margin: 0;
   font-weight: 700;
@@ -1407,8 +1448,41 @@ body {
   user-select: none;
 }
 
+/* Boot splash: the chrome is there from the start, but only the wordmark
+   shows — centered on screen — until the first fetch lands; then it FLIPs
+   into `.home .wordmark` and the hidden pieces fade in (see BootSplash). */
+.boot-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.boot-splash .wordmark {
+  will-change: transform;
+}
+
+/* Hidden while booting; the class drops when the wordmark lands, so these
+   transition in right as it settles. */
+.home-picker,
+.home-nav {
+  transition: opacity 300ms ease;
+}
+
+.app.booting .home-picker,
+.app.booting .home-nav {
+  opacity: 0;
+}
+
+.app.booting .home .wordmark {
+  visibility: hidden;
+}
+
 .home-picker {
-  width: min(480px, 100%);
+  width: min(560px, 100%);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -2181,12 +2255,6 @@ body {
   background: var(--surface-raised);
   color: var(--text-base);
   box-shadow: var(--shadow-raised);
-}
-
-/* Workflow rows carry more per-line (phases, counts, actions) than project
-   rows — give the library a bit more room than the base picker's 480px. */
-.wf-picker {
-  width: min(560px, 100%);
 }
 
 .wf-list {
@@ -3295,20 +3363,28 @@ button.wfc-pill.label { cursor: pointer; }
 /* -- right sidebar (⌘L): a surface picker styled like the main card -- */
 
 .right-sidebar {
+  position: relative;
   flex: none;
   width: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  border-radius: var(--radius-lg);
-  transition: width 0.22s ease, margin 0.22s ease;
 }
 
 .right-sidebar.open {
-  width: min(400px, 42vw);
   margin: 0 0.55rem 0.55rem 0;
-  background: var(--surface-panel);
-  box-shadow: var(--shadow-raised);
+}
+
+/* Left-edge drag handle for resizing. */
+.rs-resize {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: col-resize;
+  z-index: 1;
+  touch-action: none;
 }
 
 .rs-empty {
@@ -3400,12 +3476,29 @@ button.wfc-pill.label { cursor: pointer; }
 }
 
 .rs-browser {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
   padding: 0 0.5rem 0.5rem;
+}
+
+.rs-browser-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.rs-browser-bar .icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.rs-url {
+  flex: 1;
+  min-width: 0;
 }
 
 .rs-browser input {
@@ -3420,11 +3513,103 @@ button.wfc-pill.label { cursor: pointer; }
   padding: 0.35rem 0.6rem;
 }
 
-.rs-browser iframe {
+.rs-view {
   flex: 1;
+  min-height: 0;
+  display: flex;
   border: 1px solid var(--border-muted);
   border-radius: var(--radius-md);
+  overflow: hidden;
   background: #fff;
+}
+
+.rs-view iframe,
+.rs-view webview {
+  flex: 1;
+  border: none;
+  background: #fff;
+}
+
+/* Device toolbar: constrain the page to a phone-width column. */
+.rs-view-device {
+  background: var(--surface-sunken);
+  justify-content: center;
+  padding: 0.75rem 0;
+}
+
+.rs-view-device iframe,
+.rs-view-device webview {
+  flex: none;
+  width: 375px;
+  max-width: 100%;
+  background: #fff;
+  border: 1px solid var(--border-muted);
+}
+
+/* -- ⋮ menu -- */
+
+.rs-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.rs-browser-menu {
+  position: absolute;
+  top: 2.2rem;
+  right: 0.5rem;
+  z-index: 31;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  padding: 0.3rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.rs-menu-item {
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  color: var(--text-base);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+}
+
+.rs-menu-item:hover:not(:disabled) {
+  background: var(--surface-sunken);
+}
+
+.rs-menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.rs-menu-zoom {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0.3rem 0;
+  padding: 0.3rem 0.6rem;
+  border-top: 1px solid var(--border-muted);
+  border-bottom: 1px solid var(--border-muted);
+  font-size: var(--fs-sm);
+}
+
+.rs-menu-zoom > span:first-child {
+  flex: 1;
+}
+
+.rs-zoom-value {
+  min-width: 3ch;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
 }
 
 .rs-hint {
@@ -3433,6 +3618,220 @@ button.wfc-pill.label { cursor: pointer; }
   color: var(--text-muted);
   text-align: center;
   padding-top: 2rem;
+}
+
+/* -- Browser surface: local-servers picker -- */
+
+.rs-servers {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+}
+
+.rs-servers .rs-hint {
+  padding-top: 0.25rem;
+  font-size: var(--fs-xs);
+}
+
+.rs-servers-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.rs-server-list {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.rs-server {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+  text-align: left;
+  color: var(--text-base);
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border-muted);
+  cursor: pointer;
+}
+
+.rs-server:last-child {
+  border-bottom: none;
+}
+
+.rs-server:hover {
+  background: var(--surface-sunken);
+}
+
+.rs-server-name {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.rs-server-name strong {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-server-name span {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.rs-server-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok-fg);
+}
+
+/* -- Files surface: repo tree -- */
+
+.rs-files {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0 0.5rem 0.5rem;
+}
+
+.rs-files-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.rs-files-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-files-count {
+  flex: 1;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.rs-files-search {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-base);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  padding: 0.35rem 0.6rem;
+}
+
+.rs-tree {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.rs-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.22rem 0.5rem;
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  color: var(--text-base);
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rs-tree-row:hover {
+  background: var(--surface-sunken);
+}
+
+.rs-tree-dir {
+  color: var(--text-muted);
+}
+
+.rs-tree-dir .rs-tree-name {
+  color: var(--text-base);
+}
+
+.rs-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-file-badge {
+  flex: none;
+  width: 1.6em;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.rs-file-body {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.75rem;
+  white-space: pre;
+}
+
+/* Shiki wraps its output in a styled <pre>; the container keeps the frame,
+   the inner pre brings the theme's background and colors. */
+.rs-file-code {
+  padding: 0;
+  display: flex;
+}
+
+.rs-file-code pre {
+  flex: 1;
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  overflow: auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
 }
 
 /* -- terminal drawer (⌘J): the main card slides up, a shell slides in.

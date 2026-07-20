@@ -9,9 +9,14 @@ import type { ComponentProps } from "react";
 const VIEWBOXES: Partial<Record<IconName, string>> = {
   "grid-plus": "0 0 16 16",
   "dots-horizontal": "0 0 16 16",
+  "dots-vertical": "0 0 16 16",
+  refresh: "0 0 16 16",
   "arrows-sort": "0 0 16 16",
   search: "0 0 16 16",
   sparkle: "0 0 16 16",
+  "theme-auto": "0 0 16 16",
+  sun: "0 0 16 16",
+  moon: "0 0 16 16",
   bolt: "0 0 16 16",
   globe: "0 0 16 16",
   book: "0 0 16 16",
@@ -143,6 +148,23 @@ const PATHS = {
   "chevron-left": (
     <path d="M12 15L7 10L12 5" stroke="currentColor" strokeLinecap="square" />
   ),
+  "chevron-right": (
+    <path d="M8 15L13 10L8 5" stroke="currentColor" strokeLinecap="square" />
+  ),
+  refresh: (
+    <path
+      d="M13.5 8A5.5 5.5 0 1 1 12 4.25M13.5 2.75V4.9H11.35"
+      stroke="currentColor"
+      strokeLinecap="square"
+    />
+  ),
+  "dots-vertical": (
+    <>
+      <circle cx="8" cy="3.5" r="0.75" stroke="currentColor" />
+      <circle cx="8" cy="8" r="0.75" stroke="currentColor" />
+      <circle cx="8" cy="12.5" r="0.75" stroke="currentColor" />
+    </>
+  ),
   "arrows-sort": (
     <path
       d="M5 3.5V13M5 13L2.5 10.5M5 13L7.5 10.5M11 12.5V3M11 3L8.5 5.5M11 3L13.5 5.5"
@@ -155,6 +177,26 @@ const PATHS = {
       d="M5 11.9657L8.37838 14.7529L15 5.83398"
       stroke="currentColor"
       strokeLinecap="square"
+    />
+  ),
+  "theme-auto": (
+    <>
+      <circle cx="8" cy="8" r="5.5" stroke="currentColor" />
+      <path d="M8 2.5A5.5 5.5 0 0 0 8 13.5Z" fill="currentColor" />
+    </>
+  ),
+  sun: (
+    <path
+      d="M8 1.5V3M8 13V14.5M14.5 8H13M3 8H1.5M12.6 3.4L11.5 4.5M4.5 11.5L3.4 12.6M12.6 12.6L11.5 11.5M4.5 4.5L3.4 3.4M11 8C11 9.65685 9.65685 11 8 11C6.34315 11 5 9.65685 5 8C5 6.34315 6.34315 5 8 5C9.65685 5 11 6.34315 11 8Z"
+      stroke="currentColor"
+      strokeLinecap="square"
+    />
+  ),
+  moon: (
+    <path
+      d="M13.5 9.5C12.8 9.8 12 10 11.2 10C7.9 10 6 8.1 6 4.8C6 4 6.2 3.2 6.5 2.5C4.2 3.2 2.5 5.4 2.5 8C2.5 11 5 13.5 8 13.5C10.6 13.5 12.8 11.8 13.5 9.5Z"
+      stroke="currentColor"
+      strokeLinejoin="round"
     />
   ),
   sparkle: (
