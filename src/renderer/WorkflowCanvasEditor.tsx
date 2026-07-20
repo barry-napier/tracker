@@ -102,23 +102,22 @@ export function WorkflowCanvasEditor({
     if (toWrite === null) return;
     await apiPut(`/api/workflows/${workflow.id}/draft`, toWrite);
   }, [workflow.id]);
-  const apply = useCallback(
-    (next: DraftGraph) => {
-      setGraph((current) => {
-        if (current === null || next === current) return current;
-        // The first edit is what cuts the Draft (banner + library flag).
-        setHasDraft(true);
-        setViolations([]);
-        pending.current = next;
-        if (timer.current !== null) window.clearTimeout(timer.current);
-        timer.current = window.setTimeout(() => {
-          void flush().catch((e) => setError(errorMessage(e)));
-        }, 400);
-        return next;
-      });
-    },
-    [flush],
-  );
+  // Not a functional setGraph update on purpose: the side effects (draft
+  // flag, violation reset, debounce timer) must run exactly once per edit,
+  // and an updater body re-runs under StrictMode. Edits always derive from
+  // the graph of the render they happened in, so the closure value is right.
+  const apply = (next: DraftGraph) => {
+    if (graph === null || next === graph) return;
+    setGraph(next);
+    // The first edit is what cuts the Draft (banner + library flag).
+    setHasDraft(true);
+    setViolations([]);
+    pending.current = next;
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => {
+      void flush().catch((e) => setError(errorMessage(e)));
+    }, 400);
+  };
 
   const publish = async () => {
     try {
