@@ -31,6 +31,8 @@ import { ReviewWizard } from "./ReviewWizard.tsx";
 import { TicketDetail } from "./TicketDetail.tsx";
 import { STATES } from "./ticketStates.ts";
 import { loadTabs, saveTabs } from "./tabsState.ts";
+import { TerminalDrawer } from "./TerminalDrawer.tsx";
+import { RightSidebar } from "./RightSidebar.tsx";
 import { Icon } from "./icons.tsx";
 
 /**
@@ -230,6 +232,28 @@ function Shell() {
   const inCanvasEditor = /^\/workflows\/\d+/.test(pathname);
   const workflowsActive = pathname.startsWith("/workflows");
 
+  // The terminal drawer (⌘J): the main card slides up and a shell appears
+  // beneath it. Closing hides the drawer but keeps the shell session alive.
+  const [termOpen, setTermOpen] = useState(false);
+  // The right sidebar (⌘L): a surface picker (browser, terminal, …) beside
+  // the main card.
+  const [rightOpen, setRightOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const key = e.key.toLowerCase();
+      if (key === "j") {
+        e.preventDefault();
+        setTermOpen((open) => !open);
+      } else if (key === "l") {
+        e.preventDefault();
+        setRightOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <div className="app">
       <header className="topbar">
@@ -275,6 +299,24 @@ function Shell() {
         ))}
         <span className="topbar-actions">
           <ThemeToggle />
+          <button
+            type="button"
+            className="icon-btn"
+            title="Toggle terminal drawer (⌘J)"
+            aria-pressed={termOpen}
+            onClick={() => setTermOpen((open) => !open)}
+          >
+            <Icon name={termOpen ? "layout-bottom-partial" : "layout-bottom"} size={16} />
+          </button>
+          <button
+            type="button"
+            className="icon-btn"
+            title="Toggle right sidebar (⌘L)"
+            aria-pressed={rightOpen}
+            onClick={() => setRightOpen((open) => !open)}
+          >
+            <Icon name={rightOpen ? "layout-right-partial" : "layout-right"} size={16} />
+          </button>
           {project && (
             <button
               type="button"
@@ -287,7 +329,9 @@ function Shell() {
           )}
         </span>
       </header>
-      <main className="main">
+      <div className="app-body">
+        <div className="app-center">
+          <main className="main">
         {boardApi.error && (
           <p className="banner error">Can't reach the Tracker server: {boardApi.error}</p>
         )}
@@ -311,6 +355,10 @@ function Shell() {
           </nav>
         )}
       </main>
+          <TerminalDrawer open={termOpen} onClose={() => setTermOpen(false)} />
+        </div>
+        <RightSidebar open={rightOpen} />
+      </div>
     </div>
   );
 }

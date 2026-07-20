@@ -1,5 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 import path from "node:path";
+import os from "node:os";
+import * as pty from "node-pty";
 import { appProviders } from "./server/providers/registry.ts";
 import { startServer, type TrackerServer } from "./server/index.ts";
 
@@ -64,6 +66,51 @@ app.on("second-instance", () => {
     if (win.isMinimized()) win.restore();
     win.focus();
   }
+});
+
+// Terminal drawer PTYs: keyed by id, killed when their window goes away.
+// The shell survives drawer toggles — only an explicit kill (or window
+// close) ends the session.
+const ptys = new Map<number, pty.IPty>();
+let nextPtyId = 1;
+
+ipcMain.handle("term:spawn", (event, opts: { cols: number; rows: number }) => {
+  const shellPath = process.env.SHELL ?? "/bin/zsh";
+  const proc = pty.spawn(shellPath, ["-l"], {
+    name: "xterm-256color",
+    cols: opts.cols,
+    rows: opts.rows,
+    cwd: os.homedir(),
+    env: process.env as Record<string, string>,
+  });
+  const id = nextPtyId++;
+  ptys.set(id, proc);
+  const sender = event.sender;
+  proc.onData((data) => {
+    if (!sender.isDestroyed()) sender.send("term:data", { id, data });
+  });
+  proc.onExit(({ exitCode }) => {
+    ptys.delete(id);
+    if (!sender.isDestroyed()) sender.send("term:exit", { id, exitCode });
+  });
+  sender.once("destroyed", () => {
+    if (ptys.delete(id)) proc.kill();
+  });
+  return id;
+});
+
+ipcMain.on("term:input", (_event, { id, data }: { id: number; data: string }) => {
+  ptys.get(id)?.write(data);
+});
+
+ipcMain.on("term:resize", (_event, { id, cols, rows }: { id: number; cols: number; rows: number }) => {
+  ptys.get(id)?.resize(cols, rows);
+});
+
+ipcMain.on("term:kill", (_event, id: number) => {
+  const proc = ptys.get(id);
+  ptys.delete(id);
+  proc?.kill();
 });
 
 // Home's add-project flow picks a local repo natively; null = user cancelled.

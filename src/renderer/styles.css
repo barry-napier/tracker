@@ -3275,3 +3275,217 @@ button.wfc-pill.label { cursor: pointer; }
 }
 .wfc-linklike.danger { color: var(--danger-fg); }
 .wfc-hint { font-size: var(--fs-xs); }
+
+/* -- app body: the main card (plus terminal drawer) with the right sidebar
+   beside them -- */
+
+.app-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.app-center {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* -- right sidebar (⌘L): a surface picker styled like the main card -- */
+
+.right-sidebar {
+  flex: none;
+  width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  transition: width 0.22s ease, margin 0.22s ease;
+}
+
+.right-sidebar.open {
+  width: min(400px, 42vw);
+  margin: 0 0.55rem 0.55rem 0;
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-raised);
+}
+
+.rs-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 1rem;
+  text-align: center;
+}
+
+.rs-empty h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.rs-empty > p {
+  margin: 0.25rem 0 1rem;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.rs-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+}
+
+.rs-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 0.85rem;
+  text-align: left;
+  font: inherit;
+  color: var(--text-base);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+}
+
+.rs-card:hover:not(:disabled) {
+  background: var(--overlay-hover);
+}
+
+.rs-card:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.rs-card strong {
+  font-size: var(--fs-sm);
+}
+
+.rs-card span {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+.rs-surface {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rs-header {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.5rem;
+}
+
+.rs-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.rs-term {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.rs-term .term-pane {
+  background: none;
+}
+
+.rs-browser {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0 0.5rem 0.5rem;
+}
+
+.rs-browser input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-base);
+  background: var(--surface-sunken);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  padding: 0.35rem 0.6rem;
+}
+
+.rs-browser iframe {
+  flex: 1;
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
+.rs-hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  text-align: center;
+  padding-top: 2rem;
+}
+
+/* -- terminal drawer (⌘J): the main card slides up, a shell slides in.
+   No card chrome of its own — it sits directly on the app background. -- */
+
+.term-drawer {
+  flex: none;
+  height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: height 0.22s ease;
+}
+
+.term-drawer.open {
+  height: min(320px, 45vh);
+}
+
+.term-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 2px 0.65rem 0;
+}
+
+.term-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* Splits draw their dividers with a 1px gap over the split's own background. */
+.term-split {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  gap: 1px;
+  background: var(--border-base);
+}
+.term-split.row { flex-direction: row; }
+.term-split.col { flex-direction: column; }
+
+.term-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-app);
+  padding: 0.5rem 0.65rem;
+  box-sizing: border-box;
+}
+
+.term-pane .xterm {
+  height: 100%;
+}
