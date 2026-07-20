@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E2E-1 · Machine-readable widget list — Visual Recap</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --ink: #1a1d21;
+    --muted: #5c6570;
+    --line: #e2e6ea;
+    --accent: #2f6fed;
+    --add: #1f7a3d;
+    --add-bg: #e9f6ee;
+    --code-bg: #f1f3f5;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a;
+      --card: #1d2126;
+      --ink: #e8eaed;
+      --muted: #9aa4ae;
+      --line: #30363d;
+      --accent: #6ea0ff;
+      --add: #56c078;
+      --add-bg: #17301f;
+      --code-bg: #262b31;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 2.5rem 1.25rem 4rem;
+  }
+  main { max-width: 46rem; margin: 0 auto; display: grid; gap: 1.25rem; }
+  .ticket {
+    font: 600 0.8rem/1 var(--mono);
+    color: var(--accent);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  h1 { font-size: 1.6rem; line-height: 1.25; margin-top: 0.35rem; }
+  .lede { color: var(--muted); margin-top: 0.5rem; }
+  section {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1.4rem 1.5rem;
+  }
+  h2 {
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin-bottom: 0.9rem;
+  }
+  code, pre {
+    font-family: var(--mono);
+    font-size: 0.86em;
+    background: var(--code-bg);
+    border-radius: 5px;
+  }
+  code { padding: 0.1em 0.35em; }
+  pre { padding: 0.85rem 1rem; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+  .flow {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    flex-wrap: wrap;
+  }
+  .flow .node {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0.7rem 1rem;
+    text-align: center;
+  }
+  .flow .node .name { font: 600 0.9rem var(--mono); }
+  .flow .node .desc { font-size: 0.78rem; color: var(--muted); margin-top: 0.2rem; }
+  .flow .arrow { color: var(--muted); font-size: 1.2rem; }
+  .files { display: grid; gap: 0.9rem; }
+  .file { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .file .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.75rem;
+    padding: 0.55rem 0.9rem;
+    border-bottom: 1px solid var(--line);
+    background: var(--code-bg);
+  }
+  .file .head .path { font: 600 0.88rem var(--mono); }
+  .badge {
+    font: 600 0.7rem/1 var(--mono);
+    padding: 0.25em 0.55em;
+    border-radius: 999px;
+    color: var(--add);
+    background: var(--add-bg);
+    white-space: nowrap;
+  }
+  .file pre { border-radius: 0; background: none; }
+  .diff .add { color: var(--add); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+  th, td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  td code { white-space: nowrap; }
+  .ok { color: var(--add); font-weight: 600; white-space: nowrap; }
+  ol { padding-left: 1.4rem; display: grid; gap: 0.6rem; }
+  ol li strong { font-weight: 600; }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="ticket">E2E-1</div>
+    <h1>Machine-readable widget list</h1>
+    <p class="lede">One commit (<code>b7ac1b9</code>): add <code>widgets.json</code> — a JSON array
+    mirroring the widget names in <code>widget.txt</code> — and a README section documenting it.
+    7 lines added, nothing removed.</p>
+  </header>
+
+  <section>
+    <h2>Data flow</h2>
+    <div class="flow">
+      <div class="node">
+        <div class="name">widget.txt</div>
+        <div class="desc">source of truth · one name per line</div>
+      </div>
+      <div class="arrow">&#8594;</div>
+      <div class="node">
+        <div class="name">widgets.json</div>
+        <div class="desc">derived · non-empty lines, same order</div>
+      </div>
+    </div>
+    <p class="muted" style="margin-top:0.9rem">No generator script — the derivation is by hand, and
+    the README says so explicitly.</p>
+  </section>
+
+  <section>
+    <h2>The diff, in full</h2>
+    <div class="files">
+      <div class="file">
+        <div class="head">
+          <span class="path">widgets.json</span>
+          <span class="badge">new · +1</span>
+        </div>
+        <pre class="diff"><code><span class="add">+["the widget"]</span></code></pre>
+      </div>
+      <div class="file">
+        <div class="head">
+          <span class="path">README.md</span>
+          <span class="badge">+6</span>
+        </div>
+        <pre class="diff"><code> # gh-proof scratch
+<span class="add">+
++## widgets.json
++
++A JSON array of the widget names (strings). It is derived from the non-empty
++lines of `widget.txt`, in the same order. There is no generator script: if
++`widget.txt` changes, regenerate `widgets.json` by hand to match.</span></code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Acceptance criteria</h2>
+    <table>
+      <tr><th></th><th>Criterion</th><th>Evidence</th></tr>
+      <tr>
+        <td class="ok">&#10003; AC-1</td>
+        <td><code>widgets.json</code> at repo root parses as a JSON array of strings matching
+        the non-empty lines of <code>widget.txt</code> in order.</td>
+        <td>Verified programmatically: <code>json.load</code> yields
+        <code>["the widget"]</code>, equal to the filtered lines of <code>widget.txt</code>.</td>
+      </tr>
+      <tr>
+        <td class="ok">&#10003; AC-2</td>
+        <td>README documents what <code>widgets.json</code> contains and that it derives
+        from <code>widget.txt</code>.</td>
+        <td>New <code>## widgets.json</code> section covers contents, provenance, and the
+        manual-regeneration caveat.</td>
+      </tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>What to review</h2>
+    <ol>
+      <li><strong>Array contents and order</strong> — <code>widgets.json</code> must equal the
+      non-empty lines of <code>widget.txt</code> in order. Today that is the single entry
+      <code>"the widget"</code>; confirm nothing was trimmed, reworded, or reordered.</li>
+      <li><strong>README accuracy</strong> — the new section claims string-array contents and
+      derivation from <code>widget.txt</code>. Check the wording matches the file that actually
+      landed.</li>
+      <li><strong>The no-generator trade-off</strong> — the two files can drift since sync is
+      manual. The README calls this out; decide whether that disclosure is enough for this repo
+      or whether the ticket should have shipped a generator/CI check.</li>
+      <li><strong>Scope</strong> — the diff should touch only <code>widgets.json</code> and
+      <code>README.md</code>; <code>widget.txt</code> itself must be unchanged.</li>
+    </ol>
+  </section>
+</main>
+</body>
+</html>

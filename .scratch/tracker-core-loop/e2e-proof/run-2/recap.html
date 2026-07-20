@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E2E-1 · Machine-readable widget list — Visual Recap</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #1a1d21;
+    --muted: #5c6470;
+    --border: #d8dde3;
+    --card: #f6f8fa;
+    --accent: #0b5fff;
+    --add-bg: #e6f4ea;
+    --add-fg: #116329;
+    --code-bg: #f0f2f5;
+    --pass: #116329;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171b;
+      --fg: #e4e8ec;
+      --muted: #9aa4b0;
+      --border: #333a43;
+      --card: #1c2127;
+      --accent: #6ea8ff;
+      --add-bg: #12301c;
+      --add-fg: #57c26f;
+      --code-bg: #22282f;
+      --pass: #57c26f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.15rem; margin: 2.25rem 0 .75rem; border-bottom: 1px solid var(--border); padding-bottom: .35rem; }
+  p { margin: .6rem 0; }
+  .sub { color: var(--muted); margin: 0 0 1.5rem; }
+  code, pre {
+    font: 13.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  code { background: var(--code-bg); padding: .1em .35em; border-radius: 4px; }
+  pre {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .85rem 1rem;
+    overflow-x: auto;
+    margin: .75rem 0;
+  }
+  pre code { background: none; padding: 0; }
+  .meta {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: .25rem 1rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .9rem 1.1rem;
+    margin: 1rem 0 0;
+  }
+  .meta dt { color: var(--muted); font-weight: 600; }
+  .meta dd { margin: 0; overflow-wrap: anywhere; }
+  .filehead {
+    font: 600 13.5px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: .5rem 1rem;
+    margin-top: 1rem;
+  }
+  .filehead + pre { margin-top: 0; border-radius: 0 0 8px 8px; }
+  .add { background: var(--add-bg); color: var(--add-fg); display: block; }
+  .ctx { color: var(--muted); display: block; }
+  .tablewrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .75rem 0; }
+  th, td { border: 1px solid var(--border); padding: .45rem .7rem; text-align: left; vertical-align: top; }
+  th { background: var(--card); }
+  .pass { color: var(--pass); font-weight: 700; }
+  .pill {
+    display: inline-block;
+    font-size: .78rem;
+    font-weight: 700;
+    border-radius: 999px;
+    padding: .1rem .6rem;
+    background: var(--add-bg);
+    color: var(--add-fg);
+    vertical-align: middle;
+  }
+  ol.review { padding-left: 1.4rem; }
+  ol.review li { margin: .6rem 0; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>E2E-1: Machine-readable widget list <span class="pill">READY</span></h1>
+  <p class="sub">Run 2 (post-bounce) · branch <code>feat/e2e-1-machine-readable-widget-list</code> · PR #2 into <code>main</code></p>
+
+  <dl class="meta">
+    <dt>Commit</dt><dd><code>b7ac1b9</code> — E2E-1: add widgets.json and document it in README (unchanged since run 1)</dd>
+    <dt>PR</dt><dd>barry-napier/tracker-gh-proof #2, OPEN, head SHA == branch tip <code>b7ac1b9a581c…</code></dd>
+    <dt>Diff size</dt><dd>2 files, +7 lines, 0 deletions — data + docs only, no executable code</dd>
+  </dl>
+
+  <h2>What this ticket does</h2>
+  <p><code>widget.txt</code> is the source of truth: one widget name per line. This change adds
+  <code>widgets.json</code> at the repo root — a JSON array of those names, same order — so tooling
+  can consume the list without parsing the text file. The README documents the new file and its
+  provenance.</p>
+
+  <h2>The complete diff</h2>
+
+  <div class="filehead">widgets.json (new file)</div>
+  <pre><code><span class="add">+["the widget"]</span></code></pre>
+
+  <div class="filehead">README.md</div>
+  <pre><code><span class="ctx"> # gh-proof scratch</span><span class="add">+</span><span class="add">+## widgets.json</span><span class="add">+</span><span class="add">+A JSON array of the widget names (strings). It is derived from the non-empty</span><span class="add">+lines of `widget.txt`, in the same order. There is no generator script: if</span><span class="add">+`widget.txt` changes, regenerate `widgets.json` by hand to match.</span></code></pre>
+
+  <p><code>widget.txt</code> currently has one non-empty line — <code>the widget</code> — so the
+  array has one entry. Order preservation is trivially satisfied here, but the check script verifies
+  it generally.</p>
+
+  <h2>What run 2 changed (and didn't)</h2>
+  <p>Run 1 was bounced by two evidence gates, not by the code. This worktree's <code>origin</code> is
+  a <em>local</em> intermediate clone, so run 1's push never reached github.com
+  (<code>branch-recorded</code> failed), and no PR existed (<code>pr-fresh</code> failed). Run 2 made
+  <strong>zero product changes</strong>: it pushed the existing tip directly to GitHub and opened
+  PR #2 at that tip. The reviewable diff is identical to run 1's.</p>
+
+  <h2>Verification</h2>
+  <div class="tablewrap">
+  <table>
+    <tr><th>Criterion</th><th>Check</th><th>Result</th></tr>
+    <tr><td>AC-1 widgets.json matches widget.txt</td><td><code>checks/ac-1.sh</code>, plus an independent <code>json.load</code> comparison during dogfood</td><td class="pass">PASS</td></tr>
+    <tr><td>AC-2 README documents widgets.json</td><td><code>checks/ac-2.sh</code></td><td class="pass">PASS</td></tr>
+    <tr><td>AC-3 branch on GitHub (branch-recorded)</td><td><code>git ls-remote</code> against github.com: remote ref == local tip</td><td class="pass">PASS</td></tr>
+    <tr><td>AC-4 PR fresh (pr-fresh)</td><td>GitHub API: PR #2 OPEN, base <code>main</code>, head SHA == <code>b7ac1b9</code></td><td class="pass">PASS</td></tr>
+  </table>
+  </div>
+
+  <h2>What to review</h2>
+  <ol class="review">
+    <li><strong>The whole product diff is above</strong> — 7 added lines across two files. Confirm
+      <code>["the widget"]</code> matches the single non-empty line of <code>widget.txt</code> and
+      that the README wording covers both content and derivation (AC-1, AC-2).</li>
+    <li><strong>Manual sync is a deliberate scope choice.</strong> There is no generator script;
+      drift between <code>widget.txt</code> and <code>widgets.json</code> is caught only by
+      <code>checks/ac-1.sh</code>. The README says so explicitly. Flag if you'd rather have a
+      script.</li>
+    <li><strong>Run 2 is gates-only.</strong> Nothing in the tree changed since run 1's commit; the
+      bounce fixes were a direct push to GitHub (bypassing the local intermediate
+      <code>origin</code>) and opening PR #2. If the diff looks familiar, that's why.</li>
+    <li><strong>Don't move the branch tip.</strong> <code>pr-fresh</code> holds only while PR #2's
+      head equals the tip (<code>b7ac1b9</code>). Any new commit before the gates re-run must be
+      pushed to GitHub so the PR head follows it.</li>
+  </ol>
+</main>
+</body>
+</html>

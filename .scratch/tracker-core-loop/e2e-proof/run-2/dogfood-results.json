@@ -1,0 +1,54 @@
+{
+  "ticket": "E2E-1",
+  "frozen_sha": "b7ac1b9a581cf4ec90dd033b35629e7eefa1d62c",
+  "base": "main",
+  "cut": [],
+  "scenarios": [
+    {
+      "id": "S1",
+      "journey": "A consumer parses widgets.json at the repo root with a strict JSON parser (python3 json.load — no leniency for trailing commas or garbage) and gets an array whose every entry is a string and which equals the non-empty lines of widget.txt element-for-element, in order. Independent comparison, not the repo's own check script. Result: [\"the widget\"].",
+      "flow_ref": "AC-1",
+      "kind": "http",
+      "branch": "happy",
+      "status": "pass",
+      "evidence": "kb/evidence/S1-ac1.txt"
+    },
+    {
+      "id": "S2",
+      "journey": "A new contributor opens README.md to learn what widgets.json is, and finds a section stating what it contains (a JSON array of widget name strings), that it derives from the non-empty lines of widget.txt in order, and the regeneration story (manual, no generator script).",
+      "flow_ref": "AC-2",
+      "kind": "http",
+      "branch": "happy",
+      "status": "pass",
+      "evidence": "kb/evidence/S2-ac2.txt"
+    },
+    {
+      "id": "S3",
+      "journey": "The branch-recorded gate resolves feat/e2e-1-machine-readable-widget-list on github.com/barry-napier/tracker-gh-proof and the remote ref SHA equals the local frozen tip b7ac1b9 — verified via git ls-remote against github.com directly, bypassing the local-path 'origin' remote that caused the run-1 bounce.",
+      "flow_ref": "AC-3",
+      "kind": "http",
+      "branch": "happy",
+      "status": "pass",
+      "evidence": "kb/evidence/s3-ac3.txt"
+    },
+    {
+      "id": "S4",
+      "journey": "The pr-fresh gate finds an OPEN PR (#2) for the branch into main whose headRefOid equals the branch tip b7ac1b9 — verified via the GitHub API (gh pr view), past the endpoint: state, base branch, and head SHA all asserted, not just PR existence.",
+      "flow_ref": "AC-4",
+      "kind": "http",
+      "branch": "happy",
+      "status": "pass",
+      "evidence": "kb/evidence/s4-ac4.txt"
+    },
+    {
+      "id": "S5",
+      "journey": "The ticket's own acceptance suite (checks/ac-1.sh through ac-4.sh, per checks/manifest.json) runs end to end at the frozen SHA and every script prints PASS and exits 0.",
+      "flow_ref": "AC-1",
+      "kind": "http",
+      "branch": "happy",
+      "status": "pass",
+      "evidence": "kb/evidence/s5-suite.txt"
+    }
+  ],
+  "decisions": []
+}

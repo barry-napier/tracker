@@ -1,0 +1,36 @@
+{
+  "ticket": "E2E-1",
+  "frozen_sha": "b7ac1b9a581cf4ec90dd033b35629e7eefa1d62c",
+  "base": "main",
+  "cut": [],
+  "scenarios": [
+    {
+      "id": "S1",
+      "journey": "A consumer fetches widgets.json from the repo root, strict-parses it as JSON, and gets back an array of strings that matches the non-empty lines of widget.txt in the same order — verified by comparing the parsed array element-for-element against widget.txt's actual bytes, not just by eyeballing the file.",
+      "flow_ref": "AC-1",
+      "kind": "http",
+      "branch": "happy",
+      "status": "pass",
+      "evidence": "kb/evidence/S1-ac1.txt"
+    },
+    {
+      "id": "S2",
+      "journey": "A new contributor opens README.md to learn what widgets.json is, and finds a section stating what it contains (a JSON array of widget name strings) and that it derives from the non-empty lines of widget.txt in order — plus the regeneration story (manual, no generator script).",
+      "flow_ref": "AC-2",
+      "kind": "http",
+      "branch": "happy",
+      "status": "pass",
+      "evidence": "kb/evidence/S2-ac2.txt"
+    },
+    {
+      "id": "S3",
+      "journey": "A strict JSON parser (no leniency for trailing commas, comments, or non-string entries) consumes widgets.json without error, and every entry is a string — the far-end proof that downstream tooling can rely on the file's type contract.",
+      "flow_ref": "AC-1",
+      "kind": "http",
+      "branch": "failure",
+      "status": "pass",
+      "evidence": "kb/evidence/S1-ac1.txt"
+    }
+  ],
+  "decisions": []
+}

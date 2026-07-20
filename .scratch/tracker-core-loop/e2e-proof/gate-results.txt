@@ -1,0 +1,20 @@
+1|1|artifact|pass|{"required":["kb/dogfood-report.md","kb/dogfood-results.json","kb/recap.html"],"missing":[]}||2026-07-20T18:35:27.495Z
+2|1|artifact-lint|pass|{"problems":[]}||2026-07-20T18:35:27.496Z
+3|1|dogfood-green|pass|{"total":3,"greenStatuses":["pass","fixed","waived"],"failing":[]}||2026-07-20T18:35:27.497Z
+4|1|branch-recorded|fail|{"branch":"feat/e2e-1-machine-readable-widget-list","recordedOnTicket":true,"onRemote":false}||2026-07-20T18:35:28.117Z
+5|1|suite|skip|{"reason":"no test command configured"}||2026-07-20T18:35:28.117Z
+6|1|pr-fresh|fail|{"branch":"feat/e2e-1-machine-readable-widget-list","reason":"no PR recorded for branch"}||2026-07-20T18:35:28.902Z
+7|1|demo-fresh|skip|{"reason":"no preview configured — no demo expected"}||2026-07-20T18:35:28.903Z
+8|1|ac-check|pass|{"scriptPath":"checks/ac-1.sh","exitCode":0,"output":"PASS: widgets.json matches non-empty lines of widget.txt in order"}|1|2026-07-20T18:35:28.952Z
+9|1|ac-check|pass|{"scriptPath":"checks/ac-2.sh","exitCode":0,"output":"PASS: README.md documents widgets.json contents and derivation"}|2|2026-07-20T18:35:28.966Z
+10|2|artifact|pass|{"required":["kb/dogfood-report.md","kb/dogfood-results.json","kb/recap.html"],"missing":[]}||2026-07-20T18:47:32.188Z
+11|2|artifact-lint|pass|{"problems":[]}||2026-07-20T18:47:32.188Z
+12|2|dogfood-green|pass|{"total":5,"greenStatuses":["pass","fixed","waived"],"failing":[]}||2026-07-20T18:47:32.188Z
+13|2|branch-recorded|pass|{"branch":"feat/e2e-1-machine-readable-widget-list","recordedOnTicket":true,"onRemote":true}||2026-07-20T18:47:32.556Z
+14|2|suite|skip|{"reason":"no test command configured"}||2026-07-20T18:47:32.557Z
+15|2|pr-fresh|pass|{"prNumber":2,"prHeadSha":"b7ac1b9a581cf4ec90dd033b35629e7eefa1d62c","branchTip":"b7ac1b9a581cf4ec90dd033b35629e7eefa1d62c"}||2026-07-20T18:47:33.107Z
+16|2|demo-fresh|skip|{"reason":"no preview configured — no demo expected"}||2026-07-20T18:47:33.107Z
+17|2|ac-check|pass|{"scriptPath":"checks/ac-1.sh","exitCode":0,"output":"PASS: widgets.json matches non-empty lines of widget.txt in order"}|1|2026-07-20T18:47:33.142Z
+18|2|ac-check|pass|{"scriptPath":"checks/ac-2.sh","exitCode":0,"output":"PASS: README.md documents widgets.json contents and derivation"}|2|2026-07-20T18:47:33.154Z
+19|2|ac-check|pass|{"scriptPath":"checks/ac-3.sh","exitCode":0,"output":"PASS: branch 'feat/e2e-1-machine-readable-widget-list' exists on github.com/barry-napier/tracker-gh-proof"}|3|2026-07-20T18:47:33.993Z
+20|2|ac-check|pass|{"scriptPath":"checks/ac-4.sh","exitCode":0,"output":"PASS: open PR #2 head SHA matches branch tip b7ac1b9a581cf4ec90dd033b35629e7eefa1d62c"}|4|2026-07-20T18:47:34.857Z
