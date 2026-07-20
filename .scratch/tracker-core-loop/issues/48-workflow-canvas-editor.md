@@ -4,13 +4,15 @@
 
 **Blocked by:** 46 — engine branch routing; 47 — drafts and publish.
 
-**Status:** ready-for-agent
+**Status:** resolved (2026-07-20)
+
+**Resolution:** Rebuilt from Variant A as `src/renderer/WorkflowCanvasEditor.tsx` over a pure model (`src/renderer/canvasModel.ts`, tested in `tests/workflow-canvas-model.test.ts`): straight edges, dotted-grid canvas flattening `.main`, floating inspector with the Steps drill-in, sticky Publish/Discard chrome. Opening is not an edit — a new read-only `GET /api/workflows/:id/head` serves the head in Draft shape (`store.getWorkflowHeadGraph`); the Draft is cut by the first PUT, which also raises the banner and the library's "unpublished changes" badge. Publish surfaces ticket 47's violations on the offending nodes/edges via their `nodeKey`/`edgeIndex` anchors; unanchored ones ride in the chrome. Trigger invariants (undeletable, unconfigurable, no incoming edge) live in the model, which returns the graph unchanged on refusal. The prototype file is deleted. Editor code and wiring landed inside commit 3392771 (the concurrent ticket 51 session's commit swept the shared tree); the canvas-model and head-endpoint tests landed there too. Verified live in both color schemes: draft cut on first edit, branch with inline-edited labels and fan-in, publish-violation render, discard-after-confirm restoring v1.
 
 **Design verdict (2026-07-19, prototype):** Variant A — free canvas with draggable nodes, floating inspector top-right, sticky Publish/Discard chrome — but with **straight** edge lines, not beziers. Additions from prototype iteration: Lindy-style dotted-grid canvas replacing the `.main` card (flatten via the canvas view, dot pattern on `--border-strong`); Stages carry a "N steps" pill and the inspector hosts the Steps drill-in — ordered typed rows (taxonomy: search global/project knowledge, search codebase, web search, perform action, author document), click-through to a per-step title+prompt editor with back navigation, "+ Add step" opens the typed menu. Steps are prompt fragments only (CONTEXT.md Step term; schema in ticket 47, prompt assembly in 46). Prototyped in `src/renderer/WorkflowCanvasPrototype.tsx` (three variants, `/?prototype=canvas&variant=A|B|C`); the prototype lands on a throwaway branch, not main — rebuild properly here.
 
-- [ ] Open RPIRD from the library → its graph renders; making any edit creates the draft and shows the banner; library row shows "unpublished changes"
-- [ ] Build a branch on canvas: two labeled edges out of one node, labels editable inline, fan-in draws correctly
-- [ ] Publish with violations highlights the offending elements with the validator's messages; a clean publish lands a new head and closes the draft state
-- [ ] Discard restores the canvas to the head version after confirm
-- [ ] Trigger node cannot be deleted, duplicated, or given an incoming edge
-- [ ] Editor reads correctly in both color schemes and matches the Home/library oc-2 look
+- [x] Open RPIRD from the library → its graph renders; making any edit creates the draft and shows the banner; library row shows "unpublished changes"
+- [x] Build a branch on canvas: two labeled edges out of one node, labels editable inline, fan-in draws correctly
+- [x] Publish with violations highlights the offending elements with the validator's messages; a clean publish lands a new head and closes the draft state
+- [x] Discard restores the canvas to the head version after confirm
+- [x] Trigger node cannot be deleted, duplicated, or given an incoming edge
+- [x] Editor reads correctly in both color schemes and matches the Home/library oc-2 look
