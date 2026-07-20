@@ -205,9 +205,6 @@ export default function App() {
               <Icon name="settings-gear" />
             </button>
           )}
-          <button type="button" className="icon-btn" title="Help">
-            <Icon name="help" />
-          </button>
         </span>
       </header>
       <main className="main">
