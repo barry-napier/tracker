@@ -38,17 +38,26 @@ if (mode === "garbage") {
   process.stdout.write('{"truncated": \n');
 }
 
+// Two lines sharing ONE message id, each with a single-element content array
+// — this is what the real CLI does (verified against v2.1.159), and getting
+// it wrong here is what let a block-id collision reach the live run.
 say({
   type: "assistant",
   message: {
     id: "msg_fake_1",
     role: "assistant",
-    content: [
-      { type: "thinking", thinking: "Working out what this phase owes." },
-      // Echoing the resolved --model back as ordinary conversation is what
-      // lets a test observe which config the adapter built this argv from.
-      { type: "text", text: `model=${argv[argv.indexOf("--model") + 1] ?? "(none)"}` },
-    ],
+    content: [{ type: "thinking", thinking: "Working out what this phase owes." }],
+  },
+  session_id: SESSION,
+});
+say({
+  type: "assistant",
+  message: {
+    id: "msg_fake_1",
+    role: "assistant",
+    // Echoing the resolved --model back as ordinary conversation is what
+    // lets a test observe which config the adapter built this argv from.
+    content: [{ type: "text", text: `model=${argv[argv.indexOf("--model") + 1] ?? "(none)"}` }],
   },
   session_id: SESSION,
 });

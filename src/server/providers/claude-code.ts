@@ -70,8 +70,16 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 export class StreamJsonMapper {
   #sessionId: string | undefined;
   #result: ClaudeResultLine | undefined;
-  /** Fallback block-id source for messages that arrive without an id. */
-  #anonymous = 0;
+  /**
+   * Blocks emitted so far. This, not the content index, is what makes a block
+   * id unique: the CLI splits one logical message across several NDJSON lines
+   * — verified against v2.1.159, where a thinking block and the tool_use that
+   * follows it arrive as two `assistant` lines carrying the SAME `message.id`
+   * and a single-element `content` array each. Keying on `id`+index therefore
+   * collides on `<msg>-0` every time, and the log view would merge two
+   * unrelated blocks into one.
+   */
+  #blocks = 0;
 
   /** The session id from `system/init` or any later line carrying one. */
   get sessionId(): string | undefined {
@@ -129,18 +137,20 @@ export class StreamJsonMapper {
   ): AgentEvent[] {
     const message = line.message;
     if (!isRecord(message) || !Array.isArray(message.content)) return [];
-    const messageId = typeof message.id === "string" ? message.id : `anon-${++this.#anonymous}`;
+    // `user` lines (tool results) carry no message id at all; the sequence
+    // below is what keeps those distinct, so the label can stay a label.
+    const messageId = typeof message.id === "string" ? message.id : "anon";
     const events: AgentEvent[] = [];
-    message.content.forEach((raw, index) => {
-      if (!isRecord(raw)) return;
+    for (const raw of message.content) {
+      if (!isRecord(raw)) continue;
       const block = map(raw);
-      if (block === undefined) return;
+      if (block === undefined) continue;
       // Claude lands whole blocks rather than streaming deltas onto them, so
       // each opens and closes in one step (capabilities.streamsPartialText).
-      const blockId = `${messageId}-${index}`;
+      const blockId = `${messageId}-${++this.#blocks}`;
       events.push({ type: "block.open", blockId, block });
       events.push({ type: "block.close", blockId });
-    });
+    }
     return events;
   }
 }

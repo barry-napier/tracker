@@ -107,6 +107,46 @@ describe("StreamJsonMapper", () => {
     ]);
   });
 
+  test("one message split across lines does not collide — real v2.1.159 shape", () => {
+    // Captured from a live run: the CLI emits a thinking block and the
+    // tool_use that follows it as two separate `assistant` lines sharing one
+    // message.id, each with a single-element content array. Keying block ids
+    // on id+index made both `<msg>-0`, merging them in the log view.
+    const mapper = new StreamJsonMapper();
+    const id = "msg_011CdD1EYAppMpDmAhUtJJjd";
+    const events = feedAll(mapper, [
+      { type: "assistant", message: { id, role: "assistant", content: [{ type: "thinking", thinking: "" }] } },
+      {
+        type: "assistant",
+        message: {
+          id,
+          role: "assistant",
+          content: [{ type: "tool_use", id: "toolu_01AU", name: "Bash", input: { command: "ls" } }],
+        },
+      },
+    ]);
+    const ids = opened(events).map((e) => e.blockId);
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    expect(opened(events).map((e) => e.block.kind)).toEqual(["thinking", "tool_call"]);
+  });
+
+  test("tool results on id-less user lines stay distinct", () => {
+    // `user` lines carry no message.id, so the sequence is the only thing
+    // keeping two tool results apart.
+    const mapper = new StreamJsonMapper();
+    const toolResult = (toolUseId: string) => ({
+      type: "user",
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: toolUseId, content: "ok" }],
+      },
+    });
+    const events = feedAll(mapper, [toolResult("toolu_1"), toolResult("toolu_2")]);
+    const ids = opened(events).map((e) => e.blockId);
+    expect(new Set(ids).size).toBe(2);
+  });
+
   test("block ids are unique across a transcript", () => {
     const mapper = new StreamJsonMapper();
     const events = feedAll(mapper, [
