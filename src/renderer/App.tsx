@@ -794,6 +794,26 @@ function ThemeToggle() {
   );
 }
 
+/** Re-renders subscribers once a minute so waiting badges stay honest. */
+function useNow(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
+/** "45m" / "3.2h" / "4.4d" since the ticket entered its current column. */
+function waitingLabel(sinceIso: string, now: number): string | null {
+  const mins = (now - new Date(sinceIso).getTime()) / 60_000;
+  if (mins < 60) return null; // fresh moves aren't "waiting"
+  if (mins < 60 * 24) return `waiting ${(mins / 60).toFixed(1)}h`;
+  return `waiting ${(mins / (60 * 24)).toFixed(1)}d`;
+}
+
+const FMT_CREATED = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+
 function TicketCard({
   ticket,
   project,
@@ -809,17 +829,75 @@ function TicketCard({
   /** Non-null only on Human Review cards, which carry the Review → button. */
   onReview: (() => void) | null;
 }) {
+  const now = useNow();
+  const waiting =
+    ticket.state !== "backlog" && ticket.state !== "done"
+      ? waitingLabel(ticket.updatedAt, now)
+      : null;
+  const repo = repos.find((r) => r.id === ticket.repoId) ?? null;
+  // Passed the gates: parked tickets (cap or setup failure) don't count.
+  const verified =
+    (ticket.state === "human_review" || ticket.state === "done") &&
+    !ticket.arrivedByCap &&
+    !ticket.lastFailureReason;
   return (
     <article className="card" onClick={onOpen}>
-      <span className="dim">{ticket.displayKey}</span>
-      <p>{ticket.title}</p>
-      {(ticket.provider || ticket.acceptanceCriteria.length > 0) && (
-        <em className="dim">
-          {ticket.provider && PROVIDER_LABELS[ticket.provider]}
-          {ticket.provider && ticket.acceptanceCriteria.length > 0 && " · "}
-          {ticket.acceptanceCriteria.length > 0 &&
-            `${ticket.acceptanceCriteria.length} AC${ticket.acceptanceCriteria.length === 1 ? "" : "s"}`}
-        </em>
+      <div className="card-top">
+        <span className="dim">{ticket.displayKey}</span>
+        {ticket.provider && <span className="card-provider">{PROVIDER_LABELS[ticket.provider]}</span>}
+      </div>
+      <p className="card-title">
+        <StateIcon state={ticket.state} />
+        {ticket.title}
+      </p>
+      {(waiting || repo) && (
+        <div className="card-chips">
+          {waiting && (
+            <span className={"chip " + (waiting.endsWith("d") ? "chip-danger" : "chip-warn")}>
+              {waiting}
+            </span>
+          )}
+          {repo && <span className="chip">{repoName(repo)}</span>}
+        </div>
+      )}
+      {(ticket.branch || ticket.prNumber !== null) && (
+        <div className="card-chips">
+          {ticket.branch && (
+            <span className="chip chip-mono" title={ticket.branch}>
+              {ticket.branch}
+            </span>
+          )}
+          {ticket.prNumber !== null &&
+            (ticket.prUrl ? (
+              <a
+                className="chip chip-info"
+                href={ticket.prUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+              >
+                #{ticket.prNumber}
+              </a>
+            ) : (
+              <span className="chip chip-info">#{ticket.prNumber}</span>
+            ))}
+        </div>
+      )}
+      {(verified || ticket.bounceCount > 0 || ticket.acceptanceCriteria.length > 0) && (
+        <div className="card-chips">
+          {verified && <span className="chip chip-ok">✓ Verified</span>}
+          {ticket.bounceCount > 0 && (
+            <span className="chip chip-warn" title="Failed attempts so far">
+              ↺ {ticket.bounceCount}
+            </span>
+          )}
+          {ticket.acceptanceCriteria.length > 0 && (
+            <span className="chip">
+              {ticket.acceptanceCriteria.length} AC
+              {ticket.acceptanceCriteria.length === 1 ? "" : "s"}
+            </span>
+          )}
+        </div>
       )}
       {ticket.lastFailureReason && (
         <em className="error" title={ticket.lastFailureReason}>
@@ -827,29 +905,32 @@ function TicketCard({
         </em>
       )}
       {project && <PromoteControl ticket={ticket} project={project} repos={repos} />}
-      {onReview && (
-        <button
-          className="reviewbtn"
-          onClick={(e) => {
-            e.stopPropagation();
-            onReview();
-          }}
-        >
-          Review →
-        </button>
-      )}
-      {onReview && ticket.lastFailureReason && (
-        <button
-          className="reviewbtn"
-          title="Send back to Todo for another attempt"
-          onClick={(e) => {
-            e.stopPropagation();
-            void apiPost(`/api/tickets/${ticket.id}/retry`, {});
-          }}
-        >
-          ↺ Retry
-        </button>
-      )}
+      <div className="card-footer">
+        <span className="dim">Created {FMT_CREATED.format(new Date(ticket.createdAt))}</span>
+        {onReview && (
+          <button
+            className="reviewbtn"
+            onClick={(e) => {
+              e.stopPropagation();
+              onReview();
+            }}
+          >
+            Review →
+          </button>
+        )}
+        {onReview && ticket.lastFailureReason && (
+          <button
+            className="reviewbtn"
+            title="Send back to Todo for another attempt"
+            onClick={(e) => {
+              e.stopPropagation();
+              void apiPost(`/api/tickets/${ticket.id}/retry`, {});
+            }}
+          >
+            ↺ Retry
+          </button>
+        )}
+      </div>
     </article>
   );
 }

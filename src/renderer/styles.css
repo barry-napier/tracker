@@ -343,11 +343,55 @@ body {
   flex: 1;
 }
 
+/* Mirrors .home-search: quiet until hover, input surface on focus. */
 .board-search {
-  width: 200px;
+  width: 240px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  color: var(--text-faint);
+  padding: 0.3rem 0.5rem;
 }
 
-.board-toolbar input,
+.board-search:hover {
+  background: var(--overlay-hover);
+}
+
+.board-search:focus-within {
+  background: var(--surface-input);
+  border-color: var(--border-focus);
+}
+
+.board-search svg {
+  flex: none;
+}
+
+.board-search input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-base);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0;
+}
+
+.board-search kbd {
+  flex: none;
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  background: var(--overlay-hover);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  padding: 0 0.4rem;
+  line-height: 1.4;
+}
+
 .board-toolbar select {
   background: var(--surface-input);
   border: 1px solid var(--border-base);
@@ -532,7 +576,7 @@ body {
 }
 
 .column h3 {
-  margin: 0 0 0.1rem 0.1rem;
+  margin: 0 0 0.5rem 0.1rem;
   font-size: var(--fs-xs);
   font-weight: 600;
   text-transform: uppercase;
@@ -562,6 +606,92 @@ body {
   font-variant-numeric: tabular-nums;
   color: var(--text-faint);
   background: var(--surface-sunken);
+}
+
+/* -- card anatomy: header row, icon title, chip rows, footer -- */
+
+.card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.card-provider {
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+}
+
+.card-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.card-title .state-icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.chip {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.chip-mono {
+  font-family: var(--font-mono);
+}
+
+.chip-warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+.chip-danger {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+
+.chip-ok {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+
+.chip-info {
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+
+a.chip-info:hover {
+  text-decoration: underline;
+}
+
+.card-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.1rem;
+  font-size: var(--fs-xs);
+}
+
+.card-footer .reviewbtn {
+  margin-left: auto;
 }
 
 .column-empty {

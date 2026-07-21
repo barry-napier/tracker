@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { TicketState, TicketWithAcs } from "../server/types.ts";
 import { STATES } from "./ticketStates.ts";
+import { Icon } from "./icons.tsx";
 
 /*
  * Board toolbar (search / status / sort / week range) and the month view.
@@ -126,14 +127,17 @@ export function BoardToolbar({
         <option value="title">Title</option>
       </select>
       <div className="board-toolbar-spacer" />
-      <input
-        ref={searchRef}
-        className="board-search"
-        type="search"
-        placeholder="Search issues…  /"
-        value={controls.query}
-        onChange={(e) => set({ query: e.target.value })}
-      />
+      <div className="board-search">
+        <Icon name="search" size={16} />
+        <input
+          ref={searchRef}
+          type="search"
+          placeholder="Search issues…"
+          value={controls.query}
+          onChange={(e) => set({ query: e.target.value })}
+        />
+        <kbd>/</kbd>
+      </div>
       <div className="board-toolbar-spacer" />
       <button type="button" className="weeknav" onClick={() => set({ weekStart: addDays(weekStart, -7) })}>
         ‹
