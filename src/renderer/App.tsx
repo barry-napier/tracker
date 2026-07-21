@@ -8,6 +8,7 @@ import {
   useNavigate,
   useOutletContext,
   useParams,
+  useSearchParams,
 } from "react-router";
 import { getThemePref, setThemePref, type ThemePref } from "./theme.ts";
 import {
@@ -194,6 +195,13 @@ function useWorkspace() {
     [navigate],
   );
 
+  // A server-confirmed change to a project row (workflow pick, "Keep it")
+  // lands in the tab cache too, so row-gated UI (the confirm banner) can't
+  // resurrect from a stale tab on the next visit.
+  const updateTab = useCallback((row: Project) => {
+    setTabs((open) => open.map((t) => (t.id === row.id ? row : t)));
+  }, []);
+
   return {
     booted,
     projects,
@@ -206,6 +214,7 @@ function useWorkspace() {
     closeTab,
     setProjectHiddenAt,
     dropProject,
+    updateTab,
   };
 }
 
@@ -541,7 +550,7 @@ function useProjectTickets(): TicketWithAcs[] {
  * refresh restores them, back closes them.
  */
 function BoardRoute({ overlay }: { overlay?: "settings" | "review" }) {
-  const { project, repos } = useShell();
+  const { project, repos, updateTab } = useShell();
   const navigate = useNavigate();
   const { ticketId } = useParams();
   const tickets = useProjectTickets();
@@ -561,6 +570,7 @@ function BoardRoute({ overlay }: { overlay?: "settings" | "review" }) {
           key={project.id}
           project={project}
           onClose={() => navigate(`/projects/${project.id}`)}
+          onSaved={updateTab}
         />
       )}
     </>
@@ -619,6 +629,7 @@ function TicketLogsRoute() {
 function WorkflowConfirmBanner({ project }: { project: Project }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const { updateTab } = useShell();
   const [confirmed, setConfirmed] = useState(false);
   const [name, setName] = useState<string | null>(null);
 
@@ -630,19 +641,28 @@ function WorkflowConfirmBanner({ project }: { project: Project }) {
 
   // A pick inside settings confirms server-side; the tab's cached row can't
   // know. Re-check the live row whenever the route changes (settings closing
-  // included) so the banner doesn't outlive the answer.
+  // included) — and write the answer back to the tab cache, so the banner
+  // never mounts again once the question is answered.
   useEffect(() => {
     void apiGet<Project>(`/api/projects/${project.id}`)
-      .then((live) => setConfirmed(live.workflowConfirmed))
+      .then((live) => {
+        setConfirmed(live.workflowConfirmed);
+        if (live.workflowConfirmed) updateTab(live);
+      })
       .catch(() => {});
-  }, [project.id, pathname]);
+  }, [project.id, pathname, updateTab]);
 
   if (confirmed) return null;
   const keep = async () => {
     setConfirmed(true);
-    await apiPatch(`/api/projects/${project.id}`, { workflowConfirmed: true }).catch(() =>
-      setConfirmed(false),
-    );
+    try {
+      const live = await apiPatch<Project>(`/api/projects/${project.id}`, {
+        workflowConfirmed: true,
+      });
+      updateTab(live);
+    } catch {
+      setConfirmed(false);
+    }
   };
   return (
     <div className="banner wf-confirm">
@@ -712,21 +732,48 @@ function Board({
   const navigate = useNavigate();
   const uninitialized = repos.find((r) => r.gitMissing) ?? null;
   const [controls, setControls] = useState(initialControls);
+  // Repo filter (?repo=<name>): the URL owns it, so a filtered board is
+  // bookmarkable and survives refresh. An unknown name reads as "all".
+  const [searchParams, setSearchParams] = useSearchParams();
+  const repoParam = searchParams.get("repo");
+  const filteredRepo = repoParam ? (repos.find((r) => repoName(r) === repoParam) ?? null) : null;
+  const visibleTickets = filteredRepo
+    ? tickets.filter((t) => t.repoId === filteredRepo.id)
+    : tickets;
+  const setRepoFilter = (id: number | null) => {
+    const next = new URLSearchParams(searchParams);
+    const picked = repos.find((r) => r.id === id);
+    if (picked) next.set("repo", repoName(picked));
+    else next.delete("repo");
+    setSearchParams(next, { replace: true });
+  };
   return (
     <>
       {uninitialized && <GitInitBanner key={uninitialized.id} repo={uninitialized} />}
       {!project.workflowConfirmed && <WorkflowConfirmBanner key={project.id} project={project} />}
-      <BoardToolbar controls={controls} onChange={setControls} />
+      <BoardToolbar
+        controls={controls}
+        onChange={setControls}
+        repoOptions={repos.map((r) => ({ id: r.id, name: repoName(r) }))}
+        repoFilter={filteredRepo?.id ?? null}
+        onRepoFilter={setRepoFilter}
+        actions={
+          <>
+            <DoneSweep projectId={project.id} />
+            <NewTicketForm projectId={project.id} />
+          </>
+        }
+      />
       {controls.view === "month" ? (
         <MonthView
-          tickets={tickets}
+          tickets={visibleTickets}
           onOpenWeek={(weekStart) => setControls({ ...controls, weekStart, view: "board" })}
           onOpenTicket={(t) => navigate(`/projects/${project.id}/tickets/${t.id}`)}
         />
       ) : (
       <div className="board">
       {STATES.map(({ key, label }) => {
-        const column = applyControls(tickets, key, controls);
+        const column = applyControls(visibleTickets, key, controls);
         return (
           <section key={key} className="column">
             <h3 className="column-head">
@@ -741,8 +788,6 @@ function Board({
                 {column.length}
               </span>
             </h3>
-            {key === "backlog" && <NewTicketForm projectId={project.id} />}
-            {key === "done" && <DoneSweep projectId={project.id} />}
             {column.length === 0 && <div className="column-empty">No issues</div>}
             {column.map((ticket) => (
               <TicketCard
@@ -1075,10 +1120,10 @@ function ProviderSelect({
 }
 
 /**
- * The Done-column sweep (ticket 42): Done does not auto-destroy — this
+ * The worktree sweep (ticket 42): Done does not auto-destroy — this toolbar
  * button is the deliberate reap of merged-and-persisted tickets' worktrees
- * and preview records. The report stays up until the next sweep; skips are
- * always shown with their reason, never silent.
+ * and preview records. The report shows in a popover until dismissed; skips
+ * are always shown with their reason, never silent.
  */
 function DoneSweep({ projectId }: { projectId: number }) {
   const [report, setReport] = useState<SweepResult | null>(null);
@@ -1090,6 +1135,25 @@ function DoneSweep({ projectId }: { projectId: number }) {
     setReport(null);
     setError(null);
   }, [projectId]);
+
+  // Any outside click or Escape dismisses the report, matching the sort popover.
+  const noteOpen = report !== null || error !== null;
+  useEffect(() => {
+    if (!noteOpen) return;
+    const close = () => {
+      setReport(null);
+      setError(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+    };
+    document.addEventListener("click", close);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("click", close);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [noteOpen]);
 
   const sweep = async () => {
     setBusy(true);
@@ -1104,29 +1168,38 @@ function DoneSweep({ projectId }: { projectId: number }) {
   };
 
   return (
-    <div className="sweep">
+    <div className="toolbar-action">
       <button
         type="button"
-        className="newticket"
-        onClick={() => void sweep()}
+        className="weeknav"
+        onClick={(e) => {
+          // The document-level closer sees this click too; stop it so a
+          // fresh report isn't immediately dismissed.
+          e.stopPropagation();
+          void sweep();
+        }}
         disabled={busy}
         title="Reap merged tickets' worktrees and preview records"
       >
         {busy ? "Sweeping…" : "⌁ Sweep worktrees"}
       </button>
-      {error && <p className="sweep-note sweep-error">{error}</p>}
-      {report && (
-        <div className="sweep-note">
-          <p>
-            {report.reaped.length === 0
-              ? "Nothing to reap."
-              : `Reaped ${report.reaped.map((r) => r.displayKey).join(", ")}.`}
-          </p>
-          {report.skipped.map((skip) => (
-            <p key={skip.ticketId}>
-              {skip.displayKey} skipped — {skip.reason}
-            </p>
-          ))}
+      {noteOpen && (
+        <div className="row-menu sweep-pop" onClick={(e) => e.stopPropagation()}>
+          {error && <p className="sweep-note sweep-error">{error}</p>}
+          {report && (
+            <div className="sweep-note">
+              <p>
+                {report.reaped.length === 0
+                  ? "Nothing to reap."
+                  : `Reaped ${report.reaped.map((r) => r.displayKey).join(", ")}.`}
+              </p>
+              {report.skipped.map((skip) => (
+                <p key={skip.ticketId}>
+                  {skip.displayKey} skipped — {skip.reason}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1168,21 +1241,19 @@ function NewTicketForm({ projectId }: { projectId: number }) {
     }
   };
 
-  if (!open) {
-    return (
-      <button className="newticket" onClick={() => setOpen(true)}>
+  return (
+    <div className="toolbar-action">
+      <button type="button" className="toolbar-new" onClick={() => setOpen(true)}>
         + New ticket
       </button>
-    );
-  }
-  return (
-    <form
-      className="newform"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void submit();
-      }}
-    >
+      {open && (
+        <form
+          className="newform newform-pop"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+        >
       <input
         autoFocus
         placeholder="Title"
@@ -1201,15 +1272,17 @@ function NewTicketForm({ projectId }: { projectId: number }) {
         value={acs}
         onChange={(e) => setAcs(e.target.value)}
       />
-      {error && <p className="error">{error}</p>}
-      <div className="formrow">
-        <button type="submit" disabled={title.trim() === ""}>
-          File ticket
-        </button>
-        <button type="button" onClick={reset}>
-          Cancel
-        </button>
-      </div>
-    </form>
+          {error && <p className="error">{error}</p>}
+          <div className="formrow">
+            <button type="submit" disabled={title.trim() === ""}>
+              File ticket
+            </button>
+            <button type="button" onClick={reset}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
   );
 }

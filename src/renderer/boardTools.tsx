@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { TicketState, TicketWithAcs } from "../server/types.ts";
 import { STATES } from "./ticketStates.ts";
 import { Icon } from "./icons.tsx";
@@ -83,9 +83,20 @@ export function applyControls(
 export function BoardToolbar({
   controls,
   onChange,
+  repoOptions = [],
+  repoFilter = null,
+  onRepoFilter,
+  actions,
 }: {
   controls: BoardControls;
   onChange: (next: BoardControls) => void;
+  /** The project's repos, for the repo filter; hidden with fewer than two. */
+  repoOptions?: { id: number; name: string }[];
+  /** Selected repo id, null = all. Owned by the URL (?repo=<name>). */
+  repoFilter?: number | null;
+  onRepoFilter?: (id: number | null) => void;
+  /** Board-level actions (new ticket, sweep) rendered at the far right. */
+  actions?: ReactNode;
 }) {
   const { weekStart } = controls;
   const weekEnd = addDays(weekStart, 6);
@@ -121,6 +132,21 @@ export function BoardToolbar({
           </option>
         ))}
       </select>
+      {repoOptions.length > 1 && (
+        <select
+          value={repoFilter === null ? "all" : String(repoFilter)}
+          onChange={(e) =>
+            onRepoFilter?.(e.target.value === "all" ? null : Number(e.target.value))
+          }
+        >
+          <option value="all">All repos</option>
+          {repoOptions.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
+            </option>
+          ))}
+        </select>
+      )}
       <select value={controls.sort} onChange={(e) => set({ sort: e.target.value as SortKey })}>
         <option value="updated">Last updated</option>
         <option value="created">Created</option>
@@ -176,6 +202,7 @@ export function BoardToolbar({
           <path d="M4 8 H5.5 M8.5 8 H10 M4 10.5 H5.5 M8.5 10.5 H10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
         </svg>
       </button>
+      {actions}
     </div>
   );
 }

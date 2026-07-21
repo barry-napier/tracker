@@ -5,220 +5,273 @@ import { GITHUB_URL, RELEASES_URL } from "../lib/releases";
 
 <Layout>
   <!-- 1. Hero -->
-  <section class="hero">
-    <h1 id="headline" class="hero-in hero-d1">The mission control<br class="hide-mobile" /> for your coding agents.</h1>
-    <div class="hero-subrow hero-in hero-d2">
-      <p class="lede">
-        A free, open-source desktop board: queue tickets, let agents work them
-        concurrently, review when the board says it's ready.
-      </p>
-      <a class="hero-new" href="https://github.com/barry-napier/tracker/releases" target="_blank" rel="noopener noreferrer">
-        <span class="chip">New</span> v0.2.0 released <span aria-hidden="true">&rarr;</span>
-      </a>
-    </div>
+  <header class="hero">
+    <a class="release-pill hero-in hero-d1" href={RELEASES_URL} target="_blank" rel="noopener noreferrer">
+      <span class="release-dot" aria-hidden="true"></span>
+      v0.2.0 shipped July 2026 &rarr;
+    </a>
+    <h1 id="headline" class="hero-in hero-d1">
+      Run five coding agents at once, without babysitting a single terminal.
+    </h1>
+    <p class="lede hero-in hero-d2">
+      Tracker is a free, open-source macOS board for developers running Claude Code: queue tickets,
+      let agents work them in parallel, merge only when the evidence says ready.
+    </p>
     <div class="cta-row hero-in hero-d2">
-      <a class="btn btn-contrast" href="/download">Download for macOS — free</a>
-      <a class="btn" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">View source</a>
+      <a class="btn-primary" href="/download">Download for macOS, free</a>
+      <a class="btn-secondary" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">View the source</a>
     </div>
-    <p class="trust-line hero-in hero-d2">Open source · MIT · everything runs on your machine</p>
-    <div class="hero-stage hero-in hero-d3">
-      <figure class="shot shot-hero">
-        <img src="/board.png" alt="Tracker board with tickets across Backlog, Todo, In Progress, Verifying, Human Review, and Done columns" width="1440" height="900" fetchpriority="high" />
-      </figure>
+    <p class="trust-line hero-in hero-d2">Open source · MIT · no account · everything runs on your machine</p>
+    <div class="hero-shot hero-in hero-d3">
+      <img
+        src="/board.png"
+        alt="Tracker board with tickets across Backlog, Todo, In Progress, Verifying, Human Review, and Done columns"
+        width="2880"
+        height="1800"
+        fetchpriority="high"
+      />
+    </div>
+  </header>
+
+  <!-- 2. Built in public strip -->
+  <section class="strip" aria-label="Built in public">
+    <div class="strip-inner">
+      <p class="strip-label">Built in public, one commit at a time:</p>
+      <div class="strip-stats">
+        <span><strong>v0.2.0</strong> latest release</span>
+        <span><strong>MIT</strong> licensed</span>
+        <span><strong>0</strong> accounts, servers, telemetry</span>
+        <span><strong>1</strong> ~100&nbsp;MB dmg</span>
+      </div>
     </div>
   </section>
 
   <!-- 3. Problem framing -->
-  <section class="problem">
-    <h2>Agents made the typing cheap. Supervision is now the bottleneck.</h2>
-    <p>
-      Run three agent sessions in three terminals and you spend the day
-      alt-tabbing: which one finished, which one is stuck waiting on you, which
-      one quietly failed setup an hour ago. Tracker turns that into a board —
-      every ticket carries its state, its branch, and its evidence.
+  <section class="problem" aria-label="The problem">
+    <p class="kicker">The problem</p>
+    <h2>Agents made the typing cheap. Supervision became the bottleneck.</h2>
+    <p class="problem-body">
+      Three agent sessions in three terminals means a day of alt-tabbing: which one finished, which
+      is stuck waiting on you, which quietly failed an hour ago. Tracker turns that into one board
+      where every ticket carries its state, its branch, and its evidence.
     </p>
   </section>
 
-  <!-- 4. Feature cards -->
-  <section class="features">
-    <p class="features-kicker">Everything between "queue it" and "merge it"</p>
-
-    <!-- Flagship: workflows -->
-    <article class="fcard fcard-large">
-      <div class="fcard-copy">
-        <span class="chip">Workflows</span>
-        <h2>Design how your agents work, on a canvas</h2>
+  <!-- 4. Benefits -->
+  <section class="benefits" aria-label="Benefits">
+    <article class="benefit">
+      <div class="benefit-copy">
+        <p class="kicker">Workflows</p>
+        <h2>Agents follow your pipeline, so nothing skips a step</h2>
         <p>
-          Build the pipeline your tickets run through — research, plan,
-          implement, dogfood, document — as a visual graph. Every stage declares
-          its contract: the checks it must emit, the artifacts it owes. A
-          built-in assistant edits the graph from a sentence, and a validator
-          refuses to publish a workflow that can't prove its own work.
+          Draw the stages your tickets run through (research, plan, implement, document) as a visual
+          graph, and a validator refuses to publish any workflow that can't prove its own work.
         </p>
+        <a class="benefit-link" href={`${GITHUB_URL}#workflows`} target="_blank" rel="noopener noreferrer">How workflows work &rarr;</a>
       </div>
-      <figure class="shot">
-        <img src="/canvas.png" alt="Workflow canvas editor with a selected stage, prompt-template inspector, and AI assistant chat" width="1440" height="900" loading="lazy" />
-      </figure>
+      <div class="benefit-shot">
+        <img
+          src="/canvas.png"
+          alt="Workflow canvas editor with a selected stage, prompt-template inspector, and AI assistant chat"
+          loading="lazy"
+          width="2880"
+          height="1800"
+        />
+      </div>
     </article>
 
-    <!-- Flagship: automations -->
-    <article class="fcard fcard-large">
-      <div class="fcard-copy">
-        <span class="chip">Automations</span>
-        <h2>Put recurring work on autopilot</h2>
+    <article class="benefit benefit-flip">
+      <div class="benefit-copy">
+        <p class="kicker">Automations</p>
+        <h2>Recurring work files itself while you're in a meeting</h2>
         <p>
-          Standing orders that file tickets on a schedule — daily, weekly, or on
-          demand — from playbook templates like Find Critical Bugs,
-          Architectural Cleanup, Living Documentation, and Fix Snyk
-          Vulnerabilities. Your agents sweep the codebase while you're in a
-          meeting.
+          Standing orders file tickets on a schedule from playbooks like Find Critical Bugs and Fix
+          Snyk Vulnerabilities, so your agents sweep the codebase without being asked.
         </p>
+        <a class="benefit-link" href={`${GITHUB_URL}#automations`} target="_blank" rel="noopener noreferrer">Browse the playbooks &rarr;</a>
       </div>
-      <figure class="shot">
-        <img src="/automations.png" alt="Automations view with a weekly changelog automation and six playbook templates" width="1440" height="900" loading="lazy" />
-      </figure>
+      <div class="benefit-shot">
+        <img
+          src="/automations.png"
+          alt="Automations view with a weekly changelog automation and six playbook templates"
+          loading="lazy"
+          width="2880"
+          height="1800"
+        />
+      </div>
     </article>
 
-    <!-- Half cards -->
-    <div class="fcard-row">
-      <article class="fcard">
-        <div class="fcard-copy">
-          <span class="chip">Tickets</span>
-          <h2>Every ticket carries its evidence</h2>
-          <p>
-            Acceptance criteria with per-item status, gate results with exit
-            codes, and an activity feed of every agent attempt — folded,
-            replayable, auditable.
-          </p>
-        </div>
-        <figure class="shot">
-          <img src="/detail.png" alt="Ticket detail with acceptance criteria, activity feed, and run properties" width="1440" height="900" loading="lazy" />
-        </figure>
-      </article>
+    <article class="benefit">
+      <div class="benefit-copy">
+        <p class="kicker">Tickets</p>
+        <h2>Every ticket carries its evidence, so review takes minutes</h2>
+        <p>
+          Acceptance criteria with per-item status, gate results with exit codes, and a replayable
+          feed of every agent attempt. You audit the work, not reconstruct it.
+        </p>
+        <a class="benefit-link" href={`${GITHUB_URL}#tickets`} target="_blank" rel="noopener noreferrer">See a ticket's anatomy &rarr;</a>
+      </div>
+      <div class="benefit-shot">
+        <img
+          src="/detail.png"
+          alt="Ticket detail with acceptance criteria, activity feed, and run properties"
+          loading="lazy"
+          width="2880"
+          height="1800"
+        />
+      </div>
+    </article>
 
-      <article class="fcard">
-        <div class="fcard-copy">
-          <span class="chip">Verification</span>
-          <h2>Merge on proof, not vibes</h2>
-          <p>
-            A gate battery runs before human review: acceptance-criteria check
-            scripts, test suites, a recorded demo video of the feature working,
-            and recap docs that explain the change. The review wizard walks you
-            through the evidence — merge, bounce, or re-verify.
-          </p>
-        </div>
-        <figure class="shot">
-          <img src="/review.png" alt="Human Review and Done columns with Verified acceptance-criteria chips" width="920" height="1120" loading="lazy" />
-        </figure>
-      </article>
-    </div>
+    <article class="benefit benefit-flip">
+      <div class="benefit-copy">
+        <p class="kicker">Verification</p>
+        <h2>Merge on proof, not vibes</h2>
+        <p>
+          Before a human ever looks, a gate battery runs check scripts and test suites, records a
+          demo video of the feature working, and writes a recap. The review wizard walks you through
+          it: merge, bounce, or re-verify.
+        </p>
+        <a class="benefit-link" href={`${GITHUB_URL}#verification`} target="_blank" rel="noopener noreferrer">What the gates check &rarr;</a>
+      </div>
+      <div class="benefit-shot benefit-shot-tall">
+        <img
+          src="/review.png"
+          alt="Human Review and Done columns with Verified acceptance-criteria chips"
+          loading="lazy"
+          width="920"
+          height="1120"
+        />
+      </div>
+    </article>
+  </section>
 
-    <!-- Mini cards -->
-    <div class="fcard-minis">
-      <article class="fcard fcard-mini">
+  <!-- 5. Also in the box -->
+  <section class="extras" aria-label="Also in the box">
+    <div class="extras-grid">
+      <div class="extra">
         <h3>Team pull-request feed</h3>
-        <p>One view of open PRs across your repos and org — CI status rolled up, saved filter tabs, review without leaving the app.</p>
-      </article>
-      <article class="fcard fcard-mini">
+        <p>Open PRs across your repos and org in one view: CI status rolled up, saved filter tabs, review without leaving the app.</p>
+      </div>
+      <div class="extra">
         <h3>Live agent logs</h3>
-        <p>Watch any run's full conversation stream phase by phase, with durations, tool calls, and an attempt picker for history.</p>
-      </article>
-      <article class="fcard fcard-mini">
+        <p>Watch any run stream phase by phase, with durations, tool calls, and an attempt picker for history.</p>
+      </div>
+      <div class="extra">
         <h3>Isolated worktrees</h3>
-        <p>Each ticket runs in its own git worktree on its own branch — concurrent agents never touch each other's changes.</p>
-      </article>
-      <article class="fcard fcard-mini">
+        <p>Each ticket runs in its own git worktree on its own branch, so concurrent agents never touch each other's changes.</p>
+      </div>
+      <div class="extra">
         <h3>Browser, terminal, diffs</h3>
-        <p>A built-in browser for previews, real split-pane terminals, file tree, and per-file diffs — the whole loop in one window.</p>
-      </article>
+        <p>A built-in browser for previews, split-pane terminals, file tree, and per-file diffs: the whole loop in one window.</p>
+      </div>
     </div>
   </section>
 
-  <!-- 5/6. Momentum + mid CTA -->
-  <section class="midcta">
-    <div class="momentum">
-      <span class="chip chip-mono">v0.2.0</span>
-      <span>First public release shipped July 2026 — built in public, one commit at a time.</span>
-      <a href={RELEASES_URL} target="_blank" rel="noopener noreferrer">Changelog<span aria-hidden="true"> &#8599;</span></a>
-    </div>
-    <div class="midcta-box">
-      <h2>Free. Open source. Yours.</h2>
-      <p>No account, no telemetry, no server. Download the app and point it at a repo.</p>
-      <a class="btn btn-contrast" href="/download">Download for macOS — free</a>
+  <!-- 6. Proof and pricing -->
+  <section class="proof" aria-label="Proof and pricing">
+    <figure class="quote-card">
+      <blockquote>
+        "I built Tracker because I was the bottleneck. With gates recording a demo video and running
+        the test suite before I ever look, reviewing an agent's ticket went from re-doing the work
+        to reading the receipts. Since v0.1.0 the entire app has been built this way; every feature
+        on this page went through its own board."
+      </blockquote>
+      <figcaption>
+        <span class="quote-avatar" aria-hidden="true">BN</span>
+        <span class="quote-who">
+          <strong>Barry Napier</strong>
+          <span>Creator &amp; maintainer, dogfooding since day one</span>
+        </span>
+      </figcaption>
+    </figure>
+    <div class="pricing-card">
+      <p class="pricing-kicker">Pricing</p>
+      <p class="pricing-price">$0, forever.</p>
+      <p class="pricing-body">
+        MIT licensed, no paid tier, no account. You bring the agent subscription you already pay
+        for; Tracker makes those minutes productive in parallel.
+      </p>
+      <div class="pricing-cta">
+        <a href="/download">Download for macOS, free</a>
+        <p>~100&nbsp;MB dmg · Apple Silicon · no signup</p>
+      </div>
     </div>
   </section>
 
   <!-- 7. FAQ -->
-  <section class="faq">
-    <h2>Questions</h2>
-    <details>
-      <summary>Where does my code and data go?</summary>
-      <p>
-        Nowhere. Tracker is a local Electron app with a local SQLite store —
-        tickets, runs, and logs live in your app data directory. Agents run on
-        your machine with your own provider credentials, which means you can
-        point it at private repos without adding a new party to your threat model.
-      </p>
-    </details>
-    <details>
-      <summary>Which coding agents does it work with?</summary>
-      <p>
-        Claude Code is fully supported today; GitHub Copilot and Kiro CLI
-        integrations are in the codebase behind the same provider seam, so
-        adding more doesn't mean re-architecting — pick the agent per project.
-      </p>
-    </details>
-    <details>
-      <summary>Why is the build unsigned?</summary>
-      <p>
-        It's a young open-source project without an Apple Developer certificate
-        yet. The dmg is built in public by a GitHub Actions workflow you can
-        read, from source you can audit — on first launch, right-click the app
-        and choose Open.
-      </p>
-    </details>
-    <details>
-      <summary>What does it cost?</summary>
-      <p>
-        Nothing. MIT licensed, no paid tier, no account. You bring your own
-        agent subscription (e.g. Claude), which you'd be paying for anyway —
-        Tracker just makes those minutes productive in parallel.
-      </p>
-    </details>
-    <details>
-      <summary>Windows or Linux?</summary>
-      <p>
-        macOS (Apple Silicon) only for now. The stack is Electron, so other
-        platforms are a build-matrix change away — star the repo or open an
-        issue to push them up the list.
-      </p>
-    </details>
+  <section class="faq" aria-label="FAQ">
+    <h2>Questions, answered straight</h2>
+    <div class="faq-list">
+      <details>
+        <summary>Where does my code and data go?</summary>
+        <p>
+          Nowhere. Tracker is a local Electron app with a local SQLite store: tickets, runs, and
+          logs live in your app data directory, and agents run with your own provider credentials.
+          That means you can point it at private repos without adding a new party to your threat
+          model.
+        </p>
+      </details>
+      <details>
+        <summary>Which coding agents does it work with?</summary>
+        <p>
+          Claude Code is fully supported today. GitHub Copilot and Kiro CLI integrations sit behind
+          the same provider seam in the codebase, so adding more agents is a plug-in, not a
+          re-architecture. You pick the agent per project.
+        </p>
+      </details>
+      <details>
+        <summary>Why is the build unsigned?</summary>
+        <p>
+          It's a young open-source project without an Apple Developer certificate yet. The dmg is
+          built in public by a GitHub Actions workflow you can read, from source you can audit, so
+          instead of trusting a signature, you can verify the pipeline itself. On first launch,
+          right-click the app and choose Open.
+        </p>
+      </details>
+      <details>
+        <summary>What does it cost?</summary>
+        <p>
+          Nothing. MIT licensed, no paid tier, no account. You bring your own agent subscription
+          (e.g. Claude), which you'd be paying for anyway; Tracker makes those minutes productive in
+          parallel instead of serial.
+        </p>
+      </details>
+      <details>
+        <summary>Windows or Linux?</summary>
+        <p>
+          macOS (Apple Silicon) only for now. The stack is Electron, so other platforms are a
+          build-matrix change away; starring the repo or opening an issue is what pushes them up the
+          list.
+        </p>
+      </details>
+    </div>
   </section>
 
   <!-- 8. Final CTA -->
-  <section class="final">
-    <h2>Put your agents on a board.</h2>
-    <a class="btn btn-contrast" href="/download">Download for macOS — free</a>
-    <p class="final-sub">~100&nbsp;MB dmg · Apple Silicon · MIT licensed</p>
+  <section class="final" aria-label="Final call to action">
+    <div class="final-box">
+      <h2>Put your agents on a board.</h2>
+      <p class="final-lede">
+        Download it, point it at a repo, queue your first ticket. Five minutes from dmg to board.
+      </p>
+      <div class="cta-row">
+        <a class="btn-primary" href="/download">Download for macOS, free</a>
+        <a class="btn-secondary" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">Star on GitHub</a>
+      </div>
+      <p class="trust-line">~100&nbsp;MB dmg · Apple Silicon · MIT licensed</p>
+    </div>
   </section>
 </Layout>
 
 <script>
-  // Ad-copy match: ?h=Your+headline replaces the hero headline.
-  const h = new URLSearchParams(window.location.search).get("h");
+  // Ad-copy match: ?headline=Your+headline (or legacy ?h=) replaces the hero headline.
+  const params = new URLSearchParams(window.location.search);
+  const h = params.get("headline") ?? params.get("h");
   const el = document.getElementById("headline");
   if (h && el) el.textContent = h;
 </script>
 
 <style>
-  section {
-    margin-top: 96px;
-  }
-
-  section:first-child {
-    margin-top: 0;
-  }
-
   /* Linear-style staged entrance: blur + rise, staggered per row. */
   .hero-in {
     opacity: 0;
@@ -248,284 +301,503 @@ import { GITHUB_URL, RELEASES_URL } from "../lib/releases";
     }
   }
 
-  .hero-subrow {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 24px;
+  .kicker {
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-faint);
   }
 
-  .hero-new {
-    flex: none;
+  .cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+  }
+
+  .btn-primary,
+  .btn-secondary {
+    font-size: 15px;
+    font-weight: 500;
+    padding: 13px 26px;
+    border-radius: var(--radius-md);
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .btn-primary {
+    color: var(--contrast-fg);
+    background: var(--contrast-bg);
+    box-shadow: var(--shadow-primary);
+  }
+
+  .btn-primary:hover {
+    opacity: 0.9;
+  }
+
+  .btn-secondary {
+    color: var(--text-base);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-button);
+  }
+
+  .btn-secondary:hover {
+    background: var(--surface-raised-hover);
+  }
+
+  .trust-line {
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    color: var(--text-faint);
+    margin-top: 16px;
+  }
+
+  /* -- hero -- */
+
+  .hero {
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 56px 24px 0;
+    text-align: center;
+  }
+
+  .release-pill {
     display: inline-flex;
     align-items: center;
     gap: 8px;
     font-size: var(--fs-sm);
+    font-weight: 500;
     color: var(--text-muted);
-    white-space: nowrap;
+    background: var(--surface-sunken);
+    border-radius: var(--radius-full);
+    padding: 5px 14px;
   }
 
-  .hero-new:hover {
+  .release-pill:hover {
     color: var(--text-base);
   }
 
-  /* Staged product shot with a floor glow under it, Linear-style. */
-  .hero-stage {
-    position: relative;
-    margin-top: 48px;
+  .release-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ok-fg);
   }
 
-  .hero-stage .shot {
-    margin-top: 0;
-  }
-
-  @media (max-width: 720px) {
-    .hero-subrow {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 14px;
-    }
-
-    .hide-mobile {
-      display: none;
-    }
-  }
-
-  h1 {
-    max-width: 760px;
-    font-size: clamp(32px, 6.5vw, 56px);
+  .hero h1 {
+    font-size: clamp(34px, 6vw, 62px);
     line-height: 1.06;
-    font-weight: 650;
     letter-spacing: -0.03em;
-  }
-
-  h2 {
-    font-size: 20px;
-    font-weight: 650;
-    letter-spacing: -0.01em;
+    font-weight: 700;
+    margin: 24px auto 0;
+    max-width: 820px;
   }
 
   .lede {
-    max-width: 560px;
-    margin-top: 16px;
-    font-size: 15px;
-    line-height: 1.6;
+    font-size: clamp(16px, 2.2vw, 19px);
+    line-height: 1.5;
     color: var(--text-muted);
+    max-width: 620px;
+    margin: 18px auto 0;
   }
 
-  .cta-row {
-    margin-top: 28px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
+  .hero .cta-row {
+    margin-top: 30px;
   }
 
-  .trust-line {
-    margin-top: 14px;
-    font-size: var(--fs-sm);
-    color: var(--text-faint);
-  }
-
-  .shot {
-    margin: 40px 0 0;
-    border-radius: var(--radius-lg);
+  .hero-shot {
+    margin-top: 44px;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
     overflow: hidden;
-    box-shadow: var(--shadow-floating);
-    background: var(--surface-raised);
+    background: var(--surface-panel);
+    box-shadow: var(--shadow-hero);
   }
 
-  .shot img {
+  .hero-shot img,
+  .benefit-shot img {
     display: block;
     width: 100%;
     height: auto;
   }
 
-  .problem {
-    max-width: 620px;
+  /* -- built-in-public strip -- */
+
+  .strip {
+    background: var(--surface-sunken);
+    box-shadow: var(--strip-inset);
   }
 
-  .problem p {
-    margin-top: 12px;
-    font-size: 14px;
-    line-height: 1.65;
+  .strip-inner {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 26px 24px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 14px 40px;
+  }
+
+  .strip-label {
+    font-size: var(--fs-base);
     color: var(--text-muted);
+    font-weight: 500;
   }
 
-  /* Cursor-style feature cards: raised surfaces, chip label, claim, visual. */
-  .features-kicker {
+  .strip-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 28px;
+    font-family: var(--font-mono);
     font-size: var(--fs-sm);
     color: var(--text-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
   }
 
-  .fcard {
-    margin-top: 20px;
-    background: var(--surface-raised);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-raised);
-    padding: 28px;
-    overflow: hidden;
+  .strip-stats strong {
+    color: var(--text-base);
+    font-weight: 600;
   }
 
-  .fcard:first-of-type {
-    margin-top: 24px;
+  /* -- problem -- */
+
+  .problem {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 88px 24px 0;
+    text-align: center;
   }
 
-  .fcard-copy {
-    max-width: 560px;
+  .problem h2 {
+    font-size: clamp(26px, 4vw, 38px);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    margin-top: 14px;
   }
 
-  .fcard-copy .chip {
-    margin-bottom: 12px;
-  }
-
-  .fcard-copy h2 {
-    margin-top: 10px;
-  }
-
-  .fcard-copy p {
-    margin-top: 10px;
-    font-size: 14px;
+  .problem-body {
+    font-size: 16px;
     line-height: 1.6;
     color: var(--text-muted);
+    margin: 16px auto 0;
+    max-width: 600px;
   }
 
-  .fcard .shot {
-    margin-top: 24px;
-    box-shadow: var(--shadow-floating);
-  }
+  /* -- benefits -- */
 
-  .fcard-row {
+  .benefits {
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 72px 24px 0;
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-    margin-top: 20px;
+    gap: 96px;
   }
 
-  .fcard-row .fcard {
-    margin-top: 0;
+  .benefit {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 32px 48px;
+  }
+
+  .benefit-flip {
+    flex-wrap: wrap-reverse;
+    flex-direction: row-reverse;
+  }
+
+  .benefit-copy {
+    flex: 1 1 300px;
+    min-width: 280px;
+  }
+
+  .benefit-copy h2 {
+    font-size: clamp(24px, 3vw, 30px);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    margin-top: 12px;
+  }
+
+  .benefit-copy p:not(.kicker) {
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--text-muted);
+    margin-top: 12px;
+  }
+
+  .benefit-link {
+    display: inline-block;
+    margin-top: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-accent);
+  }
+
+  .benefit-link:hover {
+    color: var(--text-accent-hover);
+    text-decoration: underline;
+  }
+
+  .benefit-shot {
+    flex: 2 1 460px;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: var(--surface-panel);
+    box-shadow: var(--shadow-card);
+  }
+
+  .benefit-shot-tall {
+    flex: 1 1 320px;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  /* -- extras -- */
+
+  .extras {
+    width: 100%;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 80px 24px 0;
+  }
+
+  .extras-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+  }
+
+  .extra {
+    border-radius: var(--radius-lg);
+    background: var(--surface-panel);
+    padding: 20px;
+    box-shadow: var(--shadow-raised);
+  }
+
+  .extra h3 {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .extra p {
+    font-size: 13.5px;
+    line-height: 1.55;
+    color: var(--text-muted);
+    margin-top: 8px;
+  }
+
+  /* -- proof and pricing -- */
+
+  .proof {
+    width: 100%;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 88px 24px 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    align-items: stretch;
+  }
+
+  .quote-card {
+    border-radius: var(--radius-lg);
+    background: var(--surface-panel);
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    box-shadow: var(--shadow-card);
+  }
+
+  .quote-card blockquote {
+    font-size: 17px;
+    line-height: 1.55;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+  }
+
+  .quote-card figcaption {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .quote-avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: var(--radius-full);
+    background: var(--info-bg);
+    box-shadow: 0 0 0 0.5px var(--info-border);
+    display: grid;
+    place-items: center;
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    color: var(--info-fg);
+  }
+
+  .quote-who {
     display: flex;
     flex-direction: column;
   }
 
-  .fcard-row .shot {
-    margin-top: auto;
-    padding-top: 24px;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  .fcard-row .shot img {
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-floating);
-  }
-
-  .fcard-minis {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 14px;
-    margin-top: 20px;
-  }
-
-  .fcard-mini {
-    margin-top: 0;
-    padding: 20px;
-  }
-
-  .fcard-mini h3 {
-    font-size: var(--fs-base);
+  .quote-who strong {
+    font-size: 13.5px;
     font-weight: 600;
   }
 
-  .fcard-mini p {
-    margin-top: 8px;
-    font-size: var(--fs-sm);
-    line-height: 1.55;
+  .quote-who span {
+    font-size: 12.5px;
     color: var(--text-muted);
   }
 
-  @media (max-width: 900px) {
-    .fcard-minis {
-      grid-template-columns: repeat(2, 1fr);
-    }
-  }
-
-  @media (max-width: 720px) {
-    .fcard-row,
-    .fcard-minis {
-      grid-template-columns: 1fr;
-    }
-  }
-
-  .momentum {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 10px;
-    font-size: var(--fs-sm);
-    color: var(--text-muted);
-  }
-
-  .momentum a {
-    color: var(--text-accent);
-  }
-
-  .momentum a:hover {
-    color: var(--text-accent-hover);
-  }
-
-  .midcta-box {
-    margin-top: 24px;
-    background: var(--surface-raised);
+  .pricing-card {
     border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-raised);
+    background: var(--contrast-bg);
+    color: var(--contrast-fg);
     padding: 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: var(--shadow-card);
   }
 
-  .midcta-box p {
-    margin: 8px 0 18px;
+  .pricing-kicker {
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--on-contrast-accent);
+  }
+
+  .pricing-price {
+    font-size: clamp(30px, 4vw, 40px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  .pricing-body {
     font-size: 14px;
-    color: var(--text-muted);
+    line-height: 1.6;
+    color: var(--contrast-muted);
+  }
+
+  .pricing-cta {
+    margin-top: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 12px;
+  }
+
+  .pricing-cta a {
+    color: var(--contrast-bg);
+    background: var(--contrast-fg);
+    font-size: 14.5px;
+    font-weight: 500;
+    padding: 12px 24px;
+    border-radius: var(--radius-md);
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  }
+
+  .pricing-cta a:hover {
+    opacity: 0.92;
+  }
+
+  .pricing-cta p {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--contrast-faint);
+    text-align: center;
+  }
+
+  /* -- FAQ -- */
+
+  .faq {
+    width: 100%;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 88px 24px 0;
+  }
+
+  .faq h2 {
+    font-size: clamp(26px, 4vw, 34px);
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    margin-bottom: 22px;
+    text-align: center;
+  }
+
+  .faq-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
 
   .faq details {
-    margin-top: 10px;
-    background: var(--surface-raised);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
+    background: var(--surface-panel);
+    padding: 16px 20px;
     box-shadow: var(--shadow-raised);
-    padding: 12px 16px;
-  }
-
-  .faq details:first-of-type {
-    margin-top: 20px;
   }
 
   .faq summary {
+    font-size: 15px;
+    font-weight: 600;
     cursor: pointer;
-    font-weight: 500;
-    font-size: var(--fs-base);
+    list-style-position: inside;
   }
 
   .faq details p {
-    margin-top: 10px;
-    font-size: var(--fs-base);
+    font-size: 14px;
     line-height: 1.6;
     color: var(--text-muted);
+    margin-top: 12px;
   }
+
+  /* -- final CTA -- */
 
   .final {
+    width: 100%;
+    max-width: 1120px;
+    margin: 64px auto 0;
+    padding: 0 24px 72px;
+  }
+
+  .final-box {
+    border-radius: var(--radius-lg);
+    background: linear-gradient(180deg, var(--surface-sunken), var(--bg-app) 70%);
     text-align: center;
-    padding: 48px 0 16px;
+    padding: clamp(48px, 8vw, 76px) 24px;
+    box-shadow: 0 0 0 0.5px var(--border-muted);
   }
 
-  .final .btn {
-    margin-top: 20px;
+  .final-box h2 {
+    font-size: clamp(30px, 5vw, 48px);
+    letter-spacing: -0.03em;
+    font-weight: 700;
   }
 
-  .final-sub {
-    margin-top: 12px;
-    font-size: var(--fs-sm);
-    color: var(--text-faint);
+  .final-lede {
+    font-size: 16px;
+    color: var(--text-muted);
+    margin: 14px auto 0;
+    max-width: 460px;
+  }
+
+  .final .cta-row {
+    margin-top: 26px;
+  }
+
+  .final .trust-line {
+    font-size: 11.5px;
   }
 </style>

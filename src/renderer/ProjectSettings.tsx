@@ -167,7 +167,16 @@ function ProviderConfigSection() {
  * workflow selection. Changes apply immediately but act forward — the next
  * claim pins the new head version; a running Run finishes on its own pin.
  */
-export function ProjectSettings({ project, onClose }: { project: Project; onClose: () => void }) {
+export function ProjectSettings({
+  project,
+  onClose,
+  onSaved,
+}: {
+  project: Project;
+  onClose: () => void;
+  /** The server-updated row after a successful pick — for tab-cache refresh. */
+  onSaved?: (row: Project) => void;
+}) {
   const [workflows, setWorkflows] = useState<WorkflowListing[] | null>(null);
   // Live row, not the tab's cached one — the selection may have changed since
   // the tab was hydrated, and correctness of the archived-selection labeling
@@ -191,7 +200,8 @@ export function ProjectSettings({ project, onClose }: { project: Project; onClos
     const previous = workflowId;
     setWorkflowId(picked);
     try {
-      await apiPatch(`/api/projects/${project.id}`, { workflowId: picked });
+      const row = await apiPatch<Project>(`/api/projects/${project.id}`, { workflowId: picked });
+      onSaved?.(row);
       setError(null);
     } catch (e) {
       setWorkflowId(previous);

@@ -733,28 +733,45 @@ a.chip-info:hover {
   font-size: var(--fs-sm);
 }
 
-.newticket {
-  background: none;
-  border: 1px dashed var(--border-strong);
+/* -- toolbar actions: new ticket + worktree sweep, moved off the board -- */
+
+.toolbar-action {
+  position: relative;
+  display: inline-flex;
+}
+
+.toolbar-new {
+  display: inline-flex;
+  align-items: center;
+  background: var(--contrast-bg);
+  border: none;
   border-radius: var(--radius-md);
-  color: var(--text-muted);
-  padding: 0.45rem;
-  cursor: pointer;
-  text-align: left;
+  color: var(--contrast-fg);
   font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
 }
 
-.newticket:hover {
-  color: var(--text-base);
-  background: var(--overlay-hover);
+.toolbar-new:hover {
+  background: color-mix(in srgb, var(--contrast-bg) 88%, var(--contrast-fg));
 }
 
-/* -- Done-column sweep (ticket 42) -- */
+.newform-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10;
+  width: 320px;
+  box-shadow: var(--shadow-floating);
+}
 
-.sweep {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+.sweep-pop {
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 240px;
+  max-width: 320px;
+  padding: 0.5rem 0.6rem;
 }
 
 .sweep-note {
@@ -927,18 +944,43 @@ a.chip-info:hover {
   background: var(--danger-bg);
 }
 
-/* The board's one-time workflow ask: informational, not an error. */
+/* The board's one-time workflow ask: informational, not an error — quiet
+   panel surface, standard button anatomy, primary on the expected answer. */
 .wf-confirm {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  border-bottom-color: var(--info-border);
-  background: var(--info-bg);
-  color: var(--info-fg);
+  border-bottom-color: var(--border-muted);
+  background: var(--surface-panel);
+  color: var(--text-base);
 }
 
 .wf-confirm span {
   flex: 1;
+  color: var(--text-muted);
+}
+
+.wf-confirm strong {
+  color: var(--text-base);
+}
+
+.wf-confirm button,
+.git-init button {
+  background: var(--surface-raised);
+  border: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-button);
+  color: var(--text-base);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0.3rem 0.8rem;
+  cursor: pointer;
+}
+
+.wf-confirm button:first-of-type,
+.git-init button {
+  background: var(--contrast-bg);
+  color: var(--contrast-fg);
 }
 
 /* The board's git-init offer: same informational posture as .wf-confirm. */
@@ -946,13 +988,18 @@ a.chip-info:hover {
   display: flex;
   align-items: center;
   gap: 0.6rem;
-  border-bottom-color: var(--info-border);
-  background: var(--info-bg);
-  color: var(--info-fg);
+  border-bottom-color: var(--border-muted);
+  background: var(--surface-panel);
+  color: var(--text-base);
 }
 
 .git-init span {
   flex: 1;
+  color: var(--text-muted);
+}
+
+.git-init strong {
+  color: var(--text-base);
 }
 
 .props {
@@ -2181,6 +2228,22 @@ a.chip-info:hover {
   gap: 0.75rem;
   text-align: center;
   padding: 1.5rem 0.6rem;
+}
+
+.home-empty-cta button {
+  background: var(--contrast-bg);
+  border: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-button);
+  color: var(--contrast-fg);
+  font: inherit;
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+}
+
+.home-empty-cta button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .home-link {
@@ -4868,19 +4931,20 @@ button.wfc-pill.label { cursor: pointer; }
 }
 
 .teamwork-view-buttons button {
-  background: var(--surface-sunken);
+  background: var(--surface-raised);
   border: none;
-  border-radius: var(--radius-full);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-button);
   color: var(--text-base);
   font: inherit;
   font-size: var(--fs-sm);
-  padding: 0.25rem 0.8rem;
+  padding: 0.3rem 0.8rem;
   cursor: pointer;
 }
 
 .teamwork-view-buttons .teamwork-view-save {
-  background: var(--ok-fg);
-  color: var(--bg-app);
+  background: var(--contrast-bg);
+  color: var(--contrast-fg);
 }
 
 .teamwork-view-buttons .teamwork-view-delete {

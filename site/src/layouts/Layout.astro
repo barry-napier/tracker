@@ -1,5 +1,5 @@
 ---
-import { GITHUB_URL } from "../lib/releases";
+import { GITHUB_URL, RELEASES_URL } from "../lib/releases";
 
 interface Props {
   title?: string;
@@ -25,15 +25,31 @@ const {
     />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>{title}</title>
+    <script is:inline>
+      // Set the color scheme before first paint to avoid a theme flash.
+      (() => {
+        try {
+          const stored = localStorage.getItem("tracker-color-scheme");
+          const mode = stored === "light" || stored === "dark" ? stored : "system";
+          const dark =
+            mode === "dark" ||
+            (mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.setAttribute("data-color-scheme", dark ? "dark" : "light");
+        } catch {}
+      })();
+    </script>
   </head>
   <body>
     <div class="page">
-      <nav class="topbar">
+      <nav class="topbar" aria-label="Main">
         <div class="topbar-inner">
-          <a href="/" class="brand" aria-label="Tracker home">Tracker</a>
+          <a href="/" class="brand" aria-label="Tracker home">
+            <span class="brand-mark" aria-hidden="true">&#9656;</span>
+            Tracker
+          </a>
           <div class="topbar-right">
-            <a href="/download" class="navlink">Download</a>
             <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" class="navlink">GitHub</a>
+            <a href="/download" class="nav-cta">Download free</a>
           </div>
         </div>
       </nav>
@@ -44,21 +60,62 @@ const {
 
       <footer class="footer">
         <div class="footer-inner">
-          <span>&copy; {new Date().getFullYear()} Barry Napier</span>
-          <div class="footer-links">
+          <p class="footer-copy">
+            &copy; {new Date().getFullYear()} Barry Napier · Local-first: your code and data never
+            leave your machine.
+          </p>
+          <div class="footer-right">
             <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer">GitHub</a>
+            <a href={RELEASES_URL} target="_blank" rel="noopener noreferrer">Changelog</a>
             <a href="/download">Download</a>
+            <div class="scheme-toggle" role="group" aria-label="Color scheme">
+              <button type="button" data-scheme="light">Light</button>
+              <button type="button" data-scheme="dark">Dark</button>
+              <button type="button" data-scheme="system">Auto</button>
+            </div>
           </div>
         </div>
       </footer>
     </div>
+
+    <script>
+      const KEY = "tracker-color-scheme";
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      const buttons = Array.from(
+        document.querySelectorAll<HTMLButtonElement>(".scheme-toggle button"),
+      );
+
+      const getMode = () => {
+        const stored = localStorage.getItem(KEY);
+        return stored === "light" || stored === "dark" ? stored : "system";
+      };
+
+      const apply = () => {
+        const mode = getMode();
+        const effective = mode === "system" ? (mq.matches ? "dark" : "light") : mode;
+        document.documentElement.setAttribute("data-color-scheme", effective);
+        buttons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.scheme === mode)));
+      };
+
+      buttons.forEach((b) =>
+        b.addEventListener("click", () => {
+          localStorage.setItem(KEY, b.dataset.scheme!);
+          apply();
+        }),
+      );
+      mq.addEventListener("change", () => {
+        if (getMode() === "system") apply();
+      });
+      apply();
+    </script>
   </body>
 </html>
 
 <style is:global>
   /* Tracker design system — same oc-2 token language as the app
      (src/renderer/styles.css): grey ramps, hairline ring elevation,
-     state bg/fg/border triplets. Light default; dark via media query. */
+     state bg/fg/border triplets. Light default; dark via the
+     data-color-scheme attribute set before paint and toggled in the footer. */
   :root {
     --grey-50: #ffffff;
     --grey-100: #fafafa;
@@ -105,6 +162,7 @@ const {
     --surface-sunken: rgba(0, 0, 0, 0.035);
     --surface-raised: var(--grey-50);
     --surface-raised-hover: var(--grey-100);
+    --surface-panel: var(--grey-50);
     --text-base: var(--grey-1100);
     --text-muted: var(--grey-700);
     --text-faint: var(--grey-600);
@@ -115,54 +173,90 @@ const {
     --border-focus: var(--blue-500);
     --contrast-bg: var(--grey-1000);
     --contrast-fg: var(--grey-50);
+    --contrast-muted: rgba(255, 255, 255, 0.65);
+    --contrast-faint: rgba(255, 255, 255, 0.45);
+    --on-contrast-accent: var(--blue-400);
+    --ok-bg: #e7f9ea;
+    --ok-fg: #198b43;
+    --ok-border: #b8e9c1;
     --warn-bg: var(--yellow-100);
     --warn-fg: var(--yellow-800);
-    --shadow-raised:
-      0 1px 2px rgba(0, 0, 0, 0.04),
-      0 0 0 0.5px rgba(0, 0, 0, 0.1);
-    --shadow-floating:
-      0 8px 16px rgba(0, 0, 0, 0.04),
-      0 4px 8px rgba(0, 0, 0, 0.08),
-      0 0 0 0.5px rgba(0, 0, 0, 0.12);
-    --shadow-button:
-      0 1px 1.5px rgba(0, 0, 0, 0.1),
-      0 0 0 0.5px rgba(0, 0, 0, 0.14);
+    --warn-border: var(--yellow-300);
+    --info-bg: var(--blue-100);
+    --info-fg: var(--blue-800);
+    --info-border: var(--blue-300);
+    --selection: var(--blue-300);
+    --shadow-button: 0 0 0 0.5px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-primary:
+      0 0 0 0.5px rgba(0, 0, 0, 0.25),
+      0 1px 2px rgba(0, 0, 0, 0.12),
+      0 4px 12px rgba(0, 0, 0, 0.08);
+    --shadow-raised: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.04);
+    --shadow-card:
+      0 0 0 0.5px rgba(0, 0, 0, 0.12),
+      0 2px 6px rgba(0, 0, 0, 0.05),
+      0 8px 24px rgba(0, 0, 0, 0.06);
+    --shadow-hero:
+      0 0 0 0.5px rgba(0, 0, 0, 0.12),
+      0 2px 6px rgba(0, 0, 0, 0.05),
+      0 16px 48px rgba(0, 0, 0, 0.08);
+    --strip-inset: inset 0 0.5px 0 rgba(0, 0, 0, 0.08), inset 0 -0.5px 0 rgba(0, 0, 0, 0.08);
   }
 
-  @media (prefers-color-scheme: dark) {
-    :root {
-      color-scheme: dark;
-      --bg-app: var(--grey-1100);
-      --surface-sunken: rgba(255, 255, 255, 0.035);
-      --surface-raised: #232323;
-      --surface-raised-hover: #282828;
-      --text-base: var(--grey-100);
-      --text-muted: var(--grey-500);
-      --text-faint: var(--grey-600);
-      --text-accent: var(--blue-400);
-      --text-accent-hover: var(--blue-300);
-      --border-muted: rgba(255, 255, 255, 0.08);
-      --border-base: rgba(255, 255, 255, 0.1);
-      --border-focus: var(--blue-500);
-      --contrast-bg: var(--grey-100);
-      --contrast-fg: var(--grey-1100);
-      --warn-bg: var(--yellow-1200);
-      --warn-fg: var(--yellow-500);
-      --shadow-raised:
-        0 2px 4px rgba(0, 0, 0, 0.3),
-        0 1px 2px rgba(0, 0, 0, 0.3),
-        0 0 0 0.5px rgba(255, 255, 255, 0.14),
-        0 -0.5px 0 rgba(255, 255, 255, 0.06);
-      --shadow-floating:
-        0 8px 16px rgba(0, 0, 0, 0.3),
-        0 4px 8px rgba(0, 0, 0, 0.3),
-        0 0 0 0.5px rgba(255, 255, 255, 0.14),
-        0 -0.5px 0 rgba(255, 255, 255, 0.06);
-      --shadow-button:
-        0 1px 2px rgba(0, 0, 0, 0.4),
-        0 0 0 0.5px rgba(255, 255, 255, 0.18),
-        0 -0.5px 0 rgba(255, 255, 255, 0.1);
-    }
+  :root[data-color-scheme="dark"] {
+    color-scheme: dark;
+    --bg-app: var(--grey-1100);
+    --surface-sunken: rgba(255, 255, 255, 0.035);
+    --surface-raised: #232323;
+    --surface-raised-hover: #282828;
+    --surface-panel: #1c1c1c;
+    --text-base: #f5f5f5;
+    --text-muted: #9e9e9e;
+    --text-faint: var(--grey-600);
+    --text-accent: var(--blue-500);
+    --text-accent-hover: var(--blue-400);
+    --border-muted: rgba(255, 255, 255, 0.08);
+    --border-base: rgba(255, 255, 255, 0.1);
+    --border-focus: var(--blue-500);
+    --contrast-bg: #f5f5f5;
+    --contrast-fg: var(--grey-1100);
+    --contrast-muted: rgba(0, 0, 0, 0.6);
+    --contrast-faint: rgba(0, 0, 0, 0.45);
+    --on-contrast-accent: var(--blue-700);
+    --ok-bg: #12251a;
+    --ok-fg: #5bd389;
+    --ok-border: #1d4028;
+    --warn-bg: var(--yellow-1200);
+    --warn-fg: var(--yellow-500);
+    --warn-border: #4a3f1d;
+    --info-bg: #131c33;
+    --info-fg: var(--blue-500);
+    --info-border: #263a6b;
+    --selection: #263a6b;
+    --shadow-button:
+      0 -0.5px 0 rgba(255, 255, 255, 0.12) inset,
+      0 0 0 0.5px rgba(255, 255, 255, 0.14),
+      0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-primary:
+      0 0 0 0.5px rgba(255, 255, 255, 0.2),
+      0 1px 2px rgba(0, 0, 0, 0.5),
+      0 4px 12px rgba(0, 0, 0, 0.3);
+    --shadow-raised:
+      0 -0.5px 0 rgba(255, 255, 255, 0.08) inset,
+      0 0 0 0.5px rgba(255, 255, 255, 0.1),
+      0 1px 3px rgba(0, 0, 0, 0.35);
+    --shadow-card:
+      0 -0.5px 0 rgba(255, 255, 255, 0.08) inset,
+      0 0 0 0.5px rgba(255, 255, 255, 0.12),
+      0 2px 6px rgba(0, 0, 0, 0.4),
+      0 8px 24px rgba(0, 0, 0, 0.35);
+    --shadow-hero:
+      0 -0.5px 0 rgba(255, 255, 255, 0.1) inset,
+      0 0 0 0.5px rgba(255, 255, 255, 0.12),
+      0 2px 6px rgba(0, 0, 0, 0.45),
+      0 16px 48px rgba(0, 0, 0, 0.5);
+    --strip-inset:
+      inset 0 0.5px 0 rgba(255, 255, 255, 0.08), inset 0 -0.5px 0 rgba(255, 255, 255, 0.08);
   }
 
   * {
@@ -177,11 +271,20 @@ const {
     font-family: var(--font-sans);
     font-size: var(--fs-base);
     -webkit-font-smoothing: antialiased;
+    text-wrap: pretty;
   }
 
   a {
     color: inherit;
     text-decoration: none;
+  }
+
+  ::selection {
+    background: var(--selection);
+  }
+
+  img {
+    max-width: 100%;
   }
 
   :focus-visible {
@@ -196,76 +299,138 @@ const {
   }
 
   .topbar-inner,
-  .footer-inner,
-  .main {
+  .footer-inner {
     width: 100%;
-    max-width: 880px;
+    max-width: 1120px;
     margin: 0 auto;
-    padding: 0 20px;
-  }
-
-  .topbar {
-    border-bottom: 1px solid var(--border-muted);
+    padding: 0 24px;
   }
 
   .topbar-inner {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 48px;
+    gap: 16px;
+    padding-top: 18px;
+    padding-bottom: 18px;
   }
 
   .brand {
-    font-weight: 650;
-    font-size: var(--fs-base);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    font-size: 15px;
     letter-spacing: -0.01em;
+  }
+
+  .brand-mark {
+    width: 22px;
+    height: 22px;
+    border-radius: var(--radius-md);
+    background: var(--contrast-bg);
+    display: grid;
+    place-items: center;
+    color: var(--contrast-fg);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
   }
 
   .topbar-right {
     display: flex;
-    gap: 4px;
+    align-items: center;
+    gap: 16px;
   }
 
   .navlink {
     color: var(--text-muted);
     font-size: var(--fs-base);
-    padding: 4px 10px;
-    border-radius: var(--radius-md);
+    font-weight: 500;
   }
 
   .navlink:hover {
     color: var(--text-base);
-    background: var(--surface-sunken);
+  }
+
+  .nav-cta {
+    color: var(--contrast-fg);
+    background: var(--contrast-bg);
+    font-size: var(--fs-base);
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-button);
+  }
+
+  .nav-cta:hover {
+    opacity: 0.9;
   }
 
   .main {
     flex: 1;
     display: flex;
     flex-direction: column;
-    padding-top: 72px;
-    padding-bottom: 96px;
   }
 
   .footer {
-    border-top: 1px solid var(--border-muted);
+    box-shadow: inset 0 0.5px 0 var(--border-muted);
   }
 
   .footer-inner {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    height: 52px;
+    gap: 12px;
+    padding-top: 24px;
+    padding-bottom: 24px;
+  }
+
+  .footer-copy {
+    font-size: 12.5px;
     color: var(--text-faint);
-    font-size: var(--fs-sm);
   }
 
-  .footer-links {
+  .footer-right {
     display: flex;
-    gap: 16px;
+    align-items: center;
+    gap: 20px;
   }
 
-  .footer-links a:hover {
+  .footer-right > a {
+    color: var(--text-muted);
+    font-size: 12.5px;
+  }
+
+  .footer-right > a:hover {
     color: var(--text-base);
+  }
+
+  .scheme-toggle {
+    display: flex;
+    gap: 2px;
+    background: var(--surface-sunken);
+    border-radius: var(--radius-full);
+    padding: 2px;
+  }
+
+  .scheme-toggle button {
+    font: 500 11px var(--font-sans);
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    border: none;
+    border-radius: var(--radius-full);
+    padding: 4px 10px;
+    min-height: 24px;
+    background: transparent;
+    color: var(--text-faint);
+  }
+
+  .scheme-toggle button[aria-pressed="true"] {
+    background: var(--surface-raised);
+    color: var(--text-base);
+    box-shadow: var(--shadow-button);
   }
 
   /* -- shared controls, matching the app's button/chip anatomy -- */
