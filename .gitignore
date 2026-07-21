@@ -10,3 +10,5 @@ src/renderer/tsconfig.tsbuildinfo
 site/.astro/
 site/dist/
 site/node_modules/
+site/.vercel/
+site/.env.local

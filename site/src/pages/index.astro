@@ -11,21 +11,24 @@ import Layout from "../layouts/Layout.astro";
       all from one window.
     </p>
     <div class="cta-row">
-      <a class="cta" href="/download">Download for macOS</a>
-      <a class="cta ghost" href="https://github.com/barry-napier/tracker" target="_blank" rel="noopener noreferrer">View source</a>
+      <a class="btn btn-contrast" href="/download">Download for macOS</a>
+      <a class="btn" href="https://github.com/barry-napier/tracker" target="_blank" rel="noopener noreferrer">View source</a>
     </div>
   </section>
 
   <section class="features">
     <div class="feature">
+      <span class="chip">Board</span>
       <h2>Board-first workflow</h2>
       <p>Kanban columns that mirror the real lifecycle of agent work — queued, running, waiting on you, parked, done.</p>
     </div>
     <div class="feature">
+      <span class="chip">Sessions</span>
       <h2>Concurrent sessions</h2>
       <p>Multiple tickets in flight at once, each in its own isolated session with its own logs and diffs.</p>
     </div>
     <div class="feature">
+      <span class="chip">Local</span>
       <h2>Local and private</h2>
       <p>Everything runs on your machine. Your code, your keys, your data — nothing leaves the laptop.</p>
     </div>
@@ -34,73 +37,59 @@ import Layout from "../layouts/Layout.astro";
 
 <style>
   .hero {
-    max-width: 640px;
+    max-width: 600px;
   }
 
   h1 {
-    font-size: 42px;
+    font-size: 34px;
     line-height: 1.15;
-    font-weight: 600;
+    font-weight: 650;
     letter-spacing: -0.02em;
   }
 
   .lede {
-    margin-top: 20px;
-    font-size: 17px;
+    margin-top: 16px;
+    font-size: 15px;
     line-height: 1.6;
-    color: var(--text-dim);
+    color: var(--text-muted);
   }
 
   .cta-row {
-    margin-top: 32px;
+    margin-top: 28px;
     display: flex;
-    gap: 12px;
-  }
-
-  .cta {
-    display: inline-block;
-    padding: 10px 20px;
-    border-radius: 8px;
-    background: var(--accent);
-    color: #08110f;
-    font-weight: 600;
-    font-size: 14px;
-  }
-
-  .cta.ghost {
-    background: transparent;
-    color: var(--text);
-    border: 1px solid var(--border);
-    font-weight: 500;
-  }
-
-  .cta:hover {
-    filter: brightness(1.1);
+    gap: 10px;
   }
 
   .features {
-    margin-top: 96px;
+    margin-top: 80px;
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 32px;
+    gap: 14px;
+  }
+
+  .feature {
+    background: var(--surface-raised);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-raised);
+    padding: 16px;
   }
 
   .feature h2 {
-    font-size: 15px;
+    margin-top: 10px;
+    font-size: var(--fs-base);
     font-weight: 600;
-    color: var(--accent);
   }
 
   .feature p {
-    margin-top: 8px;
-    font-size: 14px;
-    line-height: 1.6;
-    color: var(--text-dim);
+    margin-top: 6px;
+    font-size: var(--fs-sm);
+    line-height: 1.55;
+    color: var(--text-muted);
   }
 
   @media (max-width: 720px) {
     h1 {
-      font-size: 32px;
+      font-size: 28px;
     }
     .features {
       grid-template-columns: 1fr;

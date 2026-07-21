@@ -7,7 +7,7 @@ import { RELEASES_URL } from "../lib/releases";
   <div class="download-page">
     <h1>Download Tracker</h1>
     <p class="subheading">
-      <span id="version-label">Loading latest release&hellip;</span>
+      <span id="version-label" class="chip chip-mono">Loading latest release&hellip;</span>
       <a id="changelog-link" href="#" target="_blank" rel="noopener noreferrer" style="display:none">
         View changelog<span aria-hidden="true"> &#8599;</span>
       </a>
@@ -18,12 +18,12 @@ import { RELEASES_URL } from "../lib/releases";
       <div class="cards">
         <a class="card" data-asset="arm64.dmg" href={RELEASES_URL}>
           <span class="card-arch">Apple Silicon (arm64)</span>
-          <span class="card-format">.dmg</span>
+          <span class="chip chip-mono">.dmg</span>
         </a>
       </div>
       <p class="note">
-        Builds are currently unsigned — on first launch, right-click the app and
-        choose <strong>Open</strong>.
+        <span class="chip chip-warn">unsigned</span>
+        On first launch, right-click the app and choose <strong>Open</strong>.
       </p>
     </section>
 
@@ -70,7 +70,7 @@ import { RELEASES_URL } from "../lib/releases";
       });
     } catch {
       if (versionLabel) {
-        versionLabel.textContent = "Could not load release info.";
+        versionLabel.textContent = "No release yet";
       }
       cards.forEach((card) => {
         card.href = RELEASES_URL;
@@ -83,78 +83,84 @@ import { RELEASES_URL } from "../lib/releases";
 
 <style>
   .download-page {
-    max-width: 560px;
+    max-width: 520px;
   }
 
   h1 {
-    font-size: 32px;
-    font-weight: 600;
+    font-size: 26px;
+    font-weight: 650;
     letter-spacing: -0.02em;
   }
 
   .subheading {
     margin-top: 12px;
-    color: var(--text-dim);
-    font-size: 14px;
+    color: var(--text-muted);
+    font-size: var(--fs-sm);
     display: flex;
-    gap: 16px;
+    align-items: center;
+    gap: 12px;
   }
 
   .subheading a {
-    color: var(--accent);
+    color: var(--text-accent);
+  }
+
+  .subheading a:hover {
+    color: var(--text-accent-hover);
   }
 
   .platform {
-    margin-top: 48px;
+    margin-top: 40px;
   }
 
   .platform h2 {
-    font-size: 16px;
+    font-size: var(--fs-base);
     font-weight: 600;
   }
 
   .cards {
-    margin-top: 16px;
+    margin-top: 12px;
   }
 
   .card {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 16px 20px;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: var(--surface);
+    padding: 12px 14px;
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-raised);
   }
 
   .card:hover {
-    border-color: var(--accent);
+    background: var(--surface-raised-hover);
   }
 
   .card-arch {
     font-weight: 500;
-    font-size: 14px;
-  }
-
-  .card-format {
-    font-family: var(--font-mono);
-    font-size: 13px;
-    color: var(--text-dim);
+    font-size: var(--fs-base);
   }
 
   .note {
     margin-top: 12px;
-    font-size: 13px;
-    color: var(--text-dim);
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 
   .releases-link {
-    margin-top: 48px;
-    font-size: 13px;
-    color: var(--text-dim);
+    margin-top: 40px;
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
   }
 
   .releases-link a {
-    color: var(--accent);
+    color: var(--text-accent);
+  }
+
+  .releases-link a:hover {
+    color: var(--text-accent-hover);
   }
 </style>

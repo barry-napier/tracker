@@ -20,7 +20,7 @@ const {
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650&display=swap"
       rel="stylesheet"
     />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -28,12 +28,12 @@ const {
   </head>
   <body>
     <div class="page">
-      <nav class="nav">
-        <div class="nav-inner">
-          <a href="/" class="nav-brand" aria-label="Tracker home">Tracker</a>
-          <div class="nav-right">
-            <a href="/download" class="nav-link">Download</a>
-            <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" class="nav-link">GitHub</a>
+      <nav class="topbar">
+        <div class="topbar-inner">
+          <a href="/" class="brand" aria-label="Tracker home">Tracker</a>
+          <div class="topbar-right">
+            <a href="/download" class="navlink">Download</a>
+            <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer" class="navlink">GitHub</a>
           </div>
         </div>
       </nav>
@@ -56,31 +56,126 @@ const {
 </html>
 
 <style is:global>
+  /* Tracker design system — same oc-2 token language as the app
+     (src/renderer/styles.css): grey ramps, hairline ring elevation,
+     state bg/fg/border triplets. Light default; dark via media query. */
   :root {
-    --bg: #0d0f12;
-    --surface: #15181d;
-    --border: #262b33;
-    --text: #e8eaed;
-    --text-dim: #9aa2ad;
-    --accent: #5eead4;
-    --font-sans: "Inter", system-ui, sans-serif;
-    --font-mono: "JetBrains Mono", ui-monospace, monospace;
+    --grey-50: #ffffff;
+    --grey-100: #fafafa;
+    --grey-200: #f2f2f2;
+    --grey-300: #eeeeee;
+    --grey-400: #dbdbdb;
+    --grey-500: #aeaeae;
+    --grey-600: #808080;
+    --grey-700: #5c5c5c;
+    --grey-800: #3a3a3a;
+    --grey-900: #2e2e2e;
+    --grey-1000: #242424;
+    --grey-1100: #161616;
+    --grey-1200: #080808;
+
+    --blue-100: #ecf1fe;
+    --blue-300: #c3d4fd;
+    --blue-400: #a2bcff;
+    --blue-500: #7698fd;
+    --blue-600: #3b5cf6;
+    --blue-700: #3250df;
+    --blue-800: #2c47c8;
+    --blue-900: #263fa9;
+    --blue-1200: #1b2852;
+    --yellow-100: #fefaec;
+    --yellow-300: #f7e5b5;
+    --yellow-500: #f2cf76;
+    --yellow-800: #cb9f34;
+    --yellow-900: #ac8833;
+    --yellow-1200: #4b4025;
+
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 10px;
+    --radius-full: 999px;
+    --fs-base: 13px;
+    --fs-sm: 12px;
+    --fs-xs: 11px;
+    --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+    color-scheme: light;
+    --bg-app: var(--grey-100);
+    --surface-sunken: rgba(0, 0, 0, 0.035);
+    --surface-raised: var(--grey-50);
+    --surface-raised-hover: var(--grey-100);
+    --text-base: var(--grey-1100);
+    --text-muted: var(--grey-700);
+    --text-faint: var(--grey-600);
+    --text-accent: var(--blue-600);
+    --text-accent-hover: var(--blue-700);
+    --border-muted: rgba(0, 0, 0, 0.08);
+    --border-base: rgba(0, 0, 0, 0.1);
+    --border-focus: var(--blue-500);
+    --contrast-bg: var(--grey-1000);
+    --contrast-fg: var(--grey-50);
+    --warn-bg: var(--yellow-100);
+    --warn-fg: var(--yellow-800);
+    --shadow-raised:
+      0 1px 2px rgba(0, 0, 0, 0.04),
+      0 0 0 0.5px rgba(0, 0, 0, 0.1);
+    --shadow-floating:
+      0 8px 16px rgba(0, 0, 0, 0.04),
+      0 4px 8px rgba(0, 0, 0, 0.08),
+      0 0 0 0.5px rgba(0, 0, 0, 0.12);
+    --shadow-button:
+      0 1px 1.5px rgba(0, 0, 0, 0.1),
+      0 0 0 0.5px rgba(0, 0, 0, 0.14);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --bg-app: var(--grey-1100);
+      --surface-sunken: rgba(255, 255, 255, 0.035);
+      --surface-raised: #232323;
+      --surface-raised-hover: #282828;
+      --text-base: var(--grey-100);
+      --text-muted: var(--grey-500);
+      --text-faint: var(--grey-600);
+      --text-accent: var(--blue-400);
+      --text-accent-hover: var(--blue-300);
+      --border-muted: rgba(255, 255, 255, 0.08);
+      --border-base: rgba(255, 255, 255, 0.1);
+      --border-focus: var(--blue-500);
+      --contrast-bg: var(--grey-100);
+      --contrast-fg: var(--grey-1100);
+      --warn-bg: var(--yellow-1200);
+      --warn-fg: var(--yellow-500);
+      --shadow-raised:
+        0 2px 4px rgba(0, 0, 0, 0.3),
+        0 1px 2px rgba(0, 0, 0, 0.3),
+        0 0 0 0.5px rgba(255, 255, 255, 0.14),
+        0 -0.5px 0 rgba(255, 255, 255, 0.06);
+      --shadow-floating:
+        0 8px 16px rgba(0, 0, 0, 0.3),
+        0 4px 8px rgba(0, 0, 0, 0.3),
+        0 0 0 0.5px rgba(255, 255, 255, 0.14),
+        0 -0.5px 0 rgba(255, 255, 255, 0.06);
+      --shadow-button:
+        0 1px 2px rgba(0, 0, 0, 0.4),
+        0 0 0 0.5px rgba(255, 255, 255, 0.18),
+        0 -0.5px 0 rgba(255, 255, 255, 0.1);
+    }
   }
 
   * {
+    box-sizing: border-box;
     margin: 0;
     padding: 0;
-    box-sizing: border-box;
-  }
-
-  html {
-    color-scheme: dark;
   }
 
   body {
-    background: var(--bg);
-    color: var(--text);
+    background: var(--bg-app);
+    color: var(--text-base);
     font-family: var(--font-sans);
+    font-size: var(--fs-base);
     -webkit-font-smoothing: antialiased;
   }
 
@@ -89,80 +184,133 @@ const {
     text-decoration: none;
   }
 
+  :focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+  }
+
   .page {
     min-height: 100vh;
     display: flex;
     flex-direction: column;
   }
 
-  .nav-inner,
+  .topbar-inner,
   .footer-inner,
   .main {
     width: 100%;
-    max-width: 960px;
+    max-width: 880px;
     margin: 0 auto;
-    padding: 0 24px;
+    padding: 0 20px;
   }
 
-  .nav {
-    border-bottom: 1px solid var(--border);
+  .topbar {
+    border-bottom: 1px solid var(--border-muted);
   }
 
-  .nav-inner {
+  .topbar-inner {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 60px;
+    height: 48px;
   }
 
-  .nav-brand {
-    font-family: var(--font-mono);
-    font-weight: 500;
-    font-size: 16px;
-    color: var(--accent);
+  .brand {
+    font-weight: 650;
+    font-size: var(--fs-base);
+    letter-spacing: -0.01em;
   }
 
-  .nav-right {
+  .topbar-right {
     display: flex;
-    gap: 24px;
+    gap: 4px;
   }
 
-  .nav-link {
-    color: var(--text-dim);
-    font-size: 14px;
+  .navlink {
+    color: var(--text-muted);
+    font-size: var(--fs-base);
+    padding: 4px 10px;
+    border-radius: var(--radius-md);
   }
 
-  .nav-link:hover {
-    color: var(--text);
+  .navlink:hover {
+    color: var(--text-base);
+    background: var(--surface-sunken);
   }
 
   .main {
     flex: 1;
     display: flex;
     flex-direction: column;
-    padding-top: 64px;
+    padding-top: 72px;
     padding-bottom: 96px;
   }
 
   .footer {
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--border-muted);
   }
 
   .footer-inner {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 64px;
-    color: var(--text-dim);
-    font-size: 13px;
+    height: 52px;
+    color: var(--text-faint);
+    font-size: var(--fs-sm);
   }
 
   .footer-links {
     display: flex;
-    gap: 20px;
+    gap: 16px;
   }
 
   .footer-links a:hover {
-    color: var(--text);
+    color: var(--text-base);
+  }
+
+  /* -- shared controls, matching the app's button/chip anatomy -- */
+
+  .btn {
+    display: inline-block;
+    background: var(--surface-raised);
+    border: none;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-button);
+    color: var(--text-base);
+    font: inherit;
+    font-weight: 500;
+    padding: 6px 14px;
+    cursor: pointer;
+  }
+
+  .btn:hover {
+    background: var(--surface-raised-hover);
+  }
+
+  .btn-contrast {
+    background: var(--contrast-bg);
+    color: var(--contrast-fg);
+  }
+
+  .btn-contrast:hover {
+    background: color-mix(in srgb, var(--contrast-bg) 88%, var(--contrast-fg));
+  }
+
+  .chip {
+    display: inline-block;
+    font-size: var(--fs-xs);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-sunken);
+    color: var(--text-muted);
+  }
+
+  .chip-mono {
+    font-family: var(--font-mono);
+  }
+
+  .chip-warn {
+    background: var(--warn-bg);
+    color: var(--warn-fg);
   }
 </style>
