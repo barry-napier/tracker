@@ -1,47 +1,173 @@
 ---
 import Layout from "../layouts/Layout.astro";
+import { GITHUB_URL, RELEASES_URL } from "../lib/releases";
 ---
 
 <Layout>
-  <p class="wordmark" aria-hidden="true">tracker</p>
-
+  <!-- 1. Hero -->
   <section class="hero">
-    <h1>Ship tickets while agents do the typing.</h1>
+    <p class="wordmark" aria-hidden="true">tracker</p>
+    <h1 id="headline">Ship a week of tickets without babysitting a single agent terminal.</h1>
     <p class="lede">
-      Tracker is a local-first desktop board for coding-agent work. Queue tickets,
-      run concurrent agent sessions, watch the logs, and merge when it's green —
-      all from one window.
+      Tracker is a free, open-source desktop board for developers who run coding
+      agents: queue tickets, let agents work them concurrently, and review when
+      the board says it's ready.
     </p>
     <div class="cta-row">
-      <a class="btn btn-contrast" href="/download">Download for macOS</a>
-      <a class="btn" href="https://github.com/barry-napier/tracker" target="_blank" rel="noopener noreferrer">View source</a>
+      <a class="btn btn-contrast" href="/download">Download for macOS — free</a>
+      <a class="btn" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">View source</a>
+    </div>
+    <p class="trust-line">Open source · MIT · everything runs on your machine</p>
+    <figure class="shot shot-hero">
+      <img src="/board.png" alt="Tracker board with tickets across Backlog, Todo, In Progress, Verifying, Human Review, and Done columns" width="1440" height="900" fetchpriority="high" />
+    </figure>
+  </section>
+
+  <!-- 3. Problem framing -->
+  <section class="problem">
+    <h2>Agents made the typing cheap. Supervision is now the bottleneck.</h2>
+    <p>
+      Run three agent sessions in three terminals and you spend the day
+      alt-tabbing: which one finished, which one is stuck waiting on you, which
+      one quietly failed setup an hour ago. Tracker turns that into a board —
+      every ticket carries its state, its branch, and its evidence.
+    </p>
+  </section>
+
+  <!-- 4. Benefit blocks -->
+  <section class="benefits">
+    <article class="benefit">
+      <div class="benefit-copy">
+        <h2>See every ticket's real state at a glance</h2>
+        <p>
+          Six columns mirror the actual lifecycle of agent work — Backlog, Todo,
+          In Progress, Verifying, Human Review, Done — so "where is it?" never
+          needs a terminal check.
+        </p>
+      </div>
+      <figure class="shot">
+        <img src="/board.png" alt="The Tracker board view" width="1440" height="900" loading="lazy" />
+      </figure>
+    </article>
+
+    <article class="benefit">
+      <div class="benefit-copy">
+        <h2>Run tickets concurrently, each in its own worktree</h2>
+        <p>
+          Every ticket gets an isolated git worktree and branch, so agents never
+          trample each other — and every attempt logs its steps to an activity
+          feed you can replay.
+        </p>
+      </div>
+      <figure class="shot">
+        <img src="/detail.png" alt="Ticket detail with activity feed, agent attempt steps, branch, and run state" width="1440" height="900" loading="lazy" />
+      </figure>
+    </article>
+
+    <article class="benefit">
+      <div class="benefit-copy">
+        <h2>Merge on evidence, not vibes</h2>
+        <p>
+          Acceptance criteria are checked per ticket and marked Verified before
+          anything reaches Human Review — your review starts from proof, not
+          from "the agent says it's done."
+        </p>
+      </div>
+      <figure class="shot shot-narrow">
+        <img src="/review.png" alt="Human Review and Done columns with Verified acceptance-criteria chips" width="920" height="1120" loading="lazy" />
+      </figure>
+    </article>
+  </section>
+
+  <!-- 5/6. Momentum + mid CTA -->
+  <section class="midcta">
+    <div class="momentum">
+      <span class="chip chip-mono">v0.2.0</span>
+      <span>First public release shipped July 2026 — built in public, one commit at a time.</span>
+      <a href={RELEASES_URL} target="_blank" rel="noopener noreferrer">Changelog<span aria-hidden="true"> &#8599;</span></a>
+    </div>
+    <div class="midcta-box">
+      <h2>Free. Open source. Yours.</h2>
+      <p>No account, no telemetry, no server. Download the app and point it at a repo.</p>
+      <a class="btn btn-contrast" href="/download">Download for macOS — free</a>
     </div>
   </section>
 
-  <section class="features">
-    <div class="feature">
-      <span class="chip">Board</span>
-      <h2>Board-first workflow</h2>
-      <p>Kanban columns that mirror the real lifecycle of agent work — queued, running, waiting on you, parked, done.</p>
-    </div>
-    <div class="feature">
-      <span class="chip">Sessions</span>
-      <h2>Concurrent sessions</h2>
-      <p>Multiple tickets in flight at once, each in its own isolated session with its own logs and diffs.</p>
-    </div>
-    <div class="feature">
-      <span class="chip">Local</span>
-      <h2>Local and private</h2>
-      <p>Everything runs on your machine. Your code, your keys, your data — nothing leaves the laptop.</p>
-    </div>
+  <!-- 7. FAQ -->
+  <section class="faq">
+    <h2>Questions</h2>
+    <details>
+      <summary>Where does my code and data go?</summary>
+      <p>
+        Nowhere. Tracker is a local Electron app with a local SQLite store —
+        tickets, runs, and logs live in your app data directory. Agents run on
+        your machine with your own provider credentials, which means you can
+        point it at private repos without adding a new party to your threat model.
+      </p>
+    </details>
+    <details>
+      <summary>Which coding agents does it work with?</summary>
+      <p>
+        Claude Code is fully supported today; GitHub Copilot and Kiro CLI
+        integrations are in the codebase behind the same provider seam, so
+        adding more doesn't mean re-architecting — pick the agent per project.
+      </p>
+    </details>
+    <details>
+      <summary>Why is the build unsigned?</summary>
+      <p>
+        It's a young open-source project without an Apple Developer certificate
+        yet. The dmg is built in public by a GitHub Actions workflow you can
+        read, from source you can audit — on first launch, right-click the app
+        and choose Open.
+      </p>
+    </details>
+    <details>
+      <summary>What does it cost?</summary>
+      <p>
+        Nothing. MIT licensed, no paid tier, no account. You bring your own
+        agent subscription (e.g. Claude), which you'd be paying for anyway —
+        Tracker just makes those minutes productive in parallel.
+      </p>
+    </details>
+    <details>
+      <summary>Windows or Linux?</summary>
+      <p>
+        macOS (Apple Silicon) only for now. The stack is Electron, so other
+        platforms are a build-matrix change away — star the repo or open an
+        issue to push them up the list.
+      </p>
+    </details>
+  </section>
+
+  <!-- 8. Final CTA -->
+  <section class="final">
+    <h2>Put your agents on a board.</h2>
+    <a class="btn btn-contrast" href="/download">Download for macOS — free</a>
+    <p class="final-sub">~100&nbsp;MB dmg · Apple Silicon · MIT licensed</p>
   </section>
 </Layout>
 
+<script>
+  // Ad-copy match: ?h=Your+headline replaces the hero headline.
+  const h = new URLSearchParams(window.location.search).get("h");
+  const el = document.getElementById("headline");
+  if (h && el) el.textContent = h;
+</script>
+
 <style>
+  section {
+    margin-top: 96px;
+  }
+
+  section:first-child {
+    margin-top: 0;
+  }
+
   /* Same treatment as the app's home/boot-splash wordmark. */
   .wordmark {
-    font-size: clamp(4rem, 14vw, 8rem);
-    margin: 0 0 48px;
+    font-size: clamp(3.5rem, 12vw, 7rem);
+    margin: 0 0 40px;
     font-weight: 700;
     letter-spacing: -0.04em;
     line-height: 1;
@@ -53,18 +179,22 @@ import Layout from "../layouts/Layout.astro";
     user-select: none;
   }
 
-  .hero {
-    max-width: 600px;
-  }
-
   h1 {
-    font-size: 34px;
+    max-width: 640px;
+    font-size: clamp(26px, 5vw, 36px);
     line-height: 1.15;
     font-weight: 650;
     letter-spacing: -0.02em;
   }
 
+  h2 {
+    font-size: 20px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+
   .lede {
+    max-width: 560px;
     margin-top: 16px;
     font-size: 15px;
     line-height: 1.6;
@@ -74,42 +204,132 @@ import Layout from "../layouts/Layout.astro";
   .cta-row {
     margin-top: 28px;
     display: flex;
+    flex-wrap: wrap;
     gap: 10px;
   }
 
-  .features {
-    margin-top: 80px;
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 14px;
-  }
-
-  .feature {
-    background: var(--surface-raised);
-    border-radius: var(--radius-md);
-    box-shadow: var(--shadow-raised);
-    padding: 16px;
-  }
-
-  .feature h2 {
-    margin-top: 10px;
-    font-size: var(--fs-base);
-    font-weight: 600;
-  }
-
-  .feature p {
-    margin-top: 6px;
+  .trust-line {
+    margin-top: 14px;
     font-size: var(--fs-sm);
-    line-height: 1.55;
+    color: var(--text-faint);
+  }
+
+  .shot {
+    margin: 40px 0 0;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-floating);
+    background: var(--surface-raised);
+  }
+
+  .shot img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .problem {
+    max-width: 620px;
+  }
+
+  .problem p {
+    margin-top: 12px;
+    font-size: 14px;
+    line-height: 1.65;
     color: var(--text-muted);
   }
 
-  @media (max-width: 720px) {
-    h1 {
-      font-size: 28px;
-    }
-    .features {
-      grid-template-columns: 1fr;
-    }
+  .benefit {
+    margin-top: 72px;
+  }
+
+  .benefit-copy {
+    max-width: 560px;
+  }
+
+  .benefit-copy p {
+    margin-top: 10px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text-muted);
+  }
+
+  .benefit .shot {
+    margin-top: 24px;
+  }
+
+  .shot-narrow {
+    max-width: 460px;
+  }
+
+  .momentum {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+  }
+
+  .momentum a {
+    color: var(--text-accent);
+  }
+
+  .momentum a:hover {
+    color: var(--text-accent-hover);
+  }
+
+  .midcta-box {
+    margin-top: 24px;
+    background: var(--surface-raised);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-raised);
+    padding: 28px;
+  }
+
+  .midcta-box p {
+    margin: 8px 0 18px;
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+
+  .faq details {
+    margin-top: 10px;
+    background: var(--surface-raised);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-raised);
+    padding: 12px 16px;
+  }
+
+  .faq details:first-of-type {
+    margin-top: 20px;
+  }
+
+  .faq summary {
+    cursor: pointer;
+    font-weight: 500;
+    font-size: var(--fs-base);
+  }
+
+  .faq details p {
+    margin-top: 10px;
+    font-size: var(--fs-base);
+    line-height: 1.6;
+    color: var(--text-muted);
+  }
+
+  .final {
+    text-align: center;
+    padding: 48px 0 16px;
+  }
+
+  .final .btn {
+    margin-top: 20px;
+  }
+
+  .final-sub {
+    margin-top: 12px;
+    font-size: var(--fs-sm);
+    color: var(--text-faint);
   }
 </style>
