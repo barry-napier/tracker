@@ -39,49 +39,99 @@ import { GITHUB_URL, RELEASES_URL } from "../lib/releases";
     </p>
   </section>
 
-  <!-- 4. Benefit blocks -->
-  <section class="benefits">
-    <article class="benefit">
-      <div class="benefit-copy">
-        <h2>See every ticket's real state at a glance</h2>
+  <!-- 4. Feature cards -->
+  <section class="features">
+    <p class="features-kicker">Everything between "queue it" and "merge it"</p>
+
+    <!-- Flagship: workflows -->
+    <article class="fcard fcard-large">
+      <div class="fcard-copy">
+        <span class="chip">Workflows</span>
+        <h2>Design how your agents work, on a canvas</h2>
         <p>
-          Six columns mirror the actual lifecycle of agent work — Backlog, Todo,
-          In Progress, Verifying, Human Review, Done — so "where is it?" never
-          needs a terminal check.
+          Build the pipeline your tickets run through — research, plan,
+          implement, dogfood, document — as a visual graph. Every stage declares
+          its contract: the checks it must emit, the artifacts it owes. A
+          built-in assistant edits the graph from a sentence, and a validator
+          refuses to publish a workflow that can't prove its own work.
         </p>
       </div>
       <figure class="shot">
-        <img src="/board.png" alt="The Tracker board view" width="1440" height="900" loading="lazy" />
+        <img src="/canvas.png" alt="Workflow canvas editor with a selected stage, prompt-template inspector, and AI assistant chat" width="1440" height="900" loading="lazy" />
       </figure>
     </article>
 
-    <article class="benefit">
-      <div class="benefit-copy">
-        <h2>Run tickets concurrently, each in its own worktree</h2>
+    <!-- Flagship: automations -->
+    <article class="fcard fcard-large">
+      <div class="fcard-copy">
+        <span class="chip">Automations</span>
+        <h2>Put recurring work on autopilot</h2>
         <p>
-          Every ticket gets an isolated git worktree and branch, so agents never
-          trample each other — and every attempt logs its steps to an activity
-          feed you can replay.
+          Standing orders that file tickets on a schedule — daily, weekly, or on
+          demand — from playbook templates like Find Critical Bugs,
+          Architectural Cleanup, Living Documentation, and Fix Snyk
+          Vulnerabilities. Your agents sweep the codebase while you're in a
+          meeting.
         </p>
       </div>
       <figure class="shot">
-        <img src="/detail.png" alt="Ticket detail with activity feed, agent attempt steps, branch, and run state" width="1440" height="900" loading="lazy" />
+        <img src="/automations.png" alt="Automations view with a weekly changelog automation and six playbook templates" width="1440" height="900" loading="lazy" />
       </figure>
     </article>
 
-    <article class="benefit">
-      <div class="benefit-copy">
-        <h2>Merge on evidence, not vibes</h2>
-        <p>
-          Acceptance criteria are checked per ticket and marked Verified before
-          anything reaches Human Review — your review starts from proof, not
-          from "the agent says it's done."
-        </p>
-      </div>
-      <figure class="shot shot-narrow">
-        <img src="/review.png" alt="Human Review and Done columns with Verified acceptance-criteria chips" width="920" height="1120" loading="lazy" />
-      </figure>
-    </article>
+    <!-- Half cards -->
+    <div class="fcard-row">
+      <article class="fcard">
+        <div class="fcard-copy">
+          <span class="chip">Tickets</span>
+          <h2>Every ticket carries its evidence</h2>
+          <p>
+            Acceptance criteria with per-item status, gate results with exit
+            codes, and an activity feed of every agent attempt — folded,
+            replayable, auditable.
+          </p>
+        </div>
+        <figure class="shot">
+          <img src="/detail.png" alt="Ticket detail with acceptance criteria, activity feed, and run properties" width="1440" height="900" loading="lazy" />
+        </figure>
+      </article>
+
+      <article class="fcard">
+        <div class="fcard-copy">
+          <span class="chip">Verification</span>
+          <h2>Merge on proof, not vibes</h2>
+          <p>
+            A gate battery runs before human review: acceptance-criteria check
+            scripts, test suites, a recorded demo video of the feature working,
+            and recap docs that explain the change. The review wizard walks you
+            through the evidence — merge, bounce, or re-verify.
+          </p>
+        </div>
+        <figure class="shot">
+          <img src="/review.png" alt="Human Review and Done columns with Verified acceptance-criteria chips" width="920" height="1120" loading="lazy" />
+        </figure>
+      </article>
+    </div>
+
+    <!-- Mini cards -->
+    <div class="fcard-minis">
+      <article class="fcard fcard-mini">
+        <h3>Team pull-request feed</h3>
+        <p>One view of open PRs across your repos and org — CI status rolled up, saved filter tabs, review without leaving the app.</p>
+      </article>
+      <article class="fcard fcard-mini">
+        <h3>Live agent logs</h3>
+        <p>Watch any run's full conversation stream phase by phase, with durations, tool calls, and an attempt picker for history.</p>
+      </article>
+      <article class="fcard fcard-mini">
+        <h3>Isolated worktrees</h3>
+        <p>Each ticket runs in its own git worktree on its own branch — concurrent agents never touch each other's changes.</p>
+      </article>
+      <article class="fcard fcard-mini">
+        <h3>Browser, terminal, diffs</h3>
+        <p>A built-in browser for previews, real split-pane terminals, file tree, and per-file diffs — the whole loop in one window.</p>
+      </article>
+    </div>
   </section>
 
   <!-- 5/6. Momentum + mid CTA -->
@@ -310,27 +360,111 @@ import { GITHUB_URL, RELEASES_URL } from "../lib/releases";
     color: var(--text-muted);
   }
 
-  .benefit {
-    margin-top: 72px;
+  /* Cursor-style feature cards: raised surfaces, chip label, claim, visual. */
+  .features-kicker {
+    font-size: var(--fs-sm);
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
   }
 
-  .benefit-copy {
+  .fcard {
+    margin-top: 20px;
+    background: var(--surface-raised);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-raised);
+    padding: 28px;
+    overflow: hidden;
+  }
+
+  .fcard:first-of-type {
+    margin-top: 24px;
+  }
+
+  .fcard-copy {
     max-width: 560px;
   }
 
-  .benefit-copy p {
+  .fcard-copy .chip {
+    margin-bottom: 12px;
+  }
+
+  .fcard-copy h2 {
+    margin-top: 10px;
+  }
+
+  .fcard-copy p {
     margin-top: 10px;
     font-size: 14px;
     line-height: 1.6;
     color: var(--text-muted);
   }
 
-  .benefit .shot {
+  .fcard .shot {
     margin-top: 24px;
+    box-shadow: var(--shadow-floating);
   }
 
-  .shot-narrow {
-    max-width: 460px;
+  .fcard-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-top: 20px;
+  }
+
+  .fcard-row .fcard {
+    margin-top: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .fcard-row .shot {
+    margin-top: auto;
+    padding-top: 24px;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .fcard-row .shot img {
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-floating);
+  }
+
+  .fcard-minis {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-top: 20px;
+  }
+
+  .fcard-mini {
+    margin-top: 0;
+    padding: 20px;
+  }
+
+  .fcard-mini h3 {
+    font-size: var(--fs-base);
+    font-weight: 600;
+  }
+
+  .fcard-mini p {
+    margin-top: 8px;
+    font-size: var(--fs-sm);
+    line-height: 1.55;
+    color: var(--text-muted);
+  }
+
+  @media (max-width: 900px) {
+    .fcard-minis {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (max-width: 720px) {
+    .fcard-row,
+    .fcard-minis {
+      grid-template-columns: 1fr;
+    }
   }
 
   .momentum {
