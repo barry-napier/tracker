@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import type { AffiliatedRepo, GitHubPort, Mergeability, PullRequestRef } from "../src/server/github.ts";
+import type { AffiliatedRepo, GitHubPort, Mergeability, PullRequestRef, TeamPr } from "../src/server/github.ts";
 
 interface FakePr {
   number: number;
@@ -39,6 +39,21 @@ export class FakeGitHub implements GitHubPort {
 
   async listAffiliatedRepos(): Promise<AffiliatedRepo[]> {
     return [...this.#affiliated];
+  }
+
+  /** Team-work PR rows by owner/repo slug, seeded directly (no git backing). */
+  #teamPrs = new Map<string, TeamPr[]>();
+
+  seedTeamPr(pr: TeamPr): void {
+    const rows = this.#teamPrs.get(pr.repo) ?? [];
+    rows.push(pr);
+    this.#teamPrs.set(pr.repo, rows);
+  }
+
+  async listPrs(remote: string): Promise<TeamPr[]> {
+    const rows = this.#teamPrs.get(remote);
+    if (rows === undefined) throw new Error(`gh pr list failed: could not resolve ${remote}`);
+    return [...rows];
   }
 
   async clone(remote: string, destination: string): Promise<void> {

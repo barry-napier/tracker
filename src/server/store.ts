@@ -5,12 +5,18 @@ import { previewPhases } from "./graph.ts";
 import { branchNameFor, type WorktreeResult } from "./worktrees.ts";
 import type { CheckRegistration } from "./checks.ts";
 import { PROVIDERS } from "./types.ts";
+import { nextAutomationRun } from "./automation-schedule.ts";
 import type {
   AcceptanceCriterion,
   AcCheck,
   Actor,
   Artifact,
   AuditEvent,
+  Automation,
+  AutomationCadence,
+  AutomationListItem,
+  AutomationPriority,
+  AutomationTemplate,
   FollowUpSeed,
   GateResult,
   GateStatus,
@@ -102,13 +108,16 @@ export class Store {
     const { project, audit } = withTransaction(this.db, () => {
       const result = this.db
         .prepare(
-          "INSERT INTO projects (name, ticket_prefix, default_provider, workflow_id, created_at) VALUES (?, ?, ?, ?, ?)",
+          "INSERT INTO projects (name, ticket_prefix, default_provider, workflow_id, workflow_confirmed, created_at) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .run(
           input.name,
           input.ticketPrefix ?? "TRK",
           input.defaultProvider ?? "claude-code",
           workflow.id,
+          // An explicit selection at creation is already a decision; only a
+          // defaulted project owes the board's one-time ask.
+          input.workflowId === undefined ? 0 : 1,
           nowIso(),
         );
       const project = this.getProject(Number(result.lastInsertRowid));
@@ -1621,7 +1630,17 @@ export class Store {
     const project = this.getProject(projectId);
     if (!project) throw new NotFoundError(`project ${projectId} not found`);
     const workflow = this.selectableWorkflow(workflowId);
-    this.db.prepare("UPDATE projects SET workflow_id = ? WHERE id = ?").run(workflow.id, projectId);
+    this.db
+      .prepare("UPDATE projects SET workflow_id = ?, workflow_confirmed = 1 WHERE id = ?")
+      .run(workflow.id, projectId);
+    return this.getProject(projectId)!;
+  }
+
+  /** "Keep it": answers the board's one-time ask without changing anything. */
+  confirmProjectWorkflow(projectId: number): Project {
+    const project = this.getProject(projectId);
+    if (!project) throw new NotFoundError(`project ${projectId} not found`);
+    this.db.prepare("UPDATE projects SET workflow_confirmed = 1 WHERE id = ?").run(projectId);
     return this.getProject(projectId)!;
   }
 
@@ -1951,6 +1970,216 @@ export class Store {
     return row === undefined ? undefined : phaseFromRow(row);
   }
 
+  // ---- Automation templates: saved starting points, plain CRUD rows ----
+
+  getAutomationTemplate(id: number): AutomationTemplate | undefined {
+    const row = this.db.prepare("SELECT * FROM automation_templates WHERE id = ?").get(id);
+    return row === undefined ? undefined : automationTemplateFromRow(row);
+  }
+
+  listAutomationTemplates(): AutomationTemplate[] {
+    return this.db
+      .prepare("SELECT * FROM automation_templates ORDER BY id")
+      .all()
+      .map(automationTemplateFromRow);
+  }
+
+  createAutomationTemplate(input: {
+    title: string;
+    category?: string;
+    priority?: AutomationPriority;
+    prompt: string;
+  }): AutomationTemplate {
+    const now = nowIso();
+    const result = this.db
+      .prepare(
+        "INSERT INTO automation_templates (title, category, priority, prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(input.title, input.category ?? "general", input.priority ?? "medium", input.prompt, now, now);
+    return this.getAutomationTemplate(Number(result.lastInsertRowid))!;
+  }
+
+  updateAutomationTemplate(
+    id: number,
+    patch: Partial<{ title: string; category: string; priority: AutomationPriority; prompt: string }>,
+  ): AutomationTemplate {
+    const existing = this.getAutomationTemplate(id);
+    if (!existing) throw new NotFoundError(`automation template ${id} not found`);
+    const next = { ...existing, ...patch };
+    this.db
+      .prepare(
+        "UPDATE automation_templates SET title = ?, category = ?, priority = ?, prompt = ?, updated_at = ? WHERE id = ?",
+      )
+      .run(next.title, next.category, next.priority, next.prompt, nowIso(), id);
+    return this.getAutomationTemplate(id)!;
+  }
+
+  deleteAutomationTemplate(id: number): void {
+    const existing = this.getAutomationTemplate(id);
+    if (!existing) throw new NotFoundError(`automation template ${id} not found`);
+    this.db.prepare("DELETE FROM automation_templates WHERE id = ?").run(id);
+  }
+
+  // ---- Automations: recurring agent tasks (see automation-schedule.ts) ----
+
+  getAutomation(id: number): Automation | undefined {
+    const row = this.db.prepare("SELECT * FROM automations WHERE id = ?").get(id);
+    return row === undefined ? undefined : automationFromRow(row);
+  }
+
+  listAutomations(): AutomationListItem[] {
+    const now = new Date();
+    return this.db
+      .prepare("SELECT * FROM automations ORDER BY id")
+      .all()
+      .map((row) => {
+        const automation = automationFromRow(row);
+        const project =
+          automation.projectId === null ? undefined : this.getProject(automation.projectId);
+        return {
+          ...automation,
+          projectName: project?.name ?? null,
+          nextRunAt: nextAutomationRun(automation, now)?.toISOString() ?? null,
+        };
+      });
+  }
+
+  createAutomation(input: {
+    title: string;
+    category?: string;
+    priority?: AutomationPriority;
+    prompt: string;
+    cadence?: AutomationCadence;
+    timeOfDay?: string | null;
+    dayOfWeek?: number | null;
+    projectId?: number | null;
+    provider?: ProviderName | null;
+  }): Automation {
+    if (input.projectId !== undefined && input.projectId !== null && !this.getProject(input.projectId)) {
+      throw new NotFoundError(`project ${input.projectId} not found`);
+    }
+    const now = nowIso();
+    const result = this.db
+      .prepare(
+        `INSERT INTO automations
+           (title, category, priority, prompt, cadence, time_of_day, day_of_week, project_id, provider, enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+      )
+      .run(
+        input.title,
+        input.category ?? "general",
+        input.priority ?? "medium",
+        input.prompt,
+        input.cadence ?? "manual",
+        input.timeOfDay ?? null,
+        input.dayOfWeek ?? null,
+        input.projectId ?? null,
+        input.provider ?? null,
+        now,
+        now,
+      );
+    return this.getAutomation(Number(result.lastInsertRowid))!;
+  }
+
+  updateAutomation(
+    id: number,
+    patch: Partial<{
+      title: string;
+      category: string;
+      priority: AutomationPriority;
+      prompt: string;
+      cadence: AutomationCadence;
+      timeOfDay: string | null;
+      dayOfWeek: number | null;
+      projectId: number | null;
+      provider: ProviderName | null;
+      enabled: boolean;
+    }>,
+  ): Automation {
+    const existing = this.getAutomation(id);
+    if (!existing) throw new NotFoundError(`automation ${id} not found`);
+    if (patch.projectId !== undefined && patch.projectId !== null && !this.getProject(patch.projectId)) {
+      throw new NotFoundError(`project ${patch.projectId} not found`);
+    }
+    const next = { ...existing, ...patch };
+    this.db
+      .prepare(
+        `UPDATE automations SET title = ?, category = ?, priority = ?, prompt = ?, cadence = ?,
+           time_of_day = ?, day_of_week = ?, project_id = ?, provider = ?, enabled = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(
+        next.title,
+        next.category,
+        next.priority,
+        next.prompt,
+        next.cadence,
+        next.timeOfDay,
+        next.dayOfWeek,
+        next.projectId,
+        next.provider,
+        next.enabled ? 1 : 0,
+        nowIso(),
+        id,
+      );
+    return this.getAutomation(id)!;
+  }
+
+  deleteAutomation(id: number): void {
+    const existing = this.getAutomation(id);
+    if (!existing) throw new NotFoundError(`automation ${id} not found`);
+    this.db.prepare("DELETE FROM automations WHERE id = ?").run(id);
+  }
+
+  /**
+   * The firing: one real Ticket on the automation's Project, promoted
+   * straight to Todo when the Project has a Repo (the pool claims it from
+   * there); a repo-less Project keeps the ticket in Backlog. Actor is
+   * "human" for a Run-now click, "agent" for the scheduler.
+   */
+  fireAutomation(id: number, actor: Actor): TicketWithAcs {
+    const automation = this.getAutomation(id);
+    if (!automation) throw new NotFoundError(`automation ${id} not found`);
+    if (automation.projectId === null) {
+      throw new StateError(`automation "${automation.title}" has no target project`);
+    }
+    const project = this.getProject(automation.projectId);
+    if (!project) throw new NotFoundError(`project ${automation.projectId} not found`);
+
+    let ticket = this.createTicket({
+      projectId: project.id,
+      title: automation.title,
+      description: automation.prompt,
+      acceptanceCriteria: [],
+    });
+    const repo = this.listRepos(project.id)[0];
+    if (repo) {
+      ticket = this.promoteTicket(ticket.id, {
+        repoId: repo.id,
+        provider: automation.provider ?? project.defaultProvider,
+      });
+    }
+    this.db
+      .prepare("UPDATE automations SET last_fired_at = ?, updated_at = ? WHERE id = ?")
+      .run(nowIso(), nowIso(), id);
+    const audit = this.insertAudit({
+      projectId: project.id,
+      ticketId: ticket.id,
+      actor,
+      type: "automation.fired",
+      detail: {
+        automationId: id,
+        title: automation.title,
+        category: automation.category,
+        priority: automation.priority,
+        cadence: automation.cadence,
+        promoted: repo !== undefined,
+      },
+    });
+    this.bus.emit("audit.appended", audit);
+    return ticket;
+  }
+
   listProjectAuditEvents(projectId: number): AuditEvent[] {
     return this.db
       .prepare("SELECT * FROM events WHERE project_id = ? ORDER BY id")
@@ -2159,6 +2388,7 @@ function projectFromRow(row: Row): Project {
     ticketPrefix: String(row.ticket_prefix),
     defaultProvider: String(row.default_provider) as Project["defaultProvider"],
     workflowId: Number(row.workflow_id),
+    workflowConfirmed: Number(row.workflow_confirmed) === 1,
     hiddenAt: row.hidden_at === null ? null : String(row.hidden_at),
     deletedAt: row.deleted_at === null || row.deleted_at === undefined ? null : String(row.deleted_at),
     createdAt: String(row.created_at),
@@ -2301,6 +2531,37 @@ function parseDraftGraph(value: unknown): DraftGraph {
     return { from: edge.from, to: edge.to, conditionLabel: edge.conditionLabel as string | null };
   });
   return { nodes: parsedNodes, edges: parsedEdges };
+}
+
+function automationTemplateFromRow(row: Row): AutomationTemplate {
+  return {
+    id: Number(row.id),
+    title: String(row.title),
+    category: String(row.category),
+    priority: String(row.priority) as AutomationPriority,
+    prompt: String(row.prompt),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+function automationFromRow(row: Row): Automation {
+  return {
+    id: Number(row.id),
+    title: String(row.title),
+    category: String(row.category),
+    priority: String(row.priority) as AutomationPriority,
+    prompt: String(row.prompt),
+    cadence: String(row.cadence) as AutomationCadence,
+    timeOfDay: row.time_of_day === null ? null : String(row.time_of_day),
+    dayOfWeek: row.day_of_week === null ? null : Number(row.day_of_week),
+    projectId: row.project_id === null ? null : Number(row.project_id),
+    provider: row.provider === null ? null : (String(row.provider) as Automation["provider"]),
+    enabled: Number(row.enabled) === 1,
+    lastFiredAt: row.last_fired_at === null ? null : String(row.last_fired_at),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
 }
 
 function workflowEdgeFromRow(row: Row): WorkflowEdge {

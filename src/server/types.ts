@@ -29,6 +29,8 @@ export interface Project {
   defaultProvider: ProviderName;
   /** The one Workflow every Ticket on this board runs (selected by reference). */
   workflowId: number;
+  /** False until the user keeps or picks a workflow — the board asks once. */
+  workflowConfirmed: boolean;
   /** Archived off Home's recents (recoverable); null = visible. */
   hiddenAt: string | null;
   /** Soft-deleted: out of every listing, row kept for references. */
@@ -70,6 +72,15 @@ export interface Repo {
    */
   personaPath: string | null;
   createdAt: string;
+}
+
+/**
+ * Repo row as GET /api/repos serves it: plus whether the checkout still needs
+ * `git init`, derived from disk at read time (never a column) so it clears
+ * itself the moment init runs.
+ */
+export interface RepoListItem extends Repo {
+  gitMissing: boolean;
 }
 
 /**
@@ -527,6 +538,64 @@ export interface TicketWithAcs extends Ticket {
    * last failure so nobody has to open sqlite to learn why nothing ran.
    */
   lastFailureReason: string | null;
+}
+
+export const AUTOMATION_CADENCES = ["manual", "daily", "weekly"] as const;
+export type AutomationCadence = (typeof AUTOMATION_CADENCES)[number];
+
+export function isAutomationCadence(value: unknown): value is AutomationCadence {
+  return typeof value === "string" && (AUTOMATION_CADENCES as readonly string[]).includes(value);
+}
+
+export type AutomationPriority = "low" | "medium" | "high";
+
+/**
+ * A recurring agent task: a saved prompt that fires on a cadence (or by
+ * hand) and lands as a real Ticket on the chosen Project's board — promoted
+ * straight to Todo when the Project has a Repo, so the pool picks it up.
+ */
+export interface Automation {
+  id: number;
+  title: string;
+  category: string;
+  priority: AutomationPriority;
+  /** The ticket body the firing creates, verbatim. */
+  prompt: string;
+  cadence: AutomationCadence;
+  /** Local "HH:MM" firing time; null on manual cadence. */
+  timeOfDay: string | null;
+  /** 0 (Sunday) – 6; only meaningful on weekly cadence. */
+  dayOfWeek: number | null;
+  /** Where fired tickets land; null = created but not yet aimed anywhere. */
+  projectId: number | null;
+  /** Per-automation agent; null = the Project's default provider. */
+  provider: ProviderName | null;
+  enabled: boolean;
+  lastFiredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * A saved starting point for Automations: title, chip metadata, and the
+ * prompt. Creating an Automation copies the prompt onto the new row, so a
+ * later template edit never rewrites anything already launched.
+ */
+export interface AutomationTemplate {
+  id: number;
+  title: string;
+  category: string;
+  priority: AutomationPriority;
+  prompt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Listing row: the Automation plus display facts derived at list time. */
+export interface AutomationListItem extends Automation {
+  projectName: string | null;
+  /** Next scheduled firing; null on manual or disabled rows. */
+  nextRunAt: string | null;
 }
 
 export type Actor = "human" | "agent";

@@ -223,7 +223,6 @@ export function Home({
         <div className="home-search">
           <Icon name="search" size={16} />
           <input
-            autoFocus
             ref={searchRef}
             placeholder="Search projects…"
             value={query}

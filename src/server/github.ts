@@ -29,9 +29,29 @@ export interface AffiliatedRepo {
   sshUrl: string;
 }
 
+/** One row of a repo's open-PR listing (Team work page). */
+export interface TeamPr {
+  /** owner/repo slug the PR belongs to. */
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  author: string;
+  isDraft: boolean;
+  additions: number;
+  deletions: number;
+  comments: number;
+  /** ISO timestamp of the PR's last update. */
+  updatedAt: string;
+  /** Aggregate CI state across the head commit's checks. */
+  checks: "passing" | "failing" | "pending" | "none";
+}
+
 export interface GitHubPort {
   /** Every repo the user could start a Project from: own + org affiliations. */
   listAffiliatedRepos(): Promise<AffiliatedRepo[]>;
+  /** Every open PR on the repo, newest activity first (Team work page). */
+  listPrs(remote: string): Promise<TeamPr[]>;
   /** Clone the remote into `destination` (which must not exist yet). */
   clone(remote: string, destination: string): Promise<void>;
   /** Is the branch recorded on the remote? (`branch-recorded`, ticket 06.) */
@@ -60,6 +80,10 @@ export interface GitHubPort {
  */
 export class NullGitHub implements GitHubPort {
   async listAffiliatedRepos(): Promise<AffiliatedRepo[]> {
+    throw new Error("no GitHub backing configured");
+  }
+
+  async listPrs(): Promise<TeamPr[]> {
     throw new Error("no GitHub backing configured");
   }
 
@@ -129,6 +153,42 @@ export class GhGitHub implements GitHubPort {
       description: repo.description,
       defaultBranch: repo.default_branch,
       sshUrl: repo.ssh_url,
+    }));
+  }
+
+  async listPrs(remote: string): Promise<TeamPr[]> {
+    const slug = repoSlug(remote);
+    const stdout = await gh(
+      "pr", "list",
+      "--repo", slug,
+      "--state", "open",
+      "--limit", "100",
+      "--json", "number,title,url,author,isDraft,additions,deletions,comments,updatedAt,statusCheckRollup",
+    );
+    const prs = JSON.parse(stdout) as Array<{
+      number: number;
+      title: string;
+      url: string;
+      author: { login: string } | null;
+      isDraft: boolean;
+      additions: number;
+      deletions: number;
+      comments: unknown[];
+      updatedAt: string;
+      statusCheckRollup: Array<{ state?: string; status?: string; conclusion?: string }> | null;
+    }>;
+    return prs.map((pr) => ({
+      repo: slug,
+      number: pr.number,
+      title: pr.title,
+      url: pr.url,
+      author: pr.author?.login ?? "",
+      isDraft: pr.isDraft,
+      additions: pr.additions,
+      deletions: pr.deletions,
+      comments: Array.isArray(pr.comments) ? pr.comments.length : 0,
+      updatedAt: pr.updatedAt,
+      checks: rollupChecks(pr.statusCheckRollup ?? []),
     }));
   }
 
@@ -218,6 +278,28 @@ export class GhGitHub implements GitHubPort {
     const { state } = JSON.parse(stdout) as { state: string };
     return state === "MERGED";
   }
+}
+
+/**
+ * Collapse a head commit's check contexts to one badge. gh mixes two shapes
+ * in statusCheckRollup: commit statuses carry `state`, check runs carry
+ * `status`/`conclusion` — a failure in either shape means the PR is red.
+ */
+export function rollupChecks(
+  contexts: Array<{ state?: string; status?: string; conclusion?: string }>,
+): TeamPr["checks"] {
+  if (contexts.length === 0) return "none";
+  let pending = false;
+  for (const ctx of contexts) {
+    const verdict = ctx.state ?? ctx.conclusion ?? "";
+    if (["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED"].includes(verdict)) {
+      return "failing";
+    }
+    if (verdict === "PENDING" || (ctx.status !== undefined && ctx.status !== "COMPLETED")) {
+      pending = true;
+    }
+  }
+  return pending ? "pending" : "passing";
 }
 
 async function gh(...args: string[]): Promise<string> {

@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { ArtifactStore } from "./artifacts.ts";
+import { AutomationScheduler } from "./automations.ts";
 import { Bouncer } from "./bounce.ts";
 import { EventBus } from "./bus.ts";
 import { openDatabase } from "./db.ts";
@@ -89,6 +90,7 @@ export async function startServer(options: {
     new DoneSweeper(store, worktrees, previews, artifacts, github),
     options.dataDir,
     providers,
+    github,
   );
   const engine = new WorkflowEngine(store, providers, runLogs, previews, options.phaseTimeouts);
   const pool = new WorkerPool(
@@ -102,6 +104,8 @@ export async function startServer(options: {
     options.workers ?? 3,
   );
   pool.start(bus);
+  const automations = new AutomationScheduler(store);
+  automations.start();
 
   return new Promise((resolve, reject) => {
     const server = serve(
@@ -111,6 +115,7 @@ export async function startServer(options: {
           url: `http://127.0.0.1:${info.port}`,
           port: info.port,
           close: async () => {
+            automations.stop();
             await pool.stop();
             await previews.stopAll();
             await new Promise<void>((resolveClose, rejectClose) => {
@@ -126,6 +131,7 @@ export async function startServer(options: {
     // Without this, a failed bind (port taken) leaves the promise pending
     // forever — the app would sit windowless with no error.
     server.once("error", (error) => {
+      automations.stop();
       void pool.stop().catch(() => {});
       try {
         db.close();

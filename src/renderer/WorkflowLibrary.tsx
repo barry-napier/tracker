@@ -176,12 +176,10 @@ export function WorkflowLibrary({
 
   return (
     <div className="home wf-library">
-      <h1 className="wordmark">tracker</h1>
       <div className="home-picker wf-picker">
         <div className="home-search">
           <Icon name="search" size={16} />
           <input
-            autoFocus
             ref={searchRef}
             placeholder="Search workflows…"
             value={query}
@@ -700,7 +698,6 @@ export function WorkflowCreate({
 
   return (
     <div className="home wf-library">
-      <h1 className="wordmark">tracker</h1>
       <div className="home-picker wf-picker">
         <div className="home-header">
           <button type="button" className="wf-back" title="Back to workflows" onClick={onDone}>

@@ -23,12 +23,15 @@ import type { SweepResult } from "../server/sweep.ts";
 import { apiGet, apiPatch, apiPost } from "./api.ts";
 import { PROVIDER_LABELS, repoName } from "./format.ts";
 import { avatarColor, Home } from "./Home.tsx";
+import { Automations } from "./Automations.tsx";
+import { TeamWork } from "./TeamWork.tsx";
 import { ProjectSettings } from "./ProjectSettings.tsx";
 import { WorkflowCreate, WorkflowLibrary } from "./WorkflowLibrary.tsx";
 import { WorkflowCanvasEditor } from "./WorkflowCanvasEditor.tsx";
 import type { WorkflowListing } from "../server/types.ts";
 import { useBoard } from "./useBoard.ts";
 import { ReviewWizard } from "./ReviewWizard.tsx";
+import { AgentLogs } from "./AgentLogs.tsx";
 import { TicketDetail } from "./TicketDetail.tsx";
 import { STATES } from "./ticketStates.ts";
 import { StateIcon } from "./stateIcons.tsx";
@@ -40,7 +43,7 @@ import {
 } from "./boardTools.tsx";
 import { loadTabs, saveTabs } from "./tabsState.ts";
 import { TerminalDrawer } from "./TerminalDrawer.tsx";
-import { RightSidebar } from "./RightSidebar.tsx";
+import { RightSidebar, type BrowseRequest } from "./RightSidebar.tsx";
 import { Icon, type IconName } from "./icons.tsx";
 
 /**
@@ -207,7 +210,11 @@ function useWorkspace() {
 }
 
 /** Everything the routed views need, provided once by the Shell's Outlet. */
-type ShellContext = ReturnType<typeof useWorkspace> & ReturnType<typeof useBoard>;
+type ShellContext = ReturnType<typeof useWorkspace> &
+  ReturnType<typeof useBoard> & {
+    /** Show a URL in the right sidebar's Browser surface (opens the panel). */
+    openInSidebar: (url: string) => void;
+  };
 
 function useShell(): ShellContext {
   return useOutletContext<ShellContext>();
@@ -218,12 +225,15 @@ export default function App() {
     <Routes>
       <Route element={<Shell />}>
         <Route index element={<HomeRoute />} />
+        <Route path="team" element={<TeamWork />} />
         <Route path="workflows" element={<WorkflowsRoute />} />
+        <Route path="automations" element={<Automations />} />
         <Route path="workflows/new" element={<WorkflowCreateRoute />} />
         <Route path="workflows/:workflowId" element={<WorkflowEditorRoute />} />
         <Route path="projects/:projectId" element={<BoardRoute />} />
         <Route path="projects/:projectId/settings" element={<BoardRoute overlay="settings" />} />
         <Route path="projects/:projectId/tickets/:ticketId" element={<TicketRoute />} />
+        <Route path="projects/:projectId/tickets/:ticketId/logs" element={<TicketLogsRoute />} />
         <Route
           path="projects/:projectId/tickets/:ticketId/review"
           element={<BoardRoute overlay="review" />}
@@ -249,36 +259,31 @@ function BootSplash({ booted, onDone }: { booted: boolean; onDone: () => void })
 
   useEffect(() => {
     if (!booted) return;
+    // Restored straight into a board (or any non-Home route): the wordmark
+    // has nowhere to land and must never linger over the board — drop the
+    // splash immediately, no hold, no fade.
+    const splash = wordmarkRef.current;
+    const target = document.querySelector<HTMLElement>(".home .wordmark");
+    if (!splash || !target) {
+      if (splash) splash.style.display = "none";
+      doneRef.current();
+      return;
+    }
     // Hold briefly so a near-instant boot doesn't strobe the splash.
     const hold = Math.max(0, 400 - (performance.now() - shownAt.current));
     const timer = window.setTimeout(() => {
-      const splash = wordmarkRef.current;
-      const target = document.querySelector<HTMLElement>(".home .wordmark");
-      if (!splash) {
-        doneRef.current();
-        return;
-      }
-      if (target) {
-        // The real wordmark stays hidden by `.app.booting` until onDone, so
-        // only the splash copy is visible; it lands exactly, then hands off.
-        const from = splash.getBoundingClientRect();
-        const to = target.getBoundingClientRect();
-        const flight = splash.animate(
-          [
-            { transform: "translate(0, 0)" },
-            { transform: `translate(${to.left - from.left}px, ${to.top - from.top}px)` },
-          ],
-          { duration: 500, easing: "cubic-bezier(0.3, 0.9, 0.35, 1)", fill: "forwards" },
-        );
-        flight.onfinish = () => doneRef.current();
-      } else {
-        const fade = splash.animate([{ opacity: 1 }, { opacity: 0 }], {
-          duration: 350,
-          easing: "ease-out",
-          fill: "forwards",
-        });
-        fade.onfinish = () => doneRef.current();
-      }
+      // The real wordmark stays hidden by `.app.booting` until onDone, so
+      // only the splash copy is visible; it lands exactly, then hands off.
+      const from = splash.getBoundingClientRect();
+      const to = target.getBoundingClientRect();
+      const flight = splash.animate(
+        [
+          { transform: "translate(0, 0)" },
+          { transform: `translate(${to.left - from.left}px, ${to.top - from.top}px)` },
+        ],
+        { duration: 500, easing: "cubic-bezier(0.3, 0.9, 0.35, 1)", fill: "forwards" },
+      );
+      flight.onfinish = () => doneRef.current();
     }, hold);
     return () => window.clearTimeout(timer);
   }, [booted]);
@@ -303,6 +308,8 @@ function Shell() {
   // back button is the way out.
   const inCanvasEditor = /^\/workflows\/\d+/.test(pathname);
   const workflowsActive = pathname.startsWith("/workflows");
+  const teamActive = pathname.startsWith("/team");
+  const automationsActive = pathname.startsWith("/automations");
 
   // The terminal drawer (⌘J): the main card slides up and a shell appears
   // beneath it. Closing hides the drawer but keeps the shell session alive.
@@ -313,6 +320,13 @@ function Shell() {
   // The right sidebar (⌘L): a surface picker (browser, terminal, …) beside
   // the main card.
   const [rightOpen, setRightOpen] = useState(false);
+  // Pages ask the sidebar's Browser surface to show a URL (Team's PR rows);
+  // the tick lets the same URL be requested twice in a row.
+  const [browseTo, setBrowseTo] = useState<BrowseRequest | null>(null);
+  const openInSidebar = useCallback((url: string) => {
+    setRightOpen(true);
+    setBrowseTo((prev) => ({ url, tick: (prev?.tick ?? 0) + 1 }));
+  }, []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
@@ -410,12 +424,12 @@ function Shell() {
         {boardApi.error && (
           <p className="banner error">Can't reach the Tracker server: {boardApi.error}</p>
         )}
-        <Outlet context={{ ...boardApi, ...workspace }} />
+        <Outlet context={{ ...boardApi, ...workspace, openInSidebar }} />
         {!project && !inCanvasEditor && (
           <nav className="home-nav">
             <button
               type="button"
-              className={workflowsActive ? undefined : "active"}
+              className={workflowsActive || automationsActive || teamActive ? undefined : "active"}
               onClick={() => navigate("/")}
             >
               Projects
@@ -427,12 +441,26 @@ function Shell() {
             >
               Workflows
             </button>
+            <button
+              type="button"
+              className={automationsActive ? "active" : undefined}
+              onClick={() => navigate("/automations")}
+            >
+              Automations
+            </button>
+            <button
+              type="button"
+              className={teamActive ? "active" : undefined}
+              onClick={() => navigate("/team")}
+            >
+              Team
+            </button>
           </nav>
         )}
       </main>
           <TerminalDrawer open={termOpen} onClose={() => setTermOpen(false)} />
         </div>
-        <RightSidebar open={rightOpen} projectId={project?.id ?? null} />
+        <RightSidebar open={rightOpen} projectId={project?.id ?? null} browseTo={browseTo} />
       </div>
       {booting && <BootSplash booted={workspace.booted} onDone={() => setBooting(false)} />}
     </div>
@@ -545,8 +573,7 @@ function TicketRoute() {
   const { ticketId } = useParams();
   const tickets = useProjectTickets();
   if (!project) return null;
-  const selected = tickets.find((t) => t.id === Number(ticketId)) ?? null;
-  // Not (yet) in the stream — show the board rather than a dead detail view.
+  const selected = tickets.find((t) => t.id === Number(ticketId)) ?? null;  // Not (yet) in the stream — show the board rather than a dead detail view.
   if (!selected) return <Board project={project} tickets={tickets} repos={repos} />;
   return (
     <TicketDetail
@@ -558,6 +585,27 @@ function TicketRoute() {
       loadAudit={loadAudit}
       loadRuns={loadRuns}
       onClose={() => navigate(`/projects/${project.id}`)}
+      onOpenLogs={() => navigate(`/projects/${project.id}/tickets/${selected.id}/logs`)}
+      onOpenReview={() => navigate(`/projects/${project.id}/tickets/${selected.id}/review`)}
+    />
+  );
+}
+
+/** The run conversation as its own full-screen surface (v1's LogsView). */
+function TicketLogsRoute() {
+  const { project, board, loadRuns } = useShell();
+  const navigate = useNavigate();
+  const { ticketId } = useParams();
+  const tickets = useProjectTickets();
+  if (!project) return null;
+  const selected = tickets.find((t) => t.id === Number(ticketId)) ?? null;
+  if (!selected) return <Navigate to={`/projects/${project.id}`} replace />;
+  return (
+    <AgentLogs
+      ticket={selected}
+      runs={board.runsByTicket[selected.id] ?? []}
+      loadRuns={loadRuns}
+      onBack={() => navigate(`/projects/${project.id}/tickets/${selected.id}`)}
     />
   );
 }

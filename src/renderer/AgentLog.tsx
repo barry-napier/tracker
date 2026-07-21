@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { AgentBlock } from "../server/provider.ts";
 import { apiBase } from "./api.ts";
 
-interface LogBlockView {
+export interface LogBlockView {
   blockId: string;
   phase: string;
   kind: AgentBlock["kind"];
@@ -30,7 +30,7 @@ function fromOpen(event: { blockId: string; phase: string; block: AgentBlock }):
  * The run's conversation over the per-run SSE stream: full replay on open,
  * deltas appended live onto their open block.
  */
-function useRunLog(runId: number): LogBlockView[] {
+export function useRunLog(runId: number): LogBlockView[] {
   const [blocks, setBlocks] = useState<LogBlockView[]>([]);
 
   useEffect(() => {
@@ -69,7 +69,7 @@ function useRunLog(runId: number): LogBlockView[] {
   return blocks;
 }
 
-const KIND_LABELS: Record<AgentBlock["kind"], string> = {
+export const KIND_LABELS: Record<AgentBlock["kind"], string> = {
   prompt: "prompt",
   thinking: "thinking",
   text: "agent",

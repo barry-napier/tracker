@@ -1331,7 +1331,8 @@ function Inspector({
       <label>
         Prompt template
         <textarea
-          rows={3}
+          className="wfc-prompt-template"
+          rows={20}
           value={node.promptTemplate ?? ""}
           onChange={(e) => onPatch({ promptTemplate: e.target.value === "" ? null : e.target.value })}
         />

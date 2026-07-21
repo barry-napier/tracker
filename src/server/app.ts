@@ -9,6 +9,7 @@ import {
   listRepoFiles,
   pickFolderNative,
   readRepoFile,
+  repoWorkingDiff,
   revealInFinder,
   type Home,
 } from "./home.ts";
@@ -17,7 +18,19 @@ import type { Reviews } from "./reviews.ts";
 import type { RunLogRegistry } from "./runlog.ts";
 import { DraftInvalidError, NotFoundError, StateError, ValidationError, type Store } from "./store.ts";
 import type { DoneSweeper } from "./sweep.ts";
-import { isProvider, PROVIDERS, type PreviewKind, type ProviderConfig } from "./types.ts";
+import { parseTimeOfDay } from "./automation-schedule.ts";
+import {
+  AUTOMATION_CADENCES,
+  isAutomationCadence,
+  isProvider,
+  PROVIDERS,
+  type AutomationCadence,
+  type AutomationPriority,
+  type PreviewKind,
+  type ProviderConfig,
+  type ProviderName,
+} from "./types.ts";
+import { NullGitHub, repoSlug, type GitHubPort } from "./github.ts";
 import { DriftError, type Verdicts } from "./verdicts.ts";
 import { git } from "./worktrees.ts";
 import type { ProviderRegistry } from "./provider.ts";
@@ -26,6 +39,87 @@ import { validateDraftGraph } from "./workflow-validate.ts";
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "";
+}
+
+/**
+ * The shared create/patch validation for Automations: every optional field
+ * checked the same way in both routes; title/prompt/enabled stay route-local
+ * (required on create, optional on patch).
+ */
+function parseAutomationBody(body: Record<string, unknown>):
+  | { patch: Partial<{
+      category: string;
+      priority: AutomationPriority;
+      cadence: AutomationCadence;
+      timeOfDay: string | null;
+      dayOfWeek: number | null;
+      projectId: number | null;
+      provider: ProviderName | null;
+    }> }
+  | { error: string } {
+  const patch: Extract<ReturnType<typeof parseAutomationBody>, { patch: unknown }>["patch"] = {};
+  if ("category" in body) {
+    if (!isNonEmptyString(body.category)) return { error: "category must be a non-empty string" };
+    patch.category = body.category;
+  }
+  if ("priority" in body) {
+    if (body.priority !== "low" && body.priority !== "medium" && body.priority !== "high") {
+      return { error: "priority must be low, medium, or high" };
+    }
+    patch.priority = body.priority;
+  }
+  if ("cadence" in body) {
+    if (!isAutomationCadence(body.cadence)) {
+      return { error: `cadence must be one of ${AUTOMATION_CADENCES.join(", ")}` };
+    }
+    patch.cadence = body.cadence;
+  }
+  if ("timeOfDay" in body) {
+    if (body.timeOfDay === null) patch.timeOfDay = null;
+    else if (typeof body.timeOfDay === "string" && parseTimeOfDay(body.timeOfDay) !== null) {
+      patch.timeOfDay = body.timeOfDay;
+    } else return { error: "timeOfDay must be HH:MM or null" };
+  }
+  if ("dayOfWeek" in body) {
+    if (body.dayOfWeek === null) patch.dayOfWeek = null;
+    else if (
+      typeof body.dayOfWeek === "number" &&
+      Number.isInteger(body.dayOfWeek) &&
+      body.dayOfWeek >= 0 &&
+      body.dayOfWeek <= 6
+    ) {
+      patch.dayOfWeek = body.dayOfWeek;
+    } else return { error: "dayOfWeek must be 0-6 or null" };
+  }
+  if ("projectId" in body) {
+    if (body.projectId === null) patch.projectId = null;
+    else if (typeof body.projectId === "number") patch.projectId = body.projectId;
+    else return { error: "projectId must be a number or null" };
+  }
+  if ("provider" in body) {
+    if (body.provider === null) patch.provider = null;
+    else if (isProvider(body.provider)) patch.provider = body.provider;
+    else return { error: `provider must be null or one of ${PROVIDERS.join(", ")}` };
+  }
+  return { patch };
+}
+
+/** Template create/patch: the optional chip fields, shared by both routes. */
+function parseTemplateBody(
+  body: Record<string, unknown>,
+): { patch: Partial<{ category: string; priority: AutomationPriority }> } | { error: string } {
+  const patch: Partial<{ category: string; priority: AutomationPriority }> = {};
+  if ("category" in body) {
+    if (!isNonEmptyString(body.category)) return { error: "category must be a non-empty string" };
+    patch.category = body.category;
+  }
+  if ("priority" in body) {
+    if (body.priority !== "low" && body.priority !== "medium" && body.priority !== "high") {
+      return { error: "priority must be low, medium, or high" };
+    }
+    patch.priority = body.priority;
+  }
+  return { patch };
 }
 
 /**
@@ -61,6 +155,8 @@ export function createApp(
   /** For the draft-edit chat (one provider phase per message); empty in
    *  tests that never chat. */
   providers: ProviderRegistry = {},
+  /** Team work's repo/PR listings; defaults to the honest-zero backing. */
+  github: GitHubPort = new NullGitHub(),
 ): Hono {
   const app = new Hono();
 
@@ -279,6 +375,109 @@ export function createApp(
     }
   });
 
+  // Automations: recurring agent tasks. Templates are saved starting points
+  // (seeded from v1's recurring items, user-editable since migration 24);
+  // rows are the standing orders; run fires one by hand exactly as the
+  // scheduler would.
+  app.get("/api/automation-templates", (c) => c.json(store.listAutomationTemplates()));
+  app.post("/api/automation-templates", async (c) => {
+    const body = await c.req.json<Record<string, unknown>>();
+    const parsed = parseTemplateBody(body);
+    if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+    if (!isNonEmptyString(body.title)) return c.json({ error: "title is required" }, 400);
+    if (typeof body.prompt !== "string" || body.prompt.trim() === "") {
+      return c.json({ error: "prompt is required" }, 400);
+    }
+    return c.json(
+      store.createAutomationTemplate({ ...parsed.patch, title: body.title, prompt: body.prompt }),
+      201,
+    );
+  });
+  app.patch("/api/automation-templates/:id", async (c) => {
+    const body = await c.req.json<Record<string, unknown>>();
+    const parsed = parseTemplateBody(body);
+    if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+    const patch: Parameters<Store["updateAutomationTemplate"]>[1] = { ...parsed.patch };
+    if (isNonEmptyString(body.title)) patch.title = body.title;
+    if (typeof body.prompt === "string" && body.prompt.trim() !== "") patch.prompt = body.prompt;
+    return c.json(store.updateAutomationTemplate(Number(c.req.param("id")), patch));
+  });
+  app.delete("/api/automation-templates/:id", (c) => {
+    store.deleteAutomationTemplate(Number(c.req.param("id")));
+    return c.json({ ok: true });
+  });
+  app.get("/api/automations", (c) => c.json(store.listAutomations()));
+  app.post("/api/automations", async (c) => {
+    const body = await c.req.json<Record<string, unknown>>();
+    const parsed = parseAutomationBody(body);
+    if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+    if (!isNonEmptyString(body.title)) return c.json({ error: "title is required" }, 400);
+    if (typeof body.prompt !== "string" || body.prompt.trim() === "") {
+      return c.json({ error: "prompt is required" }, 400);
+    }
+    return c.json(
+      store.createAutomation({ ...parsed.patch, title: body.title, prompt: body.prompt }),
+      201,
+    );
+  });
+  app.patch("/api/automations/:id", async (c) => {
+    const body = await c.req.json<Record<string, unknown>>();
+    const parsed = parseAutomationBody(body);
+    if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+    const patch: Parameters<Store["updateAutomation"]>[1] = { ...parsed.patch };
+    if (isNonEmptyString(body.title)) patch.title = body.title;
+    if (typeof body.prompt === "string" && body.prompt.trim() !== "") patch.prompt = body.prompt;
+    if (typeof body.enabled === "boolean") patch.enabled = body.enabled;
+    return c.json(store.updateAutomation(Number(c.req.param("id")), patch));
+  });
+  app.delete("/api/automations/:id", (c) => {
+    store.deleteAutomation(Number(c.req.param("id")));
+    return c.json({ ok: true });
+  });
+  app.post("/api/automations/:id/run", (c) =>
+    c.json(store.fireAutomation(Number(c.req.param("id")), "human"), 201),
+  );
+
+  // Team work: the user's own+org repos, and the open-PR feed across the
+  // repos they picked. Repo failures degrade per-repo rather than blanking
+  // the whole feed — one archived or permission-lost repo shouldn't hide
+  // every other team's PRs.
+  app.get("/api/team/repos", async (c) => {
+    try {
+      return c.json(await github.listAffiliatedRepos());
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 502);
+    }
+  });
+  app.get("/api/team/prs", async (c) => {
+    const reposParam = c.req.query("repos") ?? "";
+    const slugs = reposParam.split(",").map((s) => s.trim()).filter((s) => s !== "");
+    if (slugs.length === 0) return c.json({ prs: [], errors: [] });
+    for (const slug of slugs) {
+      try {
+        repoSlug(slug);
+      } catch {
+        return c.json({ error: `invalid repo slug "${slug}"` }, 400);
+      }
+    }
+    const settled = await Promise.all(
+      slugs.map(async (slug) => {
+        try {
+          return { slug, prs: await github.listPrs(slug) };
+        } catch (error) {
+          return { slug, failed: error instanceof Error ? error.message : String(error) };
+        }
+      }),
+    );
+    const prs = settled
+      .flatMap((result) => result.prs ?? [])
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const errors = settled.flatMap((result) =>
+      "failed" in result ? [{ repo: result.slug, error: result.failed }] : [],
+    );
+    return c.json({ prs, errors });
+  });
+
   // App-level provider config (ticket 38): one row per provider name, shared
   // by every Project. Adapters read it fresh per phase, so a save here lands
   // on the next claim without an app restart.
@@ -395,6 +594,15 @@ export function createApp(
     const rel = c.req.query("path");
     if (!rel) return c.json({ error: "path is required" }, 400);
     return c.json(await readRepoFile(repo.path, rel));
+  });
+
+  // The right panel's Diff surface: the checkout's uncommitted changes.
+  app.get("/api/projects/:id/diff", async (c) => {
+    const project = store.getProject(Number(c.req.param("id")));
+    if (!project) return c.json({ error: "not found" }, 404);
+    const repo = store.listRepos(project.id)[0];
+    if (!repo) throw new StateError(`project ${project.name} has no registered repo`);
+    return c.json(await repoWorkingDiff(repo.path));
   });
 
   app.get("/api/projects/:id/audit", (c) => {

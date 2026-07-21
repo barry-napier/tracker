@@ -1,6 +1,12 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { AUTOMATION_TEMPLATE_SEEDS } from "./automation-templates.ts";
+
+/** SQL string literal: the only escape sqlite needs is the quote itself. */
+function sqlQuote(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
 
 // Schema changes are append-only: never edit a shipped migration, add a new one.
 // rekeysForeignKeys marks a migration that recreates FK'd tables: it runs with
@@ -592,6 +598,63 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
       ALTER TABLE repos_v2 RENAME TO repos;
     `,
     rekeysForeignKeys: true,
+  },
+  {
+    version: 22,
+    sql: `
+      -- First-board-view workflow prompt: 0 = the board still owes the user a
+      -- one-time "keep Default or pick another?" ask. Backfill 1 — existing
+      -- projects are grandfathered, never nagged. The store writes the column
+      -- explicitly on insert; the DEFAULT exists only to satisfy the ALTER.
+      ALTER TABLE projects ADD COLUMN workflow_confirmed INTEGER NOT NULL DEFAULT 1;
+    `,
+  },
+  {
+    version: 23,
+    sql: `
+      -- Automations: recurring agent tasks (from tracker v1's templates).
+      -- A firing creates a real Ticket on the chosen Project and promotes it
+      -- when the Project has a Repo; the row records only the standing order.
+      CREATE TABLE automations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'general',
+        priority TEXT NOT NULL DEFAULT 'medium',
+        prompt TEXT NOT NULL,
+        cadence TEXT NOT NULL DEFAULT 'manual',
+        time_of_day TEXT,
+        day_of_week INTEGER,
+        project_id INTEGER REFERENCES projects(id),
+        provider TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        last_fired_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `,
+  },
+  {
+    version: 24,
+    // Templates become rows (user-creatable/editable); the v1 built-ins seed
+    // the table once. The seed content lives in automation-templates.ts —
+    // interpolated here as quoted literals, stable because seeds are frozen.
+    sql: `
+      CREATE TABLE automation_templates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'general',
+        priority TEXT NOT NULL DEFAULT 'medium',
+        prompt TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      INSERT INTO automation_templates (title, category, priority, prompt) VALUES
+      ${AUTOMATION_TEMPLATE_SEEDS.map(
+        (seed) =>
+          `(${sqlQuote(seed.title)}, ${sqlQuote(seed.category)}, ${sqlQuote(seed.priority)}, ${sqlQuote(seed.prompt)})`,
+      ).join(",\n      ")};
+    `,
   },
 ];
 

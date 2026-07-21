@@ -236,6 +236,35 @@ export async function readRepoFile(
   return { content: buffer.toString("utf8") };
 }
 
+export type RepoDiff = {
+  branch: string;
+  /** Porcelain status entries: XY code plus path ("M", "A", "??", …). */
+  files: { status: string; path: string }[];
+  /** Unified diff of the working tree against HEAD (staged + unstaged). */
+  patch: string;
+};
+
+/**
+ * The Diff surface's payload: what `git status`/`git diff HEAD` say about
+ * the checkout right now. Untracked files appear in `files` as "??" but not
+ * in the patch — they have no HEAD side to diff against.
+ */
+export async function repoWorkingDiff(repoPath: string): Promise<RepoDiff> {
+  const exec = promisify(execFile);
+  const run = async (...args: string[]) =>
+    (await exec("git", ["-C", repoPath, ...args], { maxBuffer: 32 * 1024 * 1024 })).stdout;
+  const branch = (await run("rev-parse", "--abbrev-ref", "HEAD").catch(() => "HEAD")).trim();
+  const status = await run("status", "--porcelain");
+  const files = status
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => ({ status: line.slice(0, 2).trim(), path: line.slice(3) }));
+  // A repo with no commits yet has no HEAD to diff against; the index diff
+  // is the closest honest answer.
+  const patch = await run("diff", "HEAD").catch(() => run("diff").catch(() => ""));
+  return { branch, files, patch };
+}
+
 /**
  * Open a project's checkout in the OS file manager (ticket 50). Server-side
  * for the same reason as the folder picker: the server runs on the user's

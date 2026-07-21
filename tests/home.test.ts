@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
@@ -293,5 +293,22 @@ describe("Home: repo files (Files surface)", () => {
       `/api/projects/${project.id}/file?path=${encodeURIComponent("../../etc/passwd")}`,
     );
     expect(escape.status).toBe(400);
+  });
+});
+
+describe("Home: working diff (Diff surface)", () => {
+  test("reports modified and untracked files with a unified patch", async () => {
+    const server = await bootServer();
+    const { source, project } = await seedWorkspace(server);
+    writeFileSync(path.join(source, "README.md"), "# changed\n");
+    writeFileSync(path.join(source, "new-file.txt"), "hello\n");
+
+    const res = await api(server, "GET", `/api/projects/${project.id}/diff`);
+    expect(res.status).toBe(200);
+    expect(res.json.branch).toBe("main");
+    expect(res.json.files).toContainEqual({ status: "M", path: "README.md" });
+    expect(res.json.files).toContainEqual({ status: "??", path: "new-file.txt" });
+    expect(res.json.patch).toContain("-# scratch");
+    expect(res.json.patch).toContain("+# changed");
   });
 });

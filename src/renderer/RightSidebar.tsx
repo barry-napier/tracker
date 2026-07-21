@@ -24,6 +24,18 @@ const browserApi = (
   }
 ).tracker?.browser;
 
+/** True in the packaged app, where the Browser surface is a real <webview>.
+ *  Sites that refuse to be iframed (GitHub) only render there, so callers
+ *  gate "open in sidebar" affordances on this. */
+export const hasEmbeddedBrowser = browserApi !== undefined;
+
+/** An external ask to show a URL in the Browser surface; `tick` distinguishes
+ *  repeat asks for the same URL (state alone couldn't re-trigger). */
+export interface BrowseRequest {
+  url: string;
+  tick: number;
+}
+
 type Surface = "browser" | "terminal" | "files" | "diff";
 
 const SURFACES: {
@@ -45,8 +57,7 @@ const SURFACES: {
     key: "diff",
     icon: "review",
     title: "Diff",
-    desc: "Review changes in this thread.",
-    disabled: true,
+    desc: "Review uncommitted changes.",
   },
 ];
 
@@ -356,7 +367,11 @@ function FilesSurface({ projectId }: { projectId: number | null }) {
   );
 }
 
-function BrowserSurface() {
+/** Module-level, not a ref: the surface unmounts when the user leaves it, and
+ *  a remount must not replay an already-honored browse request. */
+let handledBrowseTick = 0;
+
+function BrowserSurface({ browseTo }: { browseTo?: BrowseRequest | null }) {
   const [value, setValue] = useState("");
   const [src, setSrc] = useState<string | null>(null);
   const [servers, setServers] = useState<LocalServer[] | null>(null);
@@ -384,6 +399,16 @@ function BrowserSurface() {
       cancelled = true;
     };
   }, [src]);
+
+  // Honor an external browse request (e.g. Team's "open PR here") exactly
+  // once, keyed by tick — a surface remount must not replay it.
+  useEffect(() => {
+    if (browseTo && browseTo.tick !== handledBrowseTick) {
+      handledBrowseTick = browseTo.tick;
+      open(browseTo.url);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browseTo?.tick]);
 
   const open = (url: string) => {
     const hist = histRef.current;
@@ -642,16 +667,156 @@ function BrowserSurface() {
   );
 }
 
+/* ----------------------------------------------------------------- Diff -- */
+
+type RepoDiff = { branch: string; files: { status: string; path: string }[]; patch: string };
+
+type DiffFileSection = { path: string; lines: string[] };
+
+/** Split a unified diff into per-file sections, dropping git's header noise. */
+function parsePatch(patch: string): DiffFileSection[] {
+  const sections: DiffFileSection[] = [];
+  for (const chunk of patch.split(/^diff --git /m).slice(1)) {
+    const lines = chunk.split("\n");
+    // First line: `a/old b/new` — the b-side is the current name.
+    const path = /b\/(.*)$/.exec(lines[0] ?? "")?.[1] ?? lines[0] ?? "";
+    sections.push({
+      path,
+      lines: lines.slice(1).filter((l) => /^[+\-@ \\]/.test(l) && !/^(\+\+\+|---) /.test(l)),
+    });
+  }
+  return sections;
+}
+
+function diffLineClass(line: string): string {
+  if (line.startsWith("@")) return "rs-diff-line rs-diff-hunk";
+  if (line.startsWith("+")) return "rs-diff-line rs-diff-add";
+  if (line.startsWith("-")) return "rs-diff-line rs-diff-del";
+  return "rs-diff-line";
+}
+
+function DiffSurface({ projectId }: { projectId: number | null }) {
+  const [diff, setDiff] = useState<RepoDiff | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    if (projectId === null) return;
+    let cancelled = false;
+    setError(null);
+    apiGet<RepoDiff>(`/api/projects/${projectId}/diff`)
+      .then((d) => !cancelled && setDiff(d))
+      .catch((e) => !cancelled && setError(errorMessage(e)));
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, refreshTick]);
+
+  if (projectId === null) return <p className="rs-hint">Open a project to review its changes.</p>;
+  if (error) return <p className="rs-hint">{error}</p>;
+  if (!diff) return <p className="rs-hint">Reading the working tree…</p>;
+
+  const sections = parsePatch(diff.patch);
+  const untracked = diff.files.filter((f) => f.status === "??");
+
+  return (
+    <div className="rs-files">
+      <div className="rs-files-head">
+        <span className="rs-files-title">{diff.branch}</span>
+        <span className="rs-files-count">
+          {diff.files.length} {diff.files.length === 1 ? "change" : "changes"}
+        </span>
+        <button
+          type="button"
+          className="icon-btn"
+          title="Refresh"
+          onClick={() => setRefreshTick((t) => t + 1)}
+        >
+          <Icon name="refresh" size={13} />
+        </button>
+      </div>
+      {diff.files.length === 0 ? (
+        <p className="rs-hint">Working tree clean — nothing to review.</p>
+      ) : (
+        <div className="rs-diff">
+          {sections.map((s) => {
+            const isCollapsed = collapsed.has(s.path);
+            const status = diff.files.find((f) => f.path === s.path)?.status ?? "M";
+            return (
+              <div key={s.path} className="rs-diff-file">
+                <button
+                  type="button"
+                  className="rs-tree-row rs-diff-filehead"
+                  title={s.path}
+                  onClick={() =>
+                    setCollapsed((prev) => {
+                      const next = new Set(prev);
+                      isCollapsed ? next.delete(s.path) : next.add(s.path);
+                      return next;
+                    })
+                  }
+                >
+                  <Icon name={isCollapsed ? "chevron-right" : "chevron-down"} size={13} />
+                  <span className="rs-tree-name">{s.path}</span>
+                  <span className={`rs-diff-status rs-diff-status-${status[0]?.toLowerCase()}`}>
+                    {status}
+                  </span>
+                </button>
+                {!isCollapsed && (
+                  <pre className="rs-diff-body">
+                    {s.lines.map((line, i) => (
+                      <span key={i} className={diffLineClass(line)}>
+                        {line}
+                        {"\n"}
+                      </span>
+                    ))}
+                  </pre>
+                )}
+              </div>
+            );
+          })}
+          {untracked.length > 0 && (
+            <div className="rs-diff-file">
+              <div className="rs-tree-row rs-diff-filehead rs-diff-untracked-head">
+                <span className="rs-tree-name">Untracked</span>
+              </div>
+              {untracked.map((f) => (
+                <div key={f.path} className="rs-diff-untracked" title={f.path}>
+                  <FileBadge name={f.path.split("/").pop()!} />
+                  <span className="rs-tree-name">{f.path}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * The right panel (⌘L): opens to a surface picker; each surface fills the
- * panel until the back button returns to the picker. Files needs an open
- * project (its tree is the project's repo); Diff is a placeholder until it
- * has server support.
+ * panel until the back button returns to the picker. Files and Diff need an
+ * open project — their content is the project's checkout.
  */
-export function RightSidebar({ open, projectId }: { open: boolean; projectId: number | null }) {
+export function RightSidebar({
+  open,
+  projectId,
+  browseTo,
+}: {
+  open: boolean;
+  projectId: number | null;
+  /** When set (and on each new tick), the panel jumps to the Browser surface. */
+  browseTo?: BrowseRequest | null;
+}) {
   const [surface, setSurface] = useState<Surface | null>(null);
   const [width, setWidth] = useState(400);
   const current = SURFACES.find((s) => s.key === surface);
+
+  useEffect(() => {
+    if (browseTo) setSurface("browser");
+  }, [browseTo?.tick]);
 
   // Drag the left edge to resize; pointer capture keeps the drag alive when
   // the cursor outruns the 4px handle.
@@ -699,8 +864,9 @@ export function RightSidebar({ open, projectId }: { open: boolean; projectId: nu
               <TermPane open={open} active onFocus={() => {}} />
             </div>
           )}
-          {current.key === "browser" && <BrowserSurface />}
+          {current.key === "browser" && <BrowserSurface browseTo={browseTo} />}
           {current.key === "files" && <FilesSurface projectId={projectId} />}
+          {current.key === "diff" && <DiffSurface projectId={projectId} />}
         </div>
       ) : (
         <div className="rs-empty">
@@ -712,10 +878,13 @@ export function RightSidebar({ open, projectId }: { open: boolean; projectId: nu
                 key={s.key}
                 type="button"
                 className="rs-card"
-                disabled={s.disabled || (s.key === "files" && projectId === null)}
+                disabled={
+                  s.disabled ||
+                  ((s.key === "files" || s.key === "diff") && projectId === null)
+                }
                 title={
-                  s.key === "files" && projectId === null
-                    ? "Open a project to browse its files"
+                  (s.key === "files" || s.key === "diff") && projectId === null
+                    ? "Open a project first"
                     : undefined
                 }
                 onClick={() => setSurface(s.key)}
