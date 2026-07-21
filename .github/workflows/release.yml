@@ -64,7 +64,7 @@ jobs:
         env:
           # Unsigned build: skip codesign identity discovery entirely.
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npm run build
+        run: npm run build -- --publish never
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
