@@ -6,21 +6,27 @@ import { GITHUB_URL, RELEASES_URL } from "../lib/releases";
 <Layout>
   <!-- 1. Hero -->
   <section class="hero">
-    <p class="wordmark" aria-hidden="true">tracker</p>
-    <h1 id="headline">Ship a week of tickets without babysitting a single agent terminal.</h1>
-    <p class="lede">
-      Tracker is a free, open-source desktop board for developers who run coding
-      agents: queue tickets, let agents work them concurrently, and review when
-      the board says it's ready.
-    </p>
-    <div class="cta-row">
+    <p class="wordmark hero-in" aria-hidden="true">tracker</p>
+    <h1 id="headline" class="hero-in hero-d1">The mission control<br class="hide-mobile" /> for your coding agents.</h1>
+    <div class="hero-subrow hero-in hero-d2">
+      <p class="lede">
+        A free, open-source desktop board: queue tickets, let agents work them
+        concurrently, review when the board says it's ready.
+      </p>
+      <a class="hero-new" href="https://github.com/barry-napier/tracker/releases" target="_blank" rel="noopener noreferrer">
+        <span class="chip">New</span> v0.2.0 released <span aria-hidden="true">&rarr;</span>
+      </a>
+    </div>
+    <div class="cta-row hero-in hero-d2">
       <a class="btn btn-contrast" href="/download">Download for macOS — free</a>
       <a class="btn" href={GITHUB_URL} target="_blank" rel="noopener noreferrer">View source</a>
     </div>
-    <p class="trust-line">Open source · MIT · everything runs on your machine</p>
-    <figure class="shot shot-hero">
-      <img src="/board.png" alt="Tracker board with tickets across Backlog, Todo, In Progress, Verifying, Human Review, and Done columns" width="1440" height="900" fetchpriority="high" />
-    </figure>
+    <p class="trust-line hero-in hero-d2">Open source · MIT · everything runs on your machine</p>
+    <div class="hero-stage hero-in hero-d3">
+      <figure class="shot shot-hero">
+        <img src="/board.png" alt="Tracker board with tickets across Backlog, Todo, In Progress, Verifying, Human Review, and Done columns" width="1440" height="900" fetchpriority="high" />
+      </figure>
+    </div>
   </section>
 
   <!-- 3. Problem framing -->
@@ -164,10 +170,91 @@ import { GITHUB_URL, RELEASES_URL } from "../lib/releases";
     margin-top: 0;
   }
 
+  /* Linear-style staged entrance: blur + rise, staggered per row. */
+  .hero-in {
+    opacity: 0;
+    filter: blur(4px);
+    transform: translateY(14px);
+    animation: hero-in 0.7s cubic-bezier(0.2, 0.6, 0.2, 1) forwards;
+  }
+
+  .hero-d1 { animation-delay: 0.08s; }
+  .hero-d2 { animation-delay: 0.18s; }
+  .hero-d3 { animation-delay: 0.3s; }
+
+  @keyframes hero-in {
+    to {
+      opacity: 1;
+      filter: blur(0);
+      transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hero-in {
+      animation: none;
+      opacity: 1;
+      filter: none;
+      transform: none;
+    }
+  }
+
+  .hero-subrow {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+  }
+
+  .hero-new {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .hero-new:hover {
+    color: var(--text-base);
+  }
+
+  /* Staged product shot with a floor glow under it, Linear-style. */
+  .hero-stage {
+    position: relative;
+    margin-top: 48px;
+  }
+
+  .hero-stage::after {
+    content: "";
+    position: absolute;
+    inset: auto -10% -48px;
+    height: 120px;
+    background: radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--text-faint) 22%, transparent), transparent 70%);
+    pointer-events: none;
+  }
+
+  .hero-stage .shot {
+    margin-top: 0;
+  }
+
+  @media (max-width: 720px) {
+    .hero-subrow {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 14px;
+    }
+
+    .hide-mobile {
+      display: none;
+    }
+  }
+
   /* Same treatment as the app's home/boot-splash wordmark. */
   .wordmark {
-    font-size: clamp(3.5rem, 12vw, 7rem);
-    margin: 0 0 40px;
+    font-size: clamp(2.2rem, 7vw, 3.5rem);
+    margin: 0 0 28px;
     font-weight: 700;
     letter-spacing: -0.04em;
     line-height: 1;
@@ -180,11 +267,11 @@ import { GITHUB_URL, RELEASES_URL } from "../lib/releases";
   }
 
   h1 {
-    max-width: 640px;
-    font-size: clamp(26px, 5vw, 36px);
-    line-height: 1.15;
+    max-width: 760px;
+    font-size: clamp(32px, 6.5vw, 56px);
+    line-height: 1.06;
     font-weight: 650;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.03em;
   }
 
   h2 {
