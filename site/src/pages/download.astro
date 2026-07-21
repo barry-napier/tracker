@@ -1,0 +1,160 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { RELEASES_URL } from "../lib/releases";
+---
+
+<Layout title="Download — Tracker" description="Download Tracker for macOS.">
+  <div class="download-page">
+    <h1>Download Tracker</h1>
+    <p class="subheading">
+      <span id="version-label">Loading latest release&hellip;</span>
+      <a id="changelog-link" href="#" target="_blank" rel="noopener noreferrer" style="display:none">
+        View changelog<span aria-hidden="true"> &#8599;</span>
+      </a>
+    </p>
+
+    <section class="platform">
+      <h2>macOS</h2>
+      <div class="cards">
+        <a class="card" data-asset="arm64.dmg" href={RELEASES_URL}>
+          <span class="card-arch">Apple Silicon (arm64)</span>
+          <span class="card-format">.dmg</span>
+        </a>
+      </div>
+      <p class="note">
+        Builds are currently unsigned — on first launch, right-click the app and
+        choose <strong>Open</strong>.
+      </p>
+    </section>
+
+    <p class="releases-link">
+      Looking for older versions? Check the
+      <a href={RELEASES_URL} target="_blank" rel="noopener noreferrer">
+        GitHub releases page<span aria-hidden="true"> &#8599;</span>
+      </a>
+    </p>
+  </div>
+</Layout>
+
+<script>
+  import { fetchLatestRelease, RELEASES_URL } from "../lib/releases";
+
+  async function init() {
+    const versionLabel = document.getElementById("version-label");
+    const cards = document.querySelectorAll<HTMLAnchorElement>(".card");
+
+    try {
+      const release = await fetchLatestRelease();
+      if (!release?.tag_name) throw new Error("no release");
+
+      if (versionLabel && release.tag_name) {
+        versionLabel.textContent = `Latest (${release.tag_name})`;
+      }
+
+      const changelogLink = document.getElementById("changelog-link") as HTMLAnchorElement | null;
+      if (changelogLink && release.html_url) {
+        changelogLink.href = release.html_url;
+        changelogLink.style.display = "";
+      }
+
+      cards.forEach((card) => {
+        const suffix = card.dataset.asset;
+        if (!suffix) return;
+
+        const match = (release.assets ?? []).find((a) => a.name.endsWith(`-${suffix}`) || a.name.endsWith(`.${suffix}`) || a.name.endsWith(suffix));
+        if (match) {
+          card.href = match.browser_download_url;
+        } else {
+          card.href = RELEASES_URL;
+        }
+      });
+    } catch {
+      if (versionLabel) {
+        versionLabel.textContent = "Could not load release info.";
+      }
+      cards.forEach((card) => {
+        card.href = RELEASES_URL;
+      });
+    }
+  }
+
+  init();
+</script>
+
+<style>
+  .download-page {
+    max-width: 560px;
+  }
+
+  h1 {
+    font-size: 32px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .subheading {
+    margin-top: 12px;
+    color: var(--text-dim);
+    font-size: 14px;
+    display: flex;
+    gap: 16px;
+  }
+
+  .subheading a {
+    color: var(--accent);
+  }
+
+  .platform {
+    margin-top: 48px;
+  }
+
+  .platform h2 {
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .cards {
+    margin-top: 16px;
+  }
+
+  .card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+
+  .card:hover {
+    border-color: var(--accent);
+  }
+
+  .card-arch {
+    font-weight: 500;
+    font-size: 14px;
+  }
+
+  .card-format {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  .note {
+    margin-top: 12px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  .releases-link {
+    margin-top: 48px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+
+  .releases-link a {
+    color: var(--accent);
+  }
+</style>

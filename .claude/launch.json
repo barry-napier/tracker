@@ -12,6 +12,18 @@
       "autoPort": true
     },
     {
+      "name": "site",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "--prefix",
+        "site"
+      ],
+      "port": 4173,
+      "autoPort": true
+    },
+    {
       "name": "api",
       "runtimeExecutable": "node",
       "runtimeArgs": [

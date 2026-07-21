@@ -1,0 +1,109 @@
+---
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout>
+  <section class="hero">
+    <h1>Ship tickets while agents do the typing.</h1>
+    <p class="lede">
+      Tracker is a local-first desktop board for coding-agent work. Queue tickets,
+      run concurrent agent sessions, watch the logs, and merge when it's green —
+      all from one window.
+    </p>
+    <div class="cta-row">
+      <a class="cta" href="/download">Download for macOS</a>
+      <a class="cta ghost" href="https://github.com/barry-napier/tracker" target="_blank" rel="noopener noreferrer">View source</a>
+    </div>
+  </section>
+
+  <section class="features">
+    <div class="feature">
+      <h2>Board-first workflow</h2>
+      <p>Kanban columns that mirror the real lifecycle of agent work — queued, running, waiting on you, parked, done.</p>
+    </div>
+    <div class="feature">
+      <h2>Concurrent sessions</h2>
+      <p>Multiple tickets in flight at once, each in its own isolated session with its own logs and diffs.</p>
+    </div>
+    <div class="feature">
+      <h2>Local and private</h2>
+      <p>Everything runs on your machine. Your code, your keys, your data — nothing leaves the laptop.</p>
+    </div>
+  </section>
+</Layout>
+
+<style>
+  .hero {
+    max-width: 640px;
+  }
+
+  h1 {
+    font-size: 42px;
+    line-height: 1.15;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .lede {
+    margin-top: 20px;
+    font-size: 17px;
+    line-height: 1.6;
+    color: var(--text-dim);
+  }
+
+  .cta-row {
+    margin-top: 32px;
+    display: flex;
+    gap: 12px;
+  }
+
+  .cta {
+    display: inline-block;
+    padding: 10px 20px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #08110f;
+    font-weight: 600;
+    font-size: 14px;
+  }
+
+  .cta.ghost {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    font-weight: 500;
+  }
+
+  .cta:hover {
+    filter: brightness(1.1);
+  }
+
+  .features {
+    margin-top: 96px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+  }
+
+  .feature h2 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+
+  .feature p {
+    margin-top: 8px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--text-dim);
+  }
+
+  @media (max-width: 720px) {
+    h1 {
+      font-size: 32px;
+    }
+    .features {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
