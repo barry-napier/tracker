@@ -3,6 +3,8 @@ import Layout from "../layouts/Layout.astro";
 ---
 
 <Layout>
+  <p class="wordmark" aria-hidden="true">tracker</p>
+
   <section class="hero">
     <h1>Ship tickets while agents do the typing.</h1>
     <p class="lede">
@@ -36,6 +38,21 @@ import Layout from "../layouts/Layout.astro";
 </Layout>
 
 <style>
+  /* Same treatment as the app's home/boot-splash wordmark. */
+  .wordmark {
+    font-size: clamp(4rem, 14vw, 8rem);
+    margin: 0 0 48px;
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    line-height: 1;
+    background: linear-gradient(to bottom, var(--text-faint), color-mix(in srgb, var(--text-faint) 35%, transparent));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    opacity: 0.5;
+    user-select: none;
+  }
+
   .hero {
     max-width: 600px;
   }
