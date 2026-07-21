@@ -330,6 +330,179 @@ body {
   color: var(--text-base);
 }
 
+/* -- board toolbar: search / filters left, week nav + month toggle right -- */
+
+.board-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 0.9rem 0;
+}
+
+.board-toolbar-spacer {
+  flex: 1;
+}
+
+.board-search {
+  width: 200px;
+}
+
+.board-toolbar input,
+.board-toolbar select {
+  background: var(--surface-input);
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-md);
+  color: var(--text-base);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0.3rem 0.5rem;
+}
+
+.board-toolbar input:focus,
+.board-toolbar select:focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
+.weeknav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0.3rem 0.5rem;
+  cursor: pointer;
+}
+
+.weeknav:hover {
+  background: var(--overlay-hover);
+  color: var(--text-base);
+}
+
+.week-range {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.week-this-active {
+  color: var(--text-accent);
+  box-shadow: inset 0 0 0 1px var(--info-border);
+}
+
+/* -- month view: what got Done, when -- */
+
+.monthview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0.9rem;
+  gap: 0.6rem;
+  overflow-y: auto;
+}
+
+.monthview-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.monthview-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.monthview-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  /* First row is the weekday header; week rows share the rest. */
+  grid-template-rows: auto;
+  grid-auto-rows: minmax(90px, 1fr);
+  gap: 1px;
+  background: var(--border-muted);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.monthview-dow {
+  background: var(--surface-panel);
+  padding: 0.35rem 0.5rem;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.monthview-day {
+  background: var(--surface-panel);
+  padding: 0.35rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.monthview-day-out {
+  background: var(--surface-sunken-faint);
+}
+
+.monthview-day-out .monthview-date {
+  color: var(--text-faint);
+}
+
+.monthview-day-today .monthview-date {
+  color: var(--contrast-fg);
+  background: var(--blue-600);
+  border-radius: var(--radius-sm);
+  padding: 0 0.25rem;
+  align-self: flex-start;
+}
+
+.monthview-date {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.monthview-item {
+  background: var(--ok-bg);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--ok-fg);
+  font: inherit;
+  font-size: var(--fs-xs);
+  padding: 0.1rem 0.3rem;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monthview-weeklink {
+  background: none;
+  border: none;
+  color: var(--text-accent);
+  font: inherit;
+  font-size: var(--fs-xs);
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.monthview-day:hover .monthview-weeklink {
+  opacity: 1;
+}
+
 /* -- board: sunken column wells, ring-elevated cards -- */
 
 .board {
@@ -365,6 +538,43 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
+}
+
+.column-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.state-icon {
+  flex: none;
+}
+
+.column-label {
+  color: var(--text-base);
+}
+
+.column-count {
+  min-width: 1.4em;
+  padding: 0.05rem 0.35rem;
+  border-radius: var(--radius-full);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+  background: var(--surface-sunken);
+}
+
+.column-empty {
+  margin-top: 2rem;
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--text-faint);
+}
+
+.column-count-warn {
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  box-shadow: inset 0 0 0 1px var(--warn-border);
 }
 
 .card {

@@ -31,6 +31,13 @@ import { useBoard } from "./useBoard.ts";
 import { ReviewWizard } from "./ReviewWizard.tsx";
 import { TicketDetail } from "./TicketDetail.tsx";
 import { STATES } from "./ticketStates.ts";
+import { StateIcon } from "./stateIcons.tsx";
+import {
+  applyControls,
+  BoardToolbar,
+  initialControls,
+  MonthView,
+} from "./boardTools.tsx";
 import { loadTabs, saveTabs } from "./tabsState.ts";
 import { TerminalDrawer } from "./TerminalDrawer.tsx";
 import { RightSidebar } from "./RightSidebar.tsx";
@@ -656,20 +663,39 @@ function Board({
 }) {
   const navigate = useNavigate();
   const uninitialized = repos.find((r) => r.gitMissing) ?? null;
+  const [controls, setControls] = useState(initialControls);
   return (
     <>
       {uninitialized && <GitInitBanner key={uninitialized.id} repo={uninitialized} />}
       {!project.workflowConfirmed && <WorkflowConfirmBanner key={project.id} project={project} />}
+      <BoardToolbar controls={controls} onChange={setControls} />
+      {controls.view === "month" ? (
+        <MonthView
+          tickets={tickets}
+          onOpenWeek={(weekStart) => setControls({ ...controls, weekStart, view: "board" })}
+          onOpenTicket={(t) => navigate(`/projects/${project.id}/tickets/${t.id}`)}
+        />
+      ) : (
       <div className="board">
       {STATES.map(({ key, label }) => {
-        const column = tickets.filter((t) => t.state === key);
+        const column = applyControls(tickets, key, controls);
         return (
           <section key={key} className="column">
-            <h3>
-              {label} <span className="dim">{column.length}</span>
+            <h3 className="column-head">
+              <StateIcon state={key} />
+              <span className="column-label">{label}</span>
+              <span
+                className={
+                  "column-count" +
+                  (key === "human_review" && column.length > 0 ? " column-count-warn" : "")
+                }
+              >
+                {column.length}
+              </span>
             </h3>
             {key === "backlog" && <NewTicketForm projectId={project.id} />}
             {key === "done" && <DoneSweep projectId={project.id} />}
+            {column.length === 0 && <div className="column-empty">No issues</div>}
             {column.map((ticket) => (
               <TicketCard
                 key={ticket.id}
@@ -688,6 +714,7 @@ function Board({
         );
       })}
       </div>
+      )}
     </>
   );
 }
