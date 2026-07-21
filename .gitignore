@@ -7,3 +7,6 @@ out/
 .DS_Store
 .claude/worktrees/
 src/renderer/tsconfig.tsbuildinfo
+site/.astro/
+site/dist/
+site/node_modules/
