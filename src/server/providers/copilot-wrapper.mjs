@@ -22,7 +22,30 @@
  * vitest and from build/ in the packaged app.
  */
 
+import { accessSync, constants, statSync } from "node:fs";
+import path from "node:path";
+
 const out = (line) => process.stdout.write(`${JSON.stringify(line)}\n`);
+
+/** First executable named `copilot` on PATH, or undefined. The SDK's bundled
+ * runtime is deliberately not packaged (it is a 245MB platform binary — the
+ * whole reason the app ships without it), so the user's own CLI is the only
+ * default. */
+function findCopilotOnPath() {
+  for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
+    if (dir === "") continue;
+    const candidate = path.join(dir, "copilot");
+    try {
+      if (statSync(candidate).isFile()) {
+        accessSync(candidate, constants.X_OK);
+        return candidate;
+      }
+    } catch {
+      // Not this dir.
+    }
+  }
+  return undefined;
+}
 
 async function readStdin() {
   let text = "";
@@ -34,11 +57,17 @@ async function readStdin() {
 const config = JSON.parse(await readStdin());
 const { CopilotClient, RuntimeConnection, approveAll } = await import("@github/copilot-sdk");
 
+const cliPath = config.cliPath ?? findCopilotOnPath();
+if (cliPath === undefined) {
+  process.stderr.write(
+    "copilot CLI not found on PATH — install GitHub Copilot CLI or set a binary path in settings\n",
+  );
+  process.exit(1);
+}
+
 const client = new CopilotClient({
   // cwd is the phase's worktree — the adapter spawned us there.
-  ...(config.cliPath
-    ? { connection: RuntimeConnection.forStdio({ path: config.cliPath }) }
-    : {}),
+  connection: RuntimeConnection.forStdio({ path: cliPath }),
   logLevel: "error",
 });
 

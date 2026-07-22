@@ -4,14 +4,14 @@ import type { ProviderInstance, ProviderName } from "./types.ts";
 
 /**
  * The binary each adapter spawns when no binaryPath is configured — the same
- * fallbacks the adapters themselves use (claude-code.ts, kiro.ts). Copilot is
- * null: its unset default is the runtime bundled with the SDK, which is
- * always present, so only an explicit cliPath is checkable.
+ * fallbacks the adapters themselves use (claude-code.ts, kiro.ts,
+ * copilot-wrapper.mjs). Copilot's SDK-bundled runtime is no longer packaged
+ * (245MB platform binary), so the wrapper resolves `copilot` on PATH.
  */
 const DEFAULT_BINARIES: Record<ProviderName, string | null> = {
   "claude-code": "claude",
   kiro: "kiro-cli",
-  copilot: null,
+  copilot: "copilot",
 };
 
 function isExecutableFile(candidate: string): boolean {

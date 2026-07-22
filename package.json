@@ -1,7 +1,7 @@
 {
   "name": "tracker",
   "productName": "Tracker",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "description": "Tracker desktop app",
   "type": "module",
@@ -26,7 +26,9 @@
     "files": [
       "build/**/*",
       "src/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/@github/copilot-{darwin,linux,win32}-*/**",
+      "!node_modules/@github/copilot/**"
     ],
     "mac": {
       "target": [

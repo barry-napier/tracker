@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } from "electron";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
 import * as pty from "node-pty";
@@ -13,6 +14,23 @@ for (const stream of [process.stdout, process.stderr]) {
   stream.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code !== "EPIPE") throw err;
   });
+}
+
+// A Finder-launched app inherits launchd's bare PATH (/usr/bin:/bin:…), which
+// is missing homebrew and every place agent CLIs actually live — and the
+// adapters, the copilot wrapper, and availability checks all resolve binaries
+// on PATH. Capture the user's login-shell PATH once at startup. Terminal
+// launches already have it; the replace is a no-op there.
+if (process.platform !== "win32") {
+  try {
+    const loginPath = execFileSync(process.env.SHELL ?? "/bin/zsh", ["-l", "-c", "echo -n $PATH"], {
+      encoding: "utf8",
+      timeout: 5_000,
+    }).trim();
+    if (loginPath !== "") process.env.PATH = loginPath;
+  } catch {
+    // A wedged shell profile must not block app launch; PATH stays as-is.
+  }
 }
 
 // One app instance = one orchestrator = one SQLite writer.

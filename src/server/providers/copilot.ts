@@ -34,8 +34,9 @@ export interface CopilotConfig {
    */
   wrapperPath?: string;
   /**
-   * A copilot CLI runtime for the SDK to spawn; undefined = the platform
-   * binary bundled with the SDK's own `@github/copilot` dependency.
+   * A copilot CLI runtime for the SDK to spawn; undefined = the wrapper
+   * resolves `copilot` on PATH (the SDK's bundled platform binary is not
+   * packaged — it is 245MB).
    */
   cliPath?: string;
   /** Pinned model, app-wide; undefined = the SDK's default. */
