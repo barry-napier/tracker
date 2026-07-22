@@ -333,7 +333,11 @@ function detail(result: ClaudeResultLine): string {
 }
 
 /** The argv for one phase. Exported so the posture is assertable, not implied. */
-export function buildArgs(prompt: string, config: ClaudeCodeConfig): string[] {
+export function buildArgs(
+  prompt: string,
+  config: ClaudeCodeConfig,
+  resumeSessionId?: string,
+): string[] {
   const args = [
     "-p",
     prompt,
@@ -353,6 +357,10 @@ export function buildArgs(prompt: string, config: ClaudeCodeConfig): string[] {
   if (config.model !== undefined) args.push("--model", config.model);
   // Defense-in-depth only: the orchestrator's own limits are the real budget.
   if (config.maxBudgetUsd !== undefined) args.push("--max-budget-usd", String(config.maxBudgetUsd));
+  // Same live session (TRK-1): the phase-gate re-prompt continues the prior
+  // conversation — resume recalls context and reports the same session id
+  // (docs/research/claude-code-headless.md §3).
+  if (resumeSessionId !== undefined) args.push("--resume", resumeSessionId);
   return args;
 }
 
@@ -436,6 +444,8 @@ export const CLAUDE_CODE_CAPABILITIES: ProviderCapabilities = {
   // see StreamJsonMapper#fromMessage.
   streamsPartialText: true,
   emitsThinking: true,
+  // --resume <id> in -p mode: verified locally (headless research doc §3).
+  supportsResume: true,
 };
 
 export class ClaudeCodeProvider implements Provider {
@@ -488,7 +498,7 @@ export class ClaudeCodeProvider implements Provider {
       { type: "block.close", blockId: "prompt" },
     ]);
 
-    const child = spawn(config.binaryPath ?? "claude", buildArgs(prompt, config), {
+    const child = spawn(config.binaryPath ?? "claude", buildArgs(prompt, config, opts?.resumeSessionId), {
       cwd,
       env: { ...process.env, ...config.env },
       stdio: ["ignore", "pipe", "pipe"],

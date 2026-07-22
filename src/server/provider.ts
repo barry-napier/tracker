@@ -45,6 +45,14 @@ export interface RunPhaseOpts {
    * runs, on the instance's model.
    */
   model?: string;
+  /**
+   * Continue an earlier invocation's conversation instead of opening a fresh
+   * one (TRK-1: a phase-gate failure re-prompts the same live session). The
+   * id is a prior RunResult.providerSessionId. The engine only passes this
+   * to adapters declaring supportsResume; an adapter that can't honor it
+   * runs a fresh session — the prompt must then carry its context standalone.
+   */
+  resumeSessionId?: string;
 }
 
 export interface PhaseHandle {
@@ -57,6 +65,8 @@ export interface PhaseHandle {
 export interface PhaseContext {
   prompt: string;
   cwd: string;
+  /** The session this invocation resumes, when the caller asked for one. */
+  resumeSessionId?: string;
 }
 
 /**
@@ -75,6 +85,13 @@ export interface ProviderCapabilities {
   streamsPartialText: boolean;
   /** Surfaces the model's reasoning as `thinking` blocks. */
   emitsThinking: boolean;
+  /**
+   * Honors RunPhaseOpts.resumeSessionId: a re-prompt continues the prior
+   * session's conversation rather than starting cold. Declared, not
+   * discovered — the engine's phase-gate retry (TRK-1) reads this to decide
+   * whether findings ride a resume or a standalone re-brief.
+   */
+  supportsResume: boolean;
 }
 
 /**

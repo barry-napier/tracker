@@ -68,21 +68,38 @@ describe("dogfood-green gate (ticket 37)", () => {
     expect(texts[1]).toContain("Dogfood scenario S2 reaches pass, fixed, or waived (was pending)");
   }, 30_000);
 
-  test("schema-invalid or scenario-empty results fail artifact-lint (AC2)", async () => {
+  test("schema-invalid or scenario-empty results fail artifact-lint (AC2) — now at the phase boundary", async () => {
     const github = new FakeGitHub();
-    const { provider } = greenExceptDogfood(github, (ctx) =>
-      writeResults(ctx.cwd, { ...BASE, scenarios: [] }),
-    );
+    // Attempt 1 writes an empty scenario list; the in-phase lint (TRK-1)
+    // rejects the exit and re-prompts the same session, whose second attempt
+    // leaves the default green results. The format defect never costs a
+    // bounce cycle — the battery sees only the fixed file.
+    const { calls, provider } = greenExceptDogfood(github, (ctx) => {
+      if (ctx.attempt === 1) writeResults(ctx.cwd, { ...BASE, scenarios: [] });
+    });
     const { server, ticket } = await bootWorkspace(provider, {
       github,
       repo: { testCommand: "true" },
     });
 
-    await waitForAudit(server, ticket.id, "gates.failed", 30_000);
+    const arrived = await waitForTicketState(server, ticket.id, "human_review", 30_000);
+    expect(arrived.bounceCount).toBe(0);
     const run = (await api(server, "GET", `/api/tickets/${ticket.id}/runs`)).json.at(-1);
-    const lint = run.gateResults.find((r: any) => r.gate === "artifact-lint");
-    expect(lint.status).toBe("fail");
-    expect(lint.detail.problems).toContain("results need at least one scenario");
+    const phaseLints = run.gateResults.filter(
+      (r: any) => r.gate === "phase-gate:artifact-lint" && r.detail.phase === "dogfood",
+    );
+    expect(phaseLints[0]).toMatchObject({ status: "fail" });
+    expect(phaseLints[0].detail.problems).toContain("results need at least one scenario");
+    expect(phaseLints.at(-1)).toMatchObject({ status: "pass" });
+
+    // The re-prompt resumed the dogfood phase's own live session.
+    const dogfoodCalls = calls.filter((call) => call.phase === "dogfood");
+    expect(dogfoodCalls).toHaveLength(2);
+    expect(dogfoodCalls[1]!.resumeSessionId).toBe("sess-dogfood-1");
+    expect(dogfoodCalls[1]!.prompt).toContain("results need at least one scenario");
+
+    // The battery's own artifact-lint judged the fixed file, unchanged.
+    expect(run.gateResults.find((r: any) => r.gate === "artifact-lint").status).toBe("pass");
   }, 30_000);
 
   test("open Decisions for a human never bounce, and an answer lands in the Audit Trail (AC3)", async () => {

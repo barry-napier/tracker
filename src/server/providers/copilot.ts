@@ -277,6 +277,9 @@ export const COPILOT_CAPABILITIES: ProviderCapabilities = {
   costReporting: false,
   streamsPartialText: true,
   emitsThinking: true,
+  // `--resume` with `-p` is undocumented (research doc: verify per version).
+  // Honest no: the engine re-briefs a fresh session instead.
+  supportsResume: false,
 };
 
 /** How long SIGTERM gets before SIGKILL finishes the job. */

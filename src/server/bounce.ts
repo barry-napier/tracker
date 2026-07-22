@@ -3,6 +3,7 @@ import path from "node:path";
 import type { ArtifactStore } from "./artifacts.ts";
 import { failureLabel, type BatteryContext } from "./gates.ts";
 import type { Store } from "./store.ts";
+import { PHASE_GATE_PREFIX } from "./types.ts";
 import type {
   Artifact,
   FollowUpSeed,
@@ -36,9 +37,12 @@ export class Bouncer {
   ) {}
 
   async bounce(ctx: BatteryContext): Promise<void> {
+    // Battery rows only: in-phase gate rows (TRK-1) are the engine's retry
+    // history — a failure the phase then fixed must not resurrect here as a
+    // follow-up AC when the battery later fails for an unrelated reason.
     const failures = this.store
       .listGateResults(ctx.run.id)
-      .filter((result) => result.status === "fail");
+      .filter((result) => result.status === "fail" && !result.gate.startsWith(PHASE_GATE_PREFIX));
     const treeState = await readTreeState(ctx.worktreePath, ctx.repo.targetBranch);
     const followUps = failures
       .filter((result) => result.acId === null)

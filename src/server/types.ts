@@ -410,6 +410,8 @@ export interface DraftViolation {
  * - silence: no output for the silence window; the orchestrator killed it
  * - timeout: the per-phase wall clock expired; the orchestrator SIGTERMed it
  * - orphan: the app died over it; the startup sweep reaped it
+ * - gate-exhausted: the phase's exits kept failing its in-phase gate subset
+ *   past the retry cap (TRK-1) — the findings never got fixed
  */
 export type DeathMode =
   | "crash"
@@ -418,7 +420,8 @@ export type DeathMode =
   | "contract-breach"
   | "silence"
   | "timeout"
-  | "orphan";
+  | "orphan"
+  | "gate-exhausted";
 
 /** "failed" is legacy: rows predating ticket 41, when the engine judged work
  * wrong itself. Nothing writes it now — deaths crash, the battery bounces. */
@@ -466,6 +469,14 @@ export interface Artifact {
  * from pass. AC checks carry the criterion they verify in acId.
  */
 export type GateStatus = "pass" | "fail" | "skip";
+
+/**
+ * Gate rows the engine records at phase boundaries (TRK-1) wear this prefix
+ * (`phase-gate:suite`), keeping them distinct from the Verifying battery's:
+ * the bounce machinery and the wizard's badge chrome read battery rows only —
+ * an in-phase failure the agent then fixed is history, not a defect.
+ */
+export const PHASE_GATE_PREFIX = "phase-gate:";
 
 export interface GateResult {
   id: number;
