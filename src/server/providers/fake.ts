@@ -80,12 +80,16 @@ export class FakeProvider implements Provider {
 
   constructor(private readonly script: FakeScript) {}
 
+  /** The opts of the most recent runPhase call, for seam assertions. */
+  lastOpts: RunPhaseOpts | undefined;
+
   /** Always healthy: probe failures are a real adapter's story to test. */
   probe(): Promise<ProbeResult> {
     return Promise.resolve({ ok: true, account: "fake" });
   }
 
   runPhase(prompt: string, cwd: string, opts?: RunPhaseOpts): PhaseHandle {
+    this.lastOpts = opts;
     const generator = this.script({ prompt, cwd });
     const queue: AgentEvent[] = [];
     let notify: (() => void) | undefined;

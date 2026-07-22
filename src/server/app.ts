@@ -336,7 +336,7 @@ export function createApp(
   // shape check as PUT guards the save, so a hallucinated graph is a 502
   // and the draft stays as it was.
   app.post("/api/workflows/:id/draft/chat", async (c) => {
-    const body = await c.req.json<{ message?: string; provider?: string }>();
+    const body = await c.req.json<{ message?: string; provider?: string; model?: string }>();
     if (!isNonEmptyString(body.message)) {
       return c.json({ error: "message is required" }, 400);
     }
@@ -354,7 +354,14 @@ export function createApp(
     // first touch that cuts the draft, same as the editor's PUT).
     const head = store.getWorkflowHeadGraph(id);
     const graph = head.hasDraft ? store.getWorkflowDraft(id).graph : head.graph;
-    const outcome = await runWorkflowChat(provider, graph, body.message, dataDir);
+    const outcome = await runWorkflowChat(
+      provider,
+      graph,
+      body.message,
+      dataDir,
+      undefined,
+      isNonEmptyString(body.model) ? body.model : undefined,
+    );
     if (!outcome.ok) return c.json({ error: outcome.error }, 502);
     // Chat edits get manual-edit parity: a shape-valid graph saves even when
     // the publish validator objects — scaffolding an incomplete draft is the

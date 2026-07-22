@@ -39,6 +39,12 @@ export interface RunResult {
 export interface RunPhaseOpts {
   /** Uniform cancellation: adapters SIGTERM their child on abort. */
   signal?: AbortSignal;
+  /**
+   * Per-call override of the instance's pinned model (the builder chat's
+   * model chip). Adapters that can't honor it ignore it — the phase still
+   * runs, on the instance's model.
+   */
+  model?: string;
 }
 
 export interface PhaseHandle {

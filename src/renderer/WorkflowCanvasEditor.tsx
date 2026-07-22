@@ -34,7 +34,7 @@ import { ApiError, apiDelete, apiGet, apiPatch, apiPost, apiPut, errorMessage } 
 import { AVATAR_COLORS, avatarColor } from "./Home.tsx";
 import { Icon, isIconName, type IconName } from "./icons.tsx";
 import { ProviderPicker } from "./ProviderPicker.tsx";
-import { useProviderInstances } from "./providers.ts";
+import { MODEL_CHOICES, useProviderInstances } from "./providers.ts";
 import {
   addBranch,
   addEdge,
@@ -152,6 +152,10 @@ export function WorkflowCanvasEditor({
   // everywhere else); null until the provider list arrives, then the first
   // usable instance. View-local — picking is per-session, not persisted.
   const [chatProvider, setChatProvider] = useState<string | null>(null);
+  // Ad-hoc model for the chat only (RunPhaseOpts.model); null = the
+  // instance's pinned model. Cleared when the provider changes — a model
+  // alias only means something to the driver it was picked for.
+  const [chatModel, setChatModel] = useState<string | null>(null);
   const providerInstances = useProviderInstances();
   useEffect(() => {
     if (chatProvider !== null || providerInstances === null) return;
@@ -159,6 +163,8 @@ export function WorkflowCanvasEditor({
       ?? providerInstances.find((i) => i.enabled);
     if (usable) setChatProvider(usable.id);
   }, [chatProvider, providerInstances]);
+  const chatDriver =
+    providerInstances?.find((i) => i.id === chatProvider)?.driver ?? null;
   // A failed ask lands here (banner above the input), not in the transcript;
   // the failed message rides along so Retry can resend it.
   const [chatError, setChatError] = useState<{ message: string; failed: string } | null>(null);
@@ -339,6 +345,7 @@ export function WorkflowCanvasEditor({
       }>(`/api/workflows/${workflow.id}/draft/chat`, {
         message,
         ...(chatProvider !== null && { provider: chatProvider }),
+        ...(chatModel !== null && { model: chatModel }),
       });
       // The server already saved the draft — mirror it, don't re-PUT. A
       // scaffolded edit may come back with publish violations; paint them
@@ -580,7 +587,13 @@ export function WorkflowCanvasEditor({
               busy={chatBusy}
               error={chatError}
               provider={chatProvider}
-              onPickProvider={setChatProvider}
+              onPickProvider={(id) => {
+                setChatProvider(id);
+                setChatModel(null);
+              }}
+              model={chatModel}
+              modelChoices={chatDriver === null ? [] : MODEL_CHOICES[chatDriver]}
+              onPickModel={setChatModel}
               onSend={(m) => void sendChat(m)}
               onRetry={() => {
                 if (chatError === null) return;
@@ -994,6 +1007,9 @@ function ChatPanel({
   error,
   provider,
   onPickProvider,
+  model,
+  modelChoices,
+  onPickModel,
   onSend,
   onRetry,
   onClear,
@@ -1002,9 +1018,13 @@ function ChatPanel({
   log: { role: "user" | "assistant"; text: string }[];
   busy: boolean;
   error: { message: string; failed: string } | null;
-  /** ProviderInstance id the chat runs on; the instance carries the model. */
+  /** ProviderInstance id the chat runs on. */
   provider: string | null;
   onPickProvider: (id: string) => void;
+  /** Ad-hoc model override; null = the instance's pinned model. */
+  model: string | null;
+  modelChoices: Array<{ value: string; label: string }>;
+  onPickModel: (model: string | null) => void;
   onSend: (message: string) => void;
   onRetry: () => void;
   onClear: () => void;
@@ -1012,6 +1032,7 @@ function ChatPanel({
 }) {
   const [draft, setDraft] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1154,9 +1175,41 @@ function ChatPanel({
           }}
         />
         <div className="wfc-chat-inputactions">
-          {/* Which agent applies the edit; its instance pins the model. */}
+          {/* Which agent applies the edit, and on which model. */}
           <span className="wfc-chat-provider">
             <ProviderPicker value={provider ?? ""} onChange={onPickProvider} />
+            {modelChoices.length > 0 && (
+              <span className="wfc-chat-model-anchor">
+                <button
+                  type="button"
+                  className="wfc-chat-model"
+                  title="Model for this chat — Default follows the provider instance"
+                  onClick={() => setModelOpen((open) => !open)}
+                >
+                  {modelChoices.find((c) => c.value === model)?.label ?? "Default"}
+                  <Icon name="chevron-down" size={11} />
+                </button>
+                {modelOpen && (
+                  <div className="wfc-chat-model-menu" onPointerLeave={() => setModelOpen(false)}>
+                    {[{ value: null as string | null, label: "Default" }, ...modelChoices].map(
+                      (choice) => (
+                        <button
+                          key={choice.value ?? "default"}
+                          type="button"
+                          onClick={() => {
+                            setModelOpen(false);
+                            onPickModel(choice.value);
+                          }}
+                        >
+                          {choice.label}
+                          {choice.value === model && <Icon name="check" size={13} />}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                )}
+              </span>
+            )}
           </span>
           <input
             ref={fileRef}

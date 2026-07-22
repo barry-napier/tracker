@@ -158,6 +158,25 @@ describe("workflow draft chat", () => {
     expect(response.json.violations).toEqual([]);
   });
 
+  test("a model override rides RunPhaseOpts; absent means the instance default", async () => {
+    const probe = await bootServer();
+    const head = (await api(probe, "GET", "/api/workflows/1/head")).json;
+    await runCleanups();
+
+    const answer = `\`\`\`json\n${JSON.stringify({ reply: "ok", graph: head.graph })}\n\`\`\``;
+    const provider = chattyProvider(answer);
+    const server = await bootServer(undefined, { providers: { "claude-code": provider } });
+
+    await api(server, "POST", "/api/workflows/1/draft/chat", {
+      message: "no-op",
+      model: "haiku",
+    });
+    expect(provider.lastOpts?.model).toBe("haiku");
+
+    await api(server, "POST", "/api/workflows/1/draft/chat", { message: "no-op" });
+    expect(provider.lastOpts?.model).toBeUndefined();
+  });
+
   test("no registered provider is a 503; a blank message a 400", async () => {
     const server = await bootServer();
     expect(

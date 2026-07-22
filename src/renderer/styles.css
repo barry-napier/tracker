@@ -4045,7 +4045,63 @@ button.wfc-pill.label { cursor: pointer; }
 }
 /* The provider chip sits left in the composer row; the compact trigger
    variant keeps the row at icon height. */
-.wfc-chat-provider { margin-right: auto; min-width: 0; }
+.wfc-chat-provider {
+  margin-right: auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* The model chip: an ad-hoc override next to the provider; "Default"
+   follows the instance's pinned model. Menu opens upward — the composer
+   sits at the panel's bottom edge. */
+.wfc-chat-model-anchor { position: relative; }
+.wfc-chat-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  font: inherit;
+  font-size: var(--fs-xs);
+  padding: 2px 6px;
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-raised);
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wfc-chat-model:hover { background: var(--surface-raised-hover); color: var(--text-base); }
+.wfc-chat-model-menu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  z-index: 20;
+  min-width: 120px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.25rem;
+  background: var(--surface-raised);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-floating);
+}
+.wfc-chat-model-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-xs);
+  color: var(--text-base);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+}
+.wfc-chat-model-menu button:hover { background: var(--overlay-hover); }
 .wfc-chat-provider .pp-trigger {
   font-size: var(--fs-xs);
   padding: 2px 6px;

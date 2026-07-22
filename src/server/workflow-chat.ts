@@ -115,12 +115,15 @@ export async function runWorkflowChat(
   message: string,
   cwd: string,
   timeoutMs = 180_000,
+  model?: string,
 ): Promise<ChatOutcome | ChatFailure> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const handle = provider.runPhase(buildChatPrompt(graph, message), cwd, {
       signal: controller.signal,
+      // The composer's model chip; undefined = the instance's pinned model.
+      model,
     });
     const [text, result] = await Promise.all([collectText(handle.events), handle.done]);
     if (result.outcome !== "completed") {

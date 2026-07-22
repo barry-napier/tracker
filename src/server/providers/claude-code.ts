@@ -453,7 +453,11 @@ export class ClaudeCodeProvider implements Provider {
   }
 
   runPhase(prompt: string, cwd: string, opts?: RunPhaseOpts): PhaseHandle {
-    const config = this.config();
+    // A per-call model override (RunPhaseOpts.model) wins over the pinned
+    // one for this phase only — the instance config itself is untouched.
+    const resolved = this.config();
+    const config =
+      opts?.model === undefined ? resolved : { ...resolved, model: opts.model };
     const mapper = new StreamJsonMapper();
     const queue: AgentEvent[] = [];
     let notify: (() => void) | undefined;
