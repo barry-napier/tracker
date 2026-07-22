@@ -33,8 +33,8 @@ import { WORKFLOW_STEP_TYPES } from "../server/types.ts";
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost, apiPut, errorMessage } from "./api.ts";
 import { AVATAR_COLORS, avatarColor } from "./Home.tsx";
 import { Icon, isIconName, type IconName } from "./icons.tsx";
-import { ProviderPicker } from "./ProviderPicker.tsx";
-import { MODEL_CHOICES, useProviderInstances } from "./providers.ts";
+import { ModelPicker } from "./ModelPicker.tsx";
+import { useProviderInstances } from "./providers.ts";
 import {
   addBranch,
   addEdge,
@@ -163,8 +163,6 @@ export function WorkflowCanvasEditor({
       ?? providerInstances.find((i) => i.enabled);
     if (usable) setChatProvider(usable.id);
   }, [chatProvider, providerInstances]);
-  const chatDriver =
-    providerInstances?.find((i) => i.id === chatProvider)?.driver ?? null;
   // A failed ask lands here (banner above the input), not in the transcript;
   // the failed message rides along so Retry can resend it.
   const [chatError, setChatError] = useState<{ message: string; failed: string } | null>(null);
@@ -587,13 +585,11 @@ export function WorkflowCanvasEditor({
               busy={chatBusy}
               error={chatError}
               provider={chatProvider}
-              onPickProvider={(id) => {
-                setChatProvider(id);
-                setChatModel(null);
-              }}
               model={chatModel}
-              modelChoices={chatDriver === null ? [] : MODEL_CHOICES[chatDriver]}
-              onPickModel={setChatModel}
+              onPickAgent={(id, m) => {
+                setChatProvider(id);
+                setChatModel(m);
+              }}
               onSend={(m) => void sendChat(m)}
               onRetry={() => {
                 if (chatError === null) return;
@@ -1006,10 +1002,8 @@ function ChatPanel({
   busy,
   error,
   provider,
-  onPickProvider,
   model,
-  modelChoices,
-  onPickModel,
+  onPickAgent,
   onSend,
   onRetry,
   onClear,
@@ -1020,11 +1014,9 @@ function ChatPanel({
   error: { message: string; failed: string } | null;
   /** ProviderInstance id the chat runs on. */
   provider: string | null;
-  onPickProvider: (id: string) => void;
   /** Ad-hoc model override; null = the instance's pinned model. */
   model: string | null;
-  modelChoices: Array<{ value: string; label: string }>;
-  onPickModel: (model: string | null) => void;
+  onPickAgent: (provider: string, model: string | null) => void;
   onSend: (message: string) => void;
   onRetry: () => void;
   onClear: () => void;
@@ -1032,7 +1024,6 @@ function ChatPanel({
 }) {
   const [draft, setDraft] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [modelOpen, setModelOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -1177,39 +1168,7 @@ function ChatPanel({
         <div className="wfc-chat-inputactions">
           {/* Which agent applies the edit, and on which model. */}
           <span className="wfc-chat-provider">
-            <ProviderPicker value={provider ?? ""} onChange={onPickProvider} />
-            {modelChoices.length > 0 && (
-              <span className="wfc-chat-model-anchor">
-                <button
-                  type="button"
-                  className="wfc-chat-model"
-                  title="Model for this chat — Default follows the provider instance"
-                  onClick={() => setModelOpen((open) => !open)}
-                >
-                  {modelChoices.find((c) => c.value === model)?.label ?? "Default"}
-                  <Icon name="chevron-down" size={11} />
-                </button>
-                {modelOpen && (
-                  <div className="wfc-chat-model-menu" onPointerLeave={() => setModelOpen(false)}>
-                    {[{ value: null as string | null, label: "Default" }, ...modelChoices].map(
-                      (choice) => (
-                        <button
-                          key={choice.value ?? "default"}
-                          type="button"
-                          onClick={() => {
-                            setModelOpen(false);
-                            onPickModel(choice.value);
-                          }}
-                        >
-                          {choice.label}
-                          {choice.value === model && <Icon name="check" size={13} />}
-                        </button>
-                      ),
-                    )}
-                  </div>
-                )}
-              </span>
-            )}
+            <ModelPicker provider={provider} model={model} onPick={onPickAgent} />
           </span>
           <input
             ref={fileRef}

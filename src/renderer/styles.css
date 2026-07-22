@@ -4052,56 +4052,133 @@ button.wfc-pill.label { cursor: pointer; }
   align-items: center;
   gap: 4px;
 }
-/* The model chip: an ad-hoc override next to the provider; "Default"
-   follows the instance's pinned model. Menu opens upward — the composer
-   sits at the panel's bottom edge. */
-.wfc-chat-model-anchor { position: relative; }
-.wfc-chat-model {
+/* The agent+model picker (ModelPicker): a chip opening a two-pane panel —
+   provider rail left, searchable model rows right (the Codex layout). Opens
+   upward: the composer sits at the panel's bottom edge. */
+.mp { position: relative; }
+.mp-trigger {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   border: none;
   font: inherit;
   font-size: var(--fs-xs);
-  padding: 2px 6px;
-  border-radius: var(--radius-md);
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 999px;
   background: var(--surface-raised);
   box-shadow: var(--shadow-raised);
-  color: var(--text-muted);
+  color: var(--text-base);
   cursor: pointer;
   white-space: nowrap;
+  max-width: 200px;
 }
-.wfc-chat-model:hover { background: var(--surface-raised-hover); color: var(--text-base); }
-.wfc-chat-model-menu {
+.mp-trigger:hover { background: var(--surface-raised-hover); }
+.mp-trigger span { overflow: hidden; text-overflow: ellipsis; }
+.mp-panel {
   position: absolute;
-  bottom: calc(100% + 4px);
+  bottom: calc(100% + 8px);
   left: 0;
-  z-index: 20;
-  min-width: 120px;
+  z-index: 30;
+  display: flex;
+  width: 320px;
+  max-height: 340px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-floating);
+  overflow: hidden;
+}
+.mp-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 8px;
+  border-right: 1px solid var(--border-strong);
+}
+.mp-rail-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  cursor: pointer;
+  position: relative;
+}
+.mp-rail-item:hover { background: var(--overlay-hover); }
+.mp-rail-item.active { background: var(--overlay-hover); }
+/* The reference UI's accent bar marking the browsed provider. */
+.mp-rail-item.active::after {
+  content: "";
+  position: absolute;
+  right: -8px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--border-focus);
+}
+.mp-rail-item:disabled { opacity: 0.4; cursor: default; }
+.mp-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.mp-search {
+  margin: 10px 12px 8px;
+  padding: 6px 10px;
+  border: none;
+  border-bottom: 1px solid var(--border-focus);
+  border-radius: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-base);
+}
+.mp-search:focus { outline: none; }
+.mp-rows {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px 8px;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 0.25rem;
-  background: var(--surface-raised);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-floating);
 }
-.wfc-chat-model-menu button {
+.mp-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
   border: none;
   background: none;
   font: inherit;
-  font-size: var(--fs-xs);
   color: var(--text-base);
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   text-align: left;
 }
-.wfc-chat-model-menu button:hover { background: var(--overlay-hover); }
+.mp-row:hover { background: var(--overlay-hover); }
+.mp-row-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mp-row-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.mp-check { color: var(--info-fg); display: inline-flex; }
+.mp-row-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mp-empty { padding: 10px; font-size: var(--fs-sm); }
 .wfc-chat-provider .pp-trigger {
   font-size: var(--fs-xs);
   padding: 2px 6px;

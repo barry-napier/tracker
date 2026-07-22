@@ -81,18 +81,27 @@ export function useProviderInstances(): ProviderInstanceStatus[] | null {
 
 /**
  * Per-driver model choices for surfaces offering an ad-hoc override (the
- * builder chat's model chip). Claude Code's CLI takes stable aliases; the
- * other drivers only reveal models via a live probe, so they offer none and
- * run on the instance's pinned model. value rides RunPhaseOpts.model.
+ * builder chat's model picker). Versioned ids, not vague aliases — the id is
+ * what rides RunPhaseOpts.model and what the CLI actually pins. Drivers
+ * whose models are only probe-discoverable offer none and run on the
+ * instance's pinned model.
  */
 export const MODEL_CHOICES: Record<ProviderName, Array<{ value: string; label: string }>> = {
   "claude-code": [
-    { value: "opus", label: "Opus" },
-    { value: "sonnet", label: "Sonnet" },
-    { value: "haiku", label: "Haiku" },
+    { value: "claude-fable-5", label: "Fable 5" },
+    { value: "claude-opus-4-8", label: "Opus 4.8" },
+    { value: "claude-sonnet-5", label: "Sonnet 5" },
+    { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
   ],
   kiro: [],
   copilot: [],
+};
+
+/** Display name per driver, for the picker's provider sublabels. */
+export const DRIVER_LABELS: Record<ProviderName, string> = {
+  "claude-code": "Claude Code",
+  kiro: "Kiro",
+  copilot: "Copilot",
 };
 
 /** Label for a stored provider reference; falls back to the raw id. */
