@@ -280,7 +280,7 @@ describe("naive markdown", () => {
         kind: "paragraph",
         inlines: [
           { kind: "text", text: "Some " },
-          { kind: "strong", text: "bold" },
+          { kind: "strong", inlines: [{ kind: "text", text: "bold" }] },
           { kind: "text", text: " and " },
           { kind: "code", text: "code" },
           { kind: "text", text: " text." },
@@ -302,7 +302,7 @@ describe("naive markdown", () => {
         header: [[{ kind: "text", text: "Journey" }], [{ kind: "text", text: "Status" }]],
         rows: [
           [[{ kind: "text", text: "Login" }], [{ kind: "text", text: "pass" }]],
-          [[{ kind: "text", text: "Logout" }], [{ kind: "em", text: "fail" }]],
+          [[{ kind: "text", text: "Logout" }], [{ kind: "em", inlines: [{ kind: "text", text: "fail" }] }]],
         ],
       },
     ]);
@@ -317,6 +317,24 @@ describe("naive markdown", () => {
           { kind: "text", text: "See " },
           { kind: "link", text: "the PR", href: "https://github.test/pr/1" },
           { kind: "text", text: " for details." },
+        ],
+      },
+    ]);
+  });
+
+  test("code spans nest inside strong — ticket descriptions bold their file paths", () => {
+    expect(parseMarkdown("**Tokens in `app/globals.css`** — replace the scaffold.")).toEqual([
+      {
+        kind: "paragraph",
+        inlines: [
+          {
+            kind: "strong",
+            inlines: [
+              { kind: "text", text: "Tokens in " },
+              { kind: "code", text: "app/globals.css" },
+            ],
+          },
+          { kind: "text", text: " — replace the scaffold." },
         ],
       },
     ]);

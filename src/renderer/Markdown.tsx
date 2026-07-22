@@ -16,9 +16,9 @@ function renderInlines(inlines: Inline[]): ReactNode[] {
       case "code":
         return <code key={i}>{inline.text}</code>;
       case "strong":
-        return <strong key={i}>{inline.text}</strong>;
+        return <strong key={i}>{renderInlines(inline.inlines)}</strong>;
       case "em":
-        return <em key={i}>{inline.text}</em>;
+        return <em key={i}>{renderInlines(inline.inlines)}</em>;
       case "link":
         return (
           <a key={i} href={inline.href} target="_blank" rel="noreferrer">

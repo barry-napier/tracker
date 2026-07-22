@@ -12,6 +12,7 @@ import { apiPatch, apiPost, errorMessage } from "./api.ts";
 import { waiveWithPrompt } from "./acActions.ts";
 import { GATE_MARKS, PROVIDER_LABELS, repoName, timeAgo } from "./format.ts";
 import { Icon } from "./icons.tsx";
+import { Markdown } from "./Markdown.tsx";
 import { useAuth } from "./auth.ts";
 import { STATE_LABELS } from "./ticketStates.ts";
 
@@ -350,7 +351,7 @@ export function TicketDetail({
                 </div>
               </div>
             ) : ticket.description ? (
-              <p className="description">{ticket.description}</p>
+              <Markdown text={ticket.description} />
             ) : (
               <p className="dim">No description.</p>
             )}

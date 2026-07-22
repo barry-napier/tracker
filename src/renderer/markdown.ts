@@ -8,8 +8,8 @@
 export type Inline =
   | { kind: "text"; text: string }
   | { kind: "code"; text: string }
-  | { kind: "strong"; text: string }
-  | { kind: "em"; text: string }
+  | { kind: "strong"; inlines: Inline[] }
+  | { kind: "em"; inlines: Inline[] }
   | { kind: "link"; text: string; href: string };
 
 export type Block =
@@ -28,9 +28,11 @@ export function parseInlines(text: string): Inline[] {
   for (const match of text.matchAll(INLINE_TOKEN)) {
     if (match.index > last) inlines.push({ kind: "text", text: text.slice(last, match.index) });
     const [, code, strong, em, linkText, href] = match;
+    // Strong/em recurse so code spans render inside them ("**Tokens in
+    // `globals.css`**"); their content can't contain `*`, so this terminates.
     if (code !== undefined) inlines.push({ kind: "code", text: code });
-    else if (strong !== undefined) inlines.push({ kind: "strong", text: strong });
-    else if (em !== undefined) inlines.push({ kind: "em", text: em });
+    else if (strong !== undefined) inlines.push({ kind: "strong", inlines: parseInlines(strong) });
+    else if (em !== undefined) inlines.push({ kind: "em", inlines: parseInlines(em) });
     else inlines.push({ kind: "link", text: linkText!, href: href! });
     last = match.index + match[0].length;
   }
