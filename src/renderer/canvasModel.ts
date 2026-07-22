@@ -87,14 +87,18 @@ export function deleteEdge(graph: DraftGraph, index: number): DraftGraph {
   return { ...graph, edges: graph.edges.filter((_, i) => i !== index) };
 }
 
-/** Set an edge's condition label; blank/whitespace clears it to unlabeled. */
+/**
+ * Set an edge's condition label; blank/whitespace clears it to unlabeled.
+ * An unchanged label returns the same reference — the label editor commits
+ * on blur, and a no-op blur must not cut a draft.
+ */
 export function relabelEdge(graph: DraftGraph, index: number, label: string): DraftGraph {
   const trimmed = label.trim();
+  const next = trimmed === "" ? null : trimmed;
+  if (graph.edges[index]?.conditionLabel === next) return graph;
   return {
     ...graph,
-    edges: graph.edges.map((e, i) =>
-      i === index ? { ...e, conditionLabel: trimmed === "" ? null : trimmed } : e,
-    ),
+    edges: graph.edges.map((e, i) => (i === index ? { ...e, conditionLabel: next } : e)),
   };
 }
 

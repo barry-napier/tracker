@@ -109,6 +109,14 @@ describe("edge editing", () => {
     const cleared = relabelEdge(graph(), 1, "  ");
     expect(cleared.edges[1]).toEqual(edge("a", "b"));
   });
+
+  test("relabelEdge with an unchanged label is a no-op (same reference)", () => {
+    const g = graph();
+    expect(relabelEdge(g, 1, "code")).toBe(g);
+    expect(relabelEdge(g, 1, "  code  ")).toBe(g); // trims before comparing
+    expect(relabelEdge(g, 0, "")).toBe(g); // unlabeled stays unlabeled
+    expect(relabelEdge(g, 1, "docs")).not.toBe(g);
+  });
 });
 
 describe("updateNode", () => {

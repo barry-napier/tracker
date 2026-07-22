@@ -81,6 +81,10 @@ type StageNode = FlowNode<StageNodeData, "stage">;
 type StageEdgeData = {
   label: string | null;
   messages: string[];
+  // Unlabeled on a branching node: the pill renders as an "Add condition"
+  // prompt so the ambiguity is visible before Test/publish flags it.
+  needsLabel: boolean;
+  onSelect: () => void;
   onRelabel: (label: string) => void;
   onDelete: () => void;
 };
@@ -388,6 +392,13 @@ export function WorkflowCanvasEditor({
     data: {
       label: edge.conditionLabel,
       messages: edgeViolations.get(index) ?? [],
+      needsLabel:
+        edge.conditionLabel === null &&
+        graph.edges.filter((e) => e.from === edge.from).length >= 2,
+      onSelect: () => {
+        setSel({ kind: "edge", index });
+        setPendingChild(null);
+      },
       onRelabel: (label: string) => apply(relabelEdge(graph, index, label)),
       onDelete: () => {
         apply(deleteEdge(graph, index));
@@ -408,7 +419,15 @@ export function WorkflowCanvasEditor({
   };
 
   const onConnect = (connection: Connection) => {
-    apply(addEdge(graph, connection.source, connection.target));
+    const next = addEdge(graph, connection.source, connection.target);
+    if (next === graph) return; // refused: self-edge, duplicate, into trigger
+    apply(next);
+    // The connect created a fan-out: branches need condition labels, so the
+    // fresh edge opens straight into its label editor (Lindy asks at the
+    // fork, not at publish).
+    if (next.edges.filter((e) => e.from === connection.source).length >= 2) {
+      setSel({ kind: "edge", index: next.edges.length - 1 });
+    }
   };
 
   return (
@@ -769,6 +788,16 @@ function StageEdgeView({
   const [path] = getStraightPath({ sourceX, sourceY, targetX, targetY });
   const label = data?.label ?? null;
   const messages = data?.messages ?? [];
+  const needsLabel = data?.needsLabel ?? false;
+  // Pills anchor a fixed drop below the source port (not the edge midpoint),
+  // so sibling branch pills line up even when their targets sit at different
+  // heights; x follows the edge's slope at that y. Short edges fall back to
+  // the midpoint so the pill never overshoots the target.
+  const PILL_DROP = 34;
+  const t =
+    targetY - sourceY > PILL_DROP * 2 ? PILL_DROP / (targetY - sourceY) : 0.5;
+  const pillX = sourceX + (targetX - sourceX) * t;
+  const pillY = sourceY + (targetY - sourceY) * t;
   return (
     <>
       <BaseEdge
@@ -776,13 +805,13 @@ function StageEdgeView({
         path={path}
         className={`wfc-edge-path${selected ? " selected" : ""}${messages.length > 0 ? " violation" : ""}`}
       />
-      {(selected || label !== null || messages.length > 0) && (
+      {(selected || label !== null || needsLabel || messages.length > 0) && (
         <EdgeLabelRenderer>
           <div
             className="wfc-edge-label"
             style={{
               position: "absolute",
-              transform: `translate(-50%, -50%) translate(${(sourceX + targetX) / 2}px, ${(sourceY + targetY) / 2}px)`,
+              transform: `translate(-50%, -50%) translate(${pillX}px, ${pillY}px)`,
               pointerEvents: "all",
             }}
           >
@@ -792,8 +821,22 @@ function StageEdgeView({
                 onRelabel={(l) => data?.onRelabel(l)}
                 onDelete={() => data?.onDelete()}
               />
+            ) : label !== null ? (
+              // The branch pill is a first-class control: click to edit.
+              <button type="button" className="wfc-edge-pill" onClick={() => data?.onSelect()}>
+                {label}
+              </button>
             ) : (
-              label !== null && <span className="wfc-pill label">{label}</span>
+              needsLabel && (
+                <button
+                  type="button"
+                  className="wfc-edge-pill needs"
+                  title="Branches walk their condition labels — unlabeled edges here won't publish"
+                  onClick={() => data?.onSelect()}
+                >
+                  Add condition
+                </button>
+              )
             )}
             {messages.map((message, i) => (
               <span key={i} className="wfc-edge-violation">

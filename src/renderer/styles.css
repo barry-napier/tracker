@@ -3694,6 +3694,27 @@ button.wfc-pill.label { cursor: pointer; }
   border-radius: var(--radius-sm);
 }
 .wfc-edge-tools button:hover { background: var(--overlay-hover); color: var(--danger-fg); }
+/* Branch pills (Lindy-style): chunky named controls sitting on the edge —
+   click to edit. The "needs" variant marks an unlabeled edge on a fork. */
+.wfc-edge-pill {
+  border: none;
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-raised);
+  color: var(--text-base);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wfc-edge-pill:hover { background: var(--surface-raised-hover); }
+.wfc-edge-pill.needs {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  box-shadow: inset 0 0 0 1px var(--warn-border);
+}
 .wfc-edge-violation {
   font-size: var(--fs-xs);
   color: var(--danger-fg);
