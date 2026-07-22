@@ -6,6 +6,15 @@ import { appProviders } from "./server/providers/registry.ts";
 import { startServer, type TrackerServer } from "./server/index.ts";
 import { initUpdater } from "./updates/updater.ts";
 
+// A packaged app's stdout/stderr can be a dead pipe (parent process gone),
+// making any console.* write throw EPIPE in the main process. Swallow those —
+// losing a log line beats an uncaught-exception dialog.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code !== "EPIPE") throw err;
+  });
+}
+
 // One app instance = one orchestrator = one SQLite writer.
 if (!app.requestSingleInstanceLock()) {
   app.quit();

@@ -46,6 +46,11 @@ export function initUpdater(win: BrowserWindow, options: UpdaterOptions): void {
     return;
   }
 
+  // Default logger is `console`; in a packaged app with a dead stdout pipe
+  // those writes throw EPIPE and crash the main process (seen from
+  // MacUpdater.doCheckForUpdates → console.info). State flows via IPC anyway.
+  autoUpdater.logger = null;
+
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
 
