@@ -134,6 +134,45 @@ describe("phase death and the retry", () => {
   }, 25_000);
 });
 
+describe("phase-level resume credit", () => {
+  test("a bounce cycle gets no credit — even from a crashed run before the completed one", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    migrate(db);
+    const store = new Store(db, new EventBus());
+    const project = store.createProject({ name: "p", ticketPrefix: "P" });
+    const repo = store.createRepo({ projectId: project.id, path: "/tmp/x", githubRemote: null });
+    const ticket = store.createTicket({
+      projectId: project.id,
+      title: "t",
+      acceptanceCriteria: ["a"],
+    });
+    store.promoteTicket(ticket.id, { repoId: repo.id, provider: "claude-code" });
+
+    // Run A crashes with a completed research phase in the worktree.
+    const a = store.claimNextTicket()!;
+    const worktree = { worktreePath: "/tmp/wt", branch: ticket.displayKey, created: true };
+    store.recordWorktree(a.run.id, worktree);
+    const graph = store.getWorkflowGraph(a.run.workflowVersionId);
+    const research = graph.nodes.find((n) => n.name === "research")!;
+    store.endPhase(store.startPhase(a.run.id, research).id, "completed");
+    store.finishRun(a.run.id, "crashed", "orphaned: the app quit mid-phase");
+
+    // Run B resumes and completes — its successor is a bounce cycle.
+    const b = store.claimNextTicket()!;
+    store.recordWorktree(b.run.id, worktree);
+    // B's immediate predecessor crashed: credit applies.
+    expect(store.priorPhaseCredit(b.run, "/tmp/wt").has(research.id)).toBe(true);
+    store.finishRun(b.run.id, "completed");
+
+    // Run C follows the completed B (bounce): no credit, not even from A.
+    db.prepare("UPDATE tickets SET state = 'todo' WHERE id = ?").run(ticket.id);
+    const c = store.claimNextTicket()!;
+    store.recordWorktree(c.run.id, worktree);
+    expect(store.priorPhaseCredit(c.run, "/tmp/wt").size).toBe(0);
+  });
+});
+
 describe("the crash cap", () => {
   test("orphaned crashes are exempt: app restarts never park a healthy ticket", async () => {
     const db = new DatabaseSync(":memory:");

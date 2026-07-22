@@ -2212,14 +2212,18 @@ export class Store {
    */
   priorPhaseCredit(run: Run, worktreePath: string): Map<number, string | null> {
     const credit = new Map<number, string | null>();
+    // The immediate predecessor only — never skip past a completed run to
+    // an older crashed one: a completed run means this claim is a bounce
+    // cycle, and its phases must re-run against the follow-up criteria.
     const prior = this.db
       .prepare(
         `SELECT id FROM runs
          WHERE ticket_id = ? AND id < ? AND state = 'crashed'
            AND workflow_version_id = ? AND worktree_path = ?
-         ORDER BY id DESC LIMIT 1`,
+           AND id = (SELECT MAX(id) FROM runs WHERE ticket_id = ? AND id < ?)
+         LIMIT 1`,
       )
-      .get(run.ticketId, run.id, run.workflowVersionId, worktreePath);
+      .get(run.ticketId, run.id, run.workflowVersionId, worktreePath, run.ticketId, run.id);
     if (prior === undefined) return credit;
     for (const phase of this.listPhaseExecutions(Number(prior.id))) {
       if (phase.state === "completed") credit.set(phase.nodeId, phase.outcome);
