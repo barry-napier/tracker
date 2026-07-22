@@ -580,6 +580,12 @@ export interface AcCheck {
   scriptPath: string | null;
   /** Why a machine can't check this; null for scripts. */
   reason: string | null;
+  /**
+   * The frozen script's sha256 (TRK-2), recorded at registration — before
+   * any implementing session runs. The battery refuses a drifted script.
+   * Null for human routings and rows frozen before the column existed.
+   */
+  contentHash: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -790,6 +790,16 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
       );
     `,
   },
+  {
+    version: 31,
+    sql: `
+      -- Frozen checks (TRK-2, ADR-0009): sha256 of the script recorded at
+      -- registration time — before any implementing session runs. The
+      -- battery's ac-check gate refuses a script whose bytes drifted from
+      -- this hash. Null for human routings and rows frozen before TRK-2.
+      ALTER TABLE ac_checks ADD COLUMN content_hash TEXT;
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

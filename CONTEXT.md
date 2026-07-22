@@ -26,7 +26,7 @@ A dependency edge between two Tickets of the same Project (ADR-0007): the depend
 
 ### Acceptance Criterion (AC)
 
-A single verifiable line item on a Ticket stating something that must be true for the work to be right. Lifecycle: pending → verified, failed, or waived. Verification is by machine (an agent-authored check) or by a human (Manual Walkthrough) — provenance records which. Failing any AC bounces the Ticket. Waiving is human-only and requires a reason. Follow-up Criteria are new ACs born from a failed gate or review, and are treated identically to originals. On a new Run, failed and machine-verified ACs reset to pending; human-verified and waived ACs persist.
+A single verifiable line item on a Ticket stating something that must be true for the work to be right. Lifecycle: pending → verified, failed, or waived. Verification is by machine (an agent-authored check) or by a human (Manual Walkthrough) — provenance records which. A machine check freezes at authoring time (ADR-0009): its sha256 is recorded before any implementing session runs, and a script whose bytes drift from the frozen hash fails its AC without executing — the implementing session reads its exam, never writes it. Failing any AC bounces the Ticket. Waiving is human-only and requires a reason. Follow-up Criteria are new ACs born from a failed gate or review, and are treated identically to originals — their checks are authored at bounce time by a dedicated non-implementing session. On a new Run, failed and machine-verified ACs reset to pending; human-verified and waived ACs persist.
 
 ### Evidence Gate
 

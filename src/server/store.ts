@@ -83,7 +83,7 @@ function nowIso(): string {
 }
 
 /** Three failed cycles matches observed agent convergence (ticket 06 §6). */
-const BOUNCE_CAP = 3;
+export const BOUNCE_CAP = 3;
 
 /** Three crashed Runs park too (ticket 41), mirroring the bounce cap. */
 const CRASH_CAP = 3;
@@ -392,7 +392,7 @@ export class Store {
     if (row === undefined) return undefined;
     const acs = this.db
       .prepare(
-        "SELECT ac.*, c.id AS check_id, c.run_id AS check_run_id, c.kind AS check_kind, c.script_path AS check_script_path, c.reason AS check_reason, c.created_at AS check_created_at, c.updated_at AS check_updated_at FROM acceptance_criteria ac LEFT JOIN ac_checks c ON c.ac_id = ac.id WHERE ac.ticket_id = ? ORDER BY ac.position, ac.id",
+        "SELECT ac.*, c.id AS check_id, c.run_id AS check_run_id, c.kind AS check_kind, c.script_path AS check_script_path, c.reason AS check_reason, c.content_hash AS check_content_hash, c.created_at AS check_created_at, c.updated_at AS check_updated_at FROM acceptance_criteria ac LEFT JOIN ac_checks c ON c.ac_id = ac.id WHERE ac.ticket_id = ? ORDER BY ac.position, ac.id",
       )
       .all(id)
       .map(acFromRow);
@@ -820,11 +820,11 @@ export class Store {
     }
     const { ticket, audit } = withTransaction(this.db, () => {
       const upsert = this.db.prepare(
-        `INSERT INTO ac_checks (ac_id, run_id, kind, script_path, reason, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO ac_checks (ac_id, run_id, kind, script_path, reason, content_hash, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT (ac_id) DO UPDATE SET
            run_id = excluded.run_id, kind = excluded.kind, script_path = excluded.script_path,
-           reason = excluded.reason, updated_at = excluded.updated_at`,
+           reason = excluded.reason, content_hash = excluded.content_hash, updated_at = excluded.updated_at`,
       );
       const now = nowIso();
       for (const entry of entries) {
@@ -834,6 +834,7 @@ export class Store {
           entry.kind,
           entry.kind === "script" ? entry.scriptPath : null,
           entry.kind === "human" ? entry.reason : null,
+          entry.kind === "script" ? entry.contentHash : null,
           now,
           now,
         );
@@ -967,19 +968,63 @@ export class Store {
   }
 
   /**
+   * Follow-up Criteria minted ahead of the state move (TRK-2): while the
+   * ticket is still in Verifying or Human Review — states no worker claims —
+   * so bounce-time check authoring can run against settled AC rows with no
+   * re-claim racing the worktree. No audit event of its own: the bounce
+   * event that follows names the ids and is the batch's single record.
+   */
+  mintFollowUpAcs(
+    runId: number,
+    followUps: ReadonlyArray<{ text: string; origin: "gate-fail" | "review-fail" }>,
+  ): number[] {
+    const run = this.getRun(runId);
+    if (!run) throw new NotFoundError(`run ${runId} not found`);
+    const existing = this.getTicket(run.ticketId)!;
+    const { ticket, followUpAcIds } = withTransaction(this.db, () => {
+      const now = nowIso();
+      const positionRow = this.db
+        .prepare(
+          "SELECT COALESCE(MAX(position), -1) + 1 AS next FROM acceptance_criteria WHERE ticket_id = ?",
+        )
+        .get(existing.id)!;
+      const insert = this.db.prepare(
+        "INSERT INTO acceptance_criteria (ticket_id, text, position, origin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      );
+      const followUpAcIds = followUps.map((followUp, offset) => {
+        const inserted = insert.run(
+          existing.id,
+          followUp.text,
+          Number(positionRow.next) + offset,
+          followUp.origin,
+          now,
+          now,
+        );
+        return Number(inserted.lastInsertRowid);
+      });
+      return { ticket: this.getTicket(existing.id)!, followUpAcIds };
+    });
+    for (const ac of ticket.acceptanceCriteria) {
+      if (followUpAcIds.includes(ac.id)) this.bus.emit("ac.updated", ac);
+    }
+    return followUpAcIds;
+  }
+
+  /**
    * The failed battery's one bounce (ticket 06 §5): the whole batch lands in
-   * a single event — follow-up AC rows born from the failed gates, the tree
-   * state the next Run inherits, and the Ticket's move back to In Progress
-   * for a fresh claim. The third failed cycle parks in Human Review instead,
-   * flagged arrived-by-cap: past that point the failure is spec-shaped,
-   * which is human territory (ticket 06 §6).
+   * a single event — follow-up AC rows (pre-minted via mintFollowUpAcs so
+   * bounce-time check authoring could see them), the tree state the next Run
+   * inherits, and the Ticket's move back to In Progress for a fresh claim.
+   * The third failed cycle parks in Human Review instead, flagged
+   * arrived-by-cap: past that point the failure is spec-shaped, which is
+   * human territory (ticket 06 §6).
    */
   bounceTicket(
     runId: number,
     input: {
       /** The battery's failed labels (gates and ac-check:AC-<id>), verbatim. */
       failed: string[];
-      followUps: FollowUpSeed[];
+      followUpAcIds: number[];
       treeState: TreeState;
     },
   ): { ticket: TicketWithAcs; parked: boolean; followUpAcIds: number[] } {
@@ -991,26 +1036,9 @@ export class Store {
     }
     const bounceCount = existing.bounceCount + 1;
     const parked = bounceCount >= BOUNCE_CAP;
-    const { ticket, followUpAcIds, audit } = withTransaction(this.db, () => {
+    const { followUpAcIds } = input;
+    const { ticket, audit } = withTransaction(this.db, () => {
       const now = nowIso();
-      const positionRow = this.db
-        .prepare(
-          "SELECT COALESCE(MAX(position), -1) + 1 AS next FROM acceptance_criteria WHERE ticket_id = ?",
-        )
-        .get(existing.id)!;
-      const insert = this.db.prepare(
-        "INSERT INTO acceptance_criteria (ticket_id, text, position, origin, created_at, updated_at) VALUES (?, ?, ?, 'gate-fail', ?, ?)",
-      );
-      const followUpAcIds = input.followUps.map((followUp, offset) => {
-        const inserted = insert.run(
-          existing.id,
-          followUp.text,
-          Number(positionRow.next) + offset,
-          now,
-          now,
-        );
-        return Number(inserted.lastInsertRowid);
-      });
       this.db
         .prepare(
           "UPDATE tickets SET state = ?, bounce_count = ?, arrived_by_cap = ?, updated_at = ? WHERE id = ?",
@@ -1032,13 +1060,10 @@ export class Store {
         type: parked ? "ticket.parked" : "ticket.bounced",
         detail,
       });
-      return { ticket, followUpAcIds, audit };
+      return { ticket, audit };
     });
     this.bus.emit("audit.appended", audit);
     this.bus.emit("ticket.updated", ticket);
-    for (const ac of ticket.acceptanceCriteria) {
-      if (followUpAcIds.includes(ac.id)) this.bus.emit("ac.updated", ac);
-    }
     return { ticket, parked, followUpAcIds };
   }
 
@@ -1189,8 +1214,8 @@ export class Store {
       reason: ReviewBounceReason;
       /** The marks as submitted; audited whole so the review is reconstructable. */
       steps: ReviewStepMark[];
-      /** Verbatim reviewer notes about to become Follow-up Criteria. */
-      followUps: string[];
+      /** Follow-up Criteria pre-minted from the reviewer's notes (TRK-2). */
+      followUpAcIds: number[];
       treeState: TreeState | null;
       /** What the Final Verdict freshness subset found, for stale-evidence bounces. */
       driftReasons?: string[];
@@ -1203,20 +1228,9 @@ export class Store {
       throw new StateError(`ticket ${existing.displayKey} is ${existing.state}, not human_review`);
     }
     const bounceCount = existing.bounceCount + 1;
-    const { ticket, followUpAcIds, audit } = withTransaction(this.db, () => {
+    const { followUpAcIds } = input;
+    const { ticket, audit } = withTransaction(this.db, () => {
       const now = nowIso();
-      const positionRow = this.db
-        .prepare(
-          "SELECT COALESCE(MAX(position), -1) + 1 AS next FROM acceptance_criteria WHERE ticket_id = ?",
-        )
-        .get(existing.id)!;
-      const insert = this.db.prepare(
-        "INSERT INTO acceptance_criteria (ticket_id, text, position, origin, created_at, updated_at) VALUES (?, ?, ?, 'review-fail', ?, ?)",
-      );
-      const followUpAcIds = input.followUps.map((text, offset) => {
-        const inserted = insert.run(existing.id, text, Number(positionRow.next) + offset, now, now);
-        return Number(inserted.lastInsertRowid);
-      });
       this.db
         .prepare(
           "UPDATE tickets SET state = 'in_progress', bounce_count = ?, arrived_by_cap = 0, updated_at = ? WHERE id = ?",
@@ -1239,13 +1253,10 @@ export class Store {
         type: "ticket.bounced",
         detail,
       });
-      return { ticket, followUpAcIds, audit };
+      return { ticket, audit };
     });
     this.bus.emit("audit.appended", audit);
     this.bus.emit("ticket.updated", ticket);
-    for (const ac of ticket.acceptanceCriteria) {
-      if (followUpAcIds.includes(ac.id)) this.bus.emit("ac.updated", ac);
-    }
     return { ticket, followUpAcIds };
   }
 
@@ -2746,6 +2757,9 @@ function acFromRow(row: Row): AcceptanceCriterion {
             kind: String(row.check_kind) as AcCheck["kind"],
             scriptPath: row.check_script_path === null ? null : String(row.check_script_path),
             reason: row.check_reason === null ? null : String(row.check_reason),
+            contentHash: row.check_content_hash === null || row.check_content_hash === undefined
+              ? null
+              : String(row.check_content_hash),
             createdAt: String(row.check_created_at),
             updatedAt: String(row.check_updated_at),
           },

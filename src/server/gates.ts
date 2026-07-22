@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { hashScript } from "./checks.ts";
 import { DEMO_ARTIFACT_KIND, demoExpectation, type DemoOutcome } from "./demos.ts";
 import {
   DOGFOOD_GREEN_STATUSES,
@@ -332,6 +333,26 @@ export class GateBattery {
         acId,
         detail: { scriptPath, reason: "check script missing from worktree" },
       };
+    }
+    // The freeze's teeth (TRK-2): the script must be byte-identical to what
+    // was registered before implement ran. A drifted script is a fail on its
+    // own — it never executes, so a weakened exam can't grade the work.
+    const frozenHash = criterion.check.contentHash;
+    if (frozenHash !== null) {
+      const actualHash = hashScript(resolved);
+      if (actualHash !== frozenHash) {
+        return {
+          gate: "ac-check",
+          status: "fail",
+          acId,
+          detail: {
+            scriptPath,
+            reason: "check script drifted from its frozen hash — checks are read-only after registration",
+            frozenHash,
+            actualHash,
+          },
+        };
+      }
     }
     const { exitCode, output } = await runCommand(resolved, [], ctx.worktreePath);
     return {
