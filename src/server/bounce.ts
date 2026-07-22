@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { ArtifactStore } from "./artifacts.ts";
+import type { CheckAuthor } from "./check-author.ts";
 import { failureLabel, type BatteryContext } from "./gates.ts";
-import type { Store } from "./store.ts";
+import { BOUNCE_CAP, type Store } from "./store.ts";
 import { PHASE_GATE_PREFIX } from "./types.ts";
 import type {
   Artifact,
@@ -34,6 +35,8 @@ export class Bouncer {
   constructor(
     private readonly store: Store,
     private readonly artifacts: ArtifactStore,
+    /** Absent (older tests) means follow-ups wait for the next plan phase. */
+    private readonly checkAuthor?: CheckAuthor,
   ) {}
 
   async bounce(ctx: BatteryContext): Promise<void> {
@@ -47,6 +50,19 @@ export class Bouncer {
     const followUps = failures
       .filter((result) => result.acId === null)
       .flatMap((result) => followUpSeeds(result));
+
+    // Minted ahead of the state move (TRK-2): the ticket still sits in
+    // Verifying — unclaimable — so the authoring session below has the
+    // worktree to itself and the next Run can never start check-less.
+    const followUpAcIds = this.store.mintFollowUpAcs(
+      ctx.run.id,
+      followUps.map((seed) => ({ text: seed.text, origin: "gate-fail" as const })),
+    );
+    // A bounce about to park goes to a human, not another run — authoring
+    // checks nobody is about to execute would spend a session for nothing.
+    if (this.checkAuthor && ctx.ticket.bounceCount + 1 < BOUNCE_CAP) {
+      await this.checkAuthor.author({ ...ctx, followUpAcIds });
+    }
 
     // Snapshot fresh: the claim-time ticket predates the battery's AC settling.
     const ticket = this.store.getTicket(ctx.ticket.id)!;
@@ -67,7 +83,7 @@ export class Bouncer {
 
     this.store.bounceTicket(ctx.run.id, {
       failed: failures.map(failureLabel),
-      followUps,
+      followUpAcIds,
       treeState,
     });
   }
@@ -94,9 +110,26 @@ export class Bouncer {
     const failedSteps = ctx.steps
       .filter((mark) => mark.status === "fail")
       .map((mark) => ({ step: mark.step, note: (mark.note ?? "").trim() }));
+    const worktreePath = ctx.run.worktreePath;
+    // Same order as the battery path (TRK-2): mint while Human Review still
+    // holds the ticket unclaimable, author the new criteria's checks outside
+    // any implementing session, then move state. The verdict request waits
+    // on the authoring session — a stated trade; the wizard shows the log.
+    const followUpAcIds = this.store.mintFollowUpAcs(
+      ctx.run.id,
+      failedSteps.map((failed) => ({ text: failed.note, origin: "review-fail" as const })),
+    );
+    if (this.checkAuthor && worktreePath !== null && existsSync(worktreePath)) {
+      await this.checkAuthor.author({
+        run: ctx.run,
+        ticket: ctx.ticket,
+        repo: ctx.repo,
+        worktreePath,
+        followUpAcIds,
+      });
+    }
     // Snapshot fresh: walkthrough verdicts may have settled ACs since load.
     const ticket = this.store.getTicket(ctx.ticket.id)!;
-    const worktreePath = ctx.run.worktreePath;
     let treeState: TreeState | null = null;
     if (worktreePath !== null && existsSync(worktreePath)) {
       treeState = await readTreeState(worktreePath, ctx.repo.targetBranch);
@@ -122,7 +155,7 @@ export class Bouncer {
     return this.store.reviewBounceTicket(ctx.run.id, {
       reason: ctx.reason,
       steps: ctx.steps,
-      followUps: failedSteps.map((failed) => failed.note),
+      followUpAcIds,
       treeState,
       driftReasons: ctx.driftReasons,
     });

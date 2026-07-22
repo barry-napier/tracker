@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -39,9 +40,13 @@ function writeManifest(cwd: string, manifest: unknown): void {
   writeFileSync(path.join(cwd, "checks", "manifest.json"), JSON.stringify(manifest));
 }
 
+const SCRIPT_BODY = "#!/bin/sh\nexit 0\n";
+/** The freeze (TRK-2): registration fingerprints the script's exact bytes. */
+const SCRIPT_HASH = createHash("sha256").update(SCRIPT_BODY).digest("hex");
+
 function writeScript(cwd: string, name: string): void {
   mkdirSync(path.join(cwd, "checks"), { recursive: true });
-  writeFileSync(path.join(cwd, "checks", name), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  writeFileSync(path.join(cwd, "checks", name), SCRIPT_BODY, { mode: 0o755 });
 }
 
 describe("readCheckManifest", () => {
@@ -54,7 +59,7 @@ describe("readCheckManifest", () => {
     expect(result).toEqual({
       ok: true,
       entries: [
-        { acId: 1, kind: "script", scriptPath: "checks/ac-1.sh" },
+        { acId: 1, kind: "script", scriptPath: "checks/ac-1.sh", contentHash: SCRIPT_HASH },
         { acId: 2, kind: "human", reason: "needs visual judgment" },
       ],
     });
@@ -154,7 +159,7 @@ describe("readCheckManifest", () => {
     const result = readCheckManifest(cwd, [ac(1), ac(2, "verified")]);
     expect(result).toEqual({
       ok: true,
-      entries: [{ acId: 1, kind: "script", scriptPath: "checks/ac-1.sh" }],
+      entries: [{ acId: 1, kind: "script", scriptPath: "checks/ac-1.sh", contentHash: SCRIPT_HASH }],
     });
   });
 
@@ -165,7 +170,7 @@ describe("readCheckManifest", () => {
     const result = readCheckManifest(cwd, [ac(1), ac(2, "waived")]);
     expect(result).toEqual({
       ok: true,
-      entries: [{ acId: 1, kind: "script", scriptPath: "checks/ac-1.sh" }],
+      entries: [{ acId: 1, kind: "script", scriptPath: "checks/ac-1.sh", contentHash: SCRIPT_HASH }],
     });
   });
 });

@@ -4,6 +4,7 @@ import { GitHubAuth, PlaintextCipher, type SecretCipher } from "./auth.ts";
 import { AutomationScheduler } from "./automations.ts";
 import { Bouncer } from "./bounce.ts";
 import { EventBus } from "./bus.ts";
+import { CheckAuthor } from "./check-author.ts";
 import { openDatabase } from "./db.ts";
 import { DemoRecorder } from "./demos.ts";
 import { createApp } from "./app.ts";
@@ -70,9 +71,15 @@ export async function startServer(options: {
   const runLogs = new RunLogRegistry();
   const github = options.github ?? new GhGitHub();
   const artifacts = new ArtifactStore(options.dataDir, store);
+  // Providers resolve early: bounce-time check authoring (TRK-2) runs a
+  // one-shot session through the same adapters the engine uses.
+  const providers =
+    typeof options.providers === "function"
+      ? options.providers((id) => store.getProviderInstance(id))
+      : (options.providers ?? {});
   // One Bouncer serves both bounce triggers: the battery's (WorkerPool) and
   // the reviewer's (Verdicts) — same machinery, same report shape.
-  const bouncer = new Bouncer(store, artifacts);
+  const bouncer = new Bouncer(store, artifacts, new CheckAuthor(store, providers, runLogs));
   const worktrees = new WorktreeManager(options.dataDir);
   // No process survives a restart: rows still claiming live catch up first —
   // preview records silently, orphaned Runs through the crash policy
@@ -82,10 +89,6 @@ export async function startServer(options: {
   await sweepOrphanedRuns(store, artifacts);
   await worktrees.removeOrphanDirs(accountedWorktreePaths(store, worktrees));
   const previews = new PreviewManager(options.dataDir, store, options.previewPortBase);
-  const providers =
-    typeof options.providers === "function"
-      ? options.providers((id) => store.getProviderInstance(id))
-      : (options.providers ?? {});
   const app = createApp(
     store,
     bus,

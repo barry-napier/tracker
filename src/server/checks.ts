@@ -1,11 +1,17 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import type { AcceptanceCriterion } from "./types.ts";
 
 /** One manifest entry, resolved against an AC row: how that AC gets verified. */
 export type CheckRegistration =
-  | { acId: number; kind: "script"; scriptPath: string }
+  | { acId: number; kind: "script"; scriptPath: string; contentHash: string }
   | { acId: number; kind: "human"; reason: string };
+
+/** The freeze's fingerprint (TRK-2): sha256 hex of the script's exact bytes. */
+export function hashScript(resolvedPath: string): string {
+  return createHash("sha256").update(readFileSync(resolvedPath)).digest("hex");
+}
 
 export type ManifestResult =
   | { ok: true; entries: CheckRegistration[] }
@@ -61,7 +67,9 @@ export function readCheckManifest(
       if ((stat.mode & 0o111) === 0) {
         return fail(`check script for AC-${ac.id} is not executable: ${value}`);
       }
-      entry = { acId: ac.id, kind: "script", scriptPath: value };
+      // The freeze (TRK-2): the script's bytes are fingerprinted the moment
+      // the manifest validates — before any implementing session runs.
+      entry = { acId: ac.id, kind: "script", scriptPath: value, contentHash: hashScript(resolved) };
     } else if (isHumanRouting(value)) {
       if (value.human.trim() === "") {
         return fail(`human routing for AC-${ac.id} needs a one-line reason`);

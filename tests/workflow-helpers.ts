@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -118,6 +118,32 @@ export function writeDogfood(
   );
 }
 
+/** The opening line the bounce-time authoring brief (TRK-2) is keyed on. */
+const AUTHOR_PROMPT_PREFIX = "You are authoring verification checks";
+
+/**
+ * The bounce-time authoring session's default behavior (TRK-2): cover every
+ * follow-up AC the brief names with an exit-0 script, merged into whatever
+ * manifest the plan phase already left in the worktree.
+ */
+export function writeAuthoredChecks(
+  cwd: string,
+  prompt: string,
+  scriptBody: (acId: number) => string = () => "#!/bin/sh\nexit 0\n",
+): void {
+  const manifestPath = path.join(cwd, "checks", "manifest.json");
+  mkdirSync(path.join(cwd, "checks"), { recursive: true });
+  const manifest: Record<string, unknown> = existsSync(manifestPath)
+    ? JSON.parse(readFileSync(manifestPath, "utf8"))
+    : {};
+  for (const acId of [...prompt.matchAll(/^- AC-(\d+):/gm)].map((match) => Number(match[1]))) {
+    const script = `checks/ac-${acId}.sh`;
+    writeFileSync(path.join(cwd, script), scriptBody(acId), { mode: 0o755 });
+    manifest[String(acId)] = script;
+  }
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+}
+
 /**
  * A well-behaved agent for every phase — misbehaves only where the test's
  * `sabotage` hook says so (return false → skip the contract file and every
@@ -125,7 +151,9 @@ export function writeDogfood(
  * orphan paths; throw → crash). The `planChecks` hook can replace the
  * default check-writing behavior (write scripts + full manifest); `onPhase`
  * runs after a well-behaved phase's side effects, for test-specific extras
- * (a broken recap, a GitHub push).
+ * (a broken recap, a GitHub push). A bounce-time authoring brief (TRK-2) is
+ * answered by `authorChecks` — default: exit-0 scripts merged into the
+ * manifest — and recorded in `calls` as phase "author-checks".
  */
 export function scriptedProvider(
   calls: PhaseCall[],
@@ -133,15 +161,25 @@ export function scriptedProvider(
     sabotage?: (phase: string, attempt: number) => void | false | "hang";
     planChecks?: (ctx: PhaseCall) => void;
     onPhase?: (ctx: PhaseCall) => void | Promise<void>;
+    authorChecks?: (ctx: PhaseCall) => void;
   } = {},
 ): FakeProvider {
   const {
     sabotage = () => {},
     planChecks = (ctx: PhaseCall) => writePlanChecks(ctx.cwd, ctx.prompt),
     onPhase = () => {},
+    authorChecks = (ctx: PhaseCall) => writeAuthoredChecks(ctx.cwd, ctx.prompt),
   } = hooks;
   const attempts = new Map<string, number>();
   return new FakeProvider(async function* (ctx) {
+    if (ctx.prompt.startsWith(AUTHOR_PROMPT_PREFIX)) {
+      const attempt = (attempts.get("author-checks") ?? 0) + 1;
+      attempts.set("author-checks", attempt);
+      const call = { ...ctx, phase: "author-checks", attempt };
+      calls.push(call);
+      authorChecks(call);
+      return { outcome: "completed" as const, providerSessionId: `sess-author-${attempt}` };
+    }
     const phase = phaseFromPrompt(ctx.prompt);
     const attempt = (attempts.get(phase) ?? 0) + 1;
     attempts.set(phase, attempt);

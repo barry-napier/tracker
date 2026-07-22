@@ -145,9 +145,14 @@ describe("the bounce machinery", () => {
     expect(report).toContain("Ahead of origin/main by: 1");
     expect(report).toContain("Dirty files: 1");
 
+    // The bounce authored the follow-up's check before run 2 existed (TRK-2):
+    // a dedicated session, recorded between the runs.
+    const authoring = calls.find((call) => call.phase === "author-checks");
+    expect(authoring?.prompt).toContain(`AC-${followUp.id}`);
+
     // Run 2's fresh sessions received the follow-ups and the report path,
     // and saw the failed AC reset to pending.
-    const run2Research = calls[5]!;
+    const run2Research = calls.filter((call) => call.phase === "research")[1]!;
     expect(run2Research.phase).toBe("research");
     expect(run2Research.prompt).toContain("kb/bounce-report.md");
     expect(run2Research.prompt).toContain(followUp.text);

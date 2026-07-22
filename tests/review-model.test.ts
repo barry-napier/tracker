@@ -190,7 +190,7 @@ describe("walkthrough checklist", () => {
       acceptanceCriteria: [
         criterion(1),
         criterion(2, {
-          check: { id: 9, acId: 2, runId: 1, kind: "human", scriptPath: null, reason: "needs eyes", createdAt: "", updatedAt: "" },
+          check: { id: 9, acId: 2, runId: 1, kind: "human", scriptPath: null, reason: "needs eyes", contentHash: null, createdAt: "", updatedAt: "" },
         }),
       ],
     } as TicketWithAcs;
