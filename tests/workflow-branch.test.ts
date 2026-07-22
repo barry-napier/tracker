@@ -6,7 +6,12 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, test } from "vitest";
 import { EventBus } from "../src/server/bus.ts";
 import { openDatabase } from "../src/server/db.ts";
-import { PhaseDeathError, WorkflowEngine, type RunContext } from "../src/server/engine.ts";
+import {
+  DeadGraphError,
+  PhaseDeathError,
+  WorkflowEngine,
+  type RunContext,
+} from "../src/server/engine.ts";
 import { NullGitHub } from "../src/server/github.ts";
 import { GateBattery } from "../src/server/gates.ts";
 import { PreviewManager } from "../src/server/previews.ts";
@@ -243,6 +248,79 @@ describe("engine branch routing (ticket 46)", () => {
     expect(routes[0]!.failureReason).toContain("alpha, beta");
     // Nothing past the dead branch ran.
     expect(store.listPhaseExecutions(ctx.run.id).map((p) => p.phase)).toEqual(["route", "route"]);
+  });
+
+  test("a branching trigger is a dead graph: the walk runs nothing and the engine says so", async () => {
+    // Published before the trigger-branch validator rule existed (the REV-1
+    // incident): the trigger's edges are all labeled, so nextNode finds
+    // nothing to follow. The engine must refuse to resolve as a success the
+    // battery would then judge — zero phases is DeadGraphError, not a run.
+    const { db, store, dataDir } = await harness();
+    const { workflowId } = seedWorkflow(
+      db,
+      "dead",
+      [
+        { name: "ticketclaimed", type: "trigger" },
+        { name: "small" },
+        { name: "large" },
+      ],
+      [
+        { from: "ticketclaimed", to: "small", label: "single feature" },
+        { from: "ticketclaimed", to: "large", label: "large initiative" },
+      ],
+    );
+    const provider = branchProvider(new Map(), () => {
+      throw new Error("no phase should ever start");
+    });
+    const { ctx } = claimOn(store, workflowId, "dead");
+
+    const rejection = await engineFor(store, dataDir, provider)
+      .execute(ctx)
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    expect(rejection).toBeInstanceOf(DeadGraphError);
+    expect((rejection as DeadGraphError).message).toContain("ran no agent phases");
+    // Nothing executed, nothing recorded: the provider was never invoked.
+    expect(store.listPhaseExecutions(ctx.run.id)).toEqual([]);
+  });
+
+  test("a branching node that never templated {{outcomes}} gets the routing contract injected", async () => {
+    const { db, store, dataDir } = await harness();
+    // Pocock v2's authoring mistake: branch nodes whose prompts never mention
+    // their outcomes. The engine appends its own routing contract so the
+    // phase can only breach by choice, not by ignorance.
+    const nodes: NodeSpec[] = [
+      { name: "ticketclaimed", type: "trigger" },
+      { name: "route", prompt: "Do the route work; write kb/route.md." },
+      { name: "alpha", prompt: "Do the alpha work; write kb/alpha.md." },
+      { name: "beta" },
+      { name: "merge" },
+    ];
+    const { workflowId } = seedWorkflow(db, "uninformed", nodes, BRANCHED.edges);
+
+    const prompts = new Map<string, string>();
+    const provider = branchProvider(prompts, (phase, cwd) =>
+      writeContract(cwd, phase, phase === "route" ? "outcome: alpha" : undefined),
+    );
+    const { ctx } = claimOn(store, workflowId, "uninformed");
+    await engineFor(store, dataDir, provider).execute(ctx);
+
+    // The branch node was told the protocol and its label set verbatim.
+    expect(prompts.get("route")).toContain("## Routing (engine contract)");
+    expect(prompts.get("route")).toContain("outcome: <one of: alpha, beta>");
+    // A non-branching node gets no contract even without {{outcomes}}…
+    expect(prompts.get("alpha")).not.toContain("Routing (engine contract)");
+    // …and a node that templated {{outcomes}} keeps its author's wording.
+    expect(prompts.get("merge")).toContain("pick from none");
+    expect(prompts.get("merge")).not.toContain("Routing (engine contract)");
+    // The injected contract was enough to route.
+    expect(store.listPhaseExecutions(ctx.run.id).map((p) => p.phase)).toEqual([
+      "route",
+      "alpha",
+      "merge",
+    ]);
   });
 
   test("a single-unlabeled-edge node ignores a stray declared outcome", async () => {

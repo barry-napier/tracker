@@ -3,7 +3,7 @@ import type { ArtifactStore } from "./artifacts.ts";
 import type { Bouncer } from "./bounce.ts";
 import type { EventBus } from "./bus.ts";
 import type { DemoOutcome, DemoRecorder } from "./demos.ts";
-import { PhaseCancelledError, type WorkflowEngine } from "./engine.ts";
+import { DeadGraphError, PhaseCancelledError, type WorkflowEngine } from "./engine.ts";
 import type { GateBattery } from "./gates.ts";
 import type { Store } from "./store.ts";
 import type { Repo, Run, TicketWithAcs, TreeState } from "./types.ts";
@@ -123,6 +123,13 @@ export class WorkerPool {
       }
     } catch (error) {
       if (error instanceof PhaseCancelledError || this.#stopped) return;
+      // A dead graph is deterministic like a setup failure: no phase ran and
+      // no retry can change that, so park the ticket wearing the reason
+      // instead of burning three identical no-op attempts through the cap.
+      if (error instanceof DeadGraphError) {
+        this.store.finishRun(run.id, "failed", messageOf(error));
+        return;
+      }
       // Best effort on the failure paths — evidence survives, but a persist
       // hiccup must not mask the run's real outcome. Loudly best-effort:
       // an invisible skip would fake "evidence persisted on every run end".

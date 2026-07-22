@@ -279,6 +279,85 @@ describe("setup failure", () => {
   }, 25_000);
 });
 
+describe("dead graph", () => {
+  test("a workflow that runs no phases parks at once as failed — no cap, no battery, no bounce", async () => {
+    // A branching trigger published before the trigger-branch validator rule
+    // existed (the REV-1 incident): the engine's walk finds no unlabeled
+    // edge off the trigger and executes nothing. That must park like a setup
+    // failure — one "failed" run wearing the reason — and never reach the
+    // gate battery to bounce nonsense follow-up criteria onto the ticket.
+    const calls: PhaseCall[] = [];
+    const provider = scriptedProvider(calls);
+    const dataDir = await mkdtemp(path.join(tmpdir(), "tracker-dead-"));
+    cleanups.push(() => rm(dataDir, { recursive: true, force: true }));
+    const server = await bootServer(dataDir, {
+      workers: 3,
+      providers: { "claude-code": provider },
+    });
+    const { project, repo } = await seedWorkspace(server);
+
+    // Seed the broken graph straight into the store — publish rightly
+    // refuses it now, but versions like it are already pinned on disk.
+    const db = new DatabaseSync(path.join(dataDir, "tracker.db"));
+    const workflowId = Number(
+      db
+        .prepare(
+          "INSERT INTO workflows (name, archived, is_default, created_at) VALUES ('dead', 0, 0, '2026-01-01')",
+        )
+        .run().lastInsertRowid,
+    );
+    const versionId = Number(
+      db
+        .prepare(
+          "INSERT INTO workflow_versions (workflow_id, version, created_at) VALUES (?, 1, '2026-01-01')",
+        )
+        .run(workflowId).lastInsertRowid,
+    );
+    const insertNode = db.prepare(
+      "INSERT INTO workflow_nodes (workflow_version_id, type, name, prompt_template) VALUES (?, ?, ?, ?)",
+    );
+    const triggerId = Number(insertNode.run(versionId, "trigger", "ticket-claimed", null).lastInsertRowid);
+    const smallId = Number(insertNode.run(versionId, "agent_phase", "small", "do small").lastInsertRowid);
+    const largeId = Number(insertNode.run(versionId, "agent_phase", "large", "do large").lastInsertRowid);
+    const insertEdge = db.prepare(
+      "INSERT INTO workflow_edges (workflow_version_id, from_node_id, to_node_id, condition_label) VALUES (?, ?, ?, ?)",
+    );
+    insertEdge.run(versionId, triggerId, smallId, "single feature");
+    insertEdge.run(versionId, triggerId, largeId, "large initiative");
+    db.close();
+    await api(server, "PATCH", `/api/projects/${project.id}`, { workflowId });
+
+    const ticket = (
+      await api(server, "POST", "/api/tickets", {
+        projectId: project.id,
+        title: "Ship the widget",
+        acceptanceCriteria: ["Widget renders"],
+      })
+    ).json;
+    await api(server, "POST", `/api/tickets/${ticket.id}/promote`, {
+      repoId: repo.id,
+      provider: "claude-code",
+    });
+    const parked = await waitForTicketState(server, ticket.id, "human_review");
+
+    // One "failed" run, zero phases, the provider never invoked.
+    const runs = (await api(server, "GET", `/api/tickets/${ticket.id}/runs`)).json;
+    expect(runs).toHaveLength(1);
+    expect(runs[0].state).toBe("failed");
+    expect(runs[0].crashReason).toContain("ran no agent phases");
+    expect(runs[0].phases).toEqual([]);
+    expect(calls).toHaveLength(0);
+    // Parked wearing the reason, not by the crash cap.
+    expect(parked.arrivedByCap).toBe(false);
+    expect(parked.lastFailureReason).toContain("ran no agent phases");
+    // The battery never judged it: no gate results, no bounce criteria.
+    expect(runs[0].gateResults ?? []).toEqual([]);
+    const detail = (await api(server, "GET", `/api/tickets/${ticket.id}`)).json;
+    expect(detail.acceptanceCriteria).toHaveLength(1);
+    expect(detail.acceptanceCriteria[0].origin).toBe("original");
+  }, 25_000);
+});
+
 describe("the watchdogs", () => {
   test("15 minutes of silence kills the phase — a death like any other", async () => {
     const calls: PhaseCall[] = [];

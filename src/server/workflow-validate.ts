@@ -90,6 +90,16 @@ export function validateDraftGraph(graph: DraftGraph): DraftViolation[] {
         nodeKey: node.key,
       });
     }
+    // A trigger can never branch: the engine routes labeled edges by the
+    // phase's declared outcome, and a trigger runs no phase — the walk would
+    // end at the start and the run would execute nothing.
+    if (node.type === "trigger" && labeled.length > 0) {
+      violations.push({
+        rule: "trigger-branch",
+        message: `"${node.name}" branches, but only an agent phase can declare the outcome that routes a branch — give the trigger a single unlabeled edge`,
+        nodeKey: node.key,
+      });
+    }
     const seenLabels = new Set<string>();
     for (const label of labeled) {
       if (seenLabels.has(label)) {

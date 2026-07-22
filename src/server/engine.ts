@@ -27,6 +27,15 @@ export class PhaseDeathError extends Error {
 /** The orchestrator cancelled the phase (app quit); nothing gets recorded. */
 export class PhaseCancelledError extends Error {}
 
+/**
+ * The walk executed zero agent phases — a dead graph (e.g. a branching
+ * trigger published before the validator forbade it), not weather. It is
+ * deterministic: identical retries can never run a phase, so the worker
+ * parks the ticket as "failed" instead of burning the crash cap, and the
+ * gate battery never judges a run that did no work.
+ */
+export class DeadGraphError extends Error {}
+
 /** Watchdog overrides (ticket 41); production runs on the defaults. */
 export interface PhaseTimeouts {
   /** Kill a provider after this long with no output. Default 15 min. */
@@ -88,11 +97,13 @@ export class WorkflowEngine {
     // unlabeled edge, so a v1 linear graph runs exactly as before. Following
     // one edge per node means a fan-in target is reached — and runs — once.
     let node: WorkflowNode | undefined = nextNode(workflow, triggerOf(workflow));
+    let phasesWalked = 0;
     while (node !== undefined) {
       if (node.type !== "agent_phase") {
         node = nextNode(workflow, node);
         continue;
       }
+      phasesWalked += 1;
       const labels = branchLabels(workflow, node);
       let outcome: string | null;
       const resumed = credit.has(node.id)
@@ -118,6 +129,13 @@ export class WorkflowEngine {
         outcome === null
           ? nextNode(workflow, node)
           : nextNodeByLabel(workflow, node, outcome);
+    }
+    if (phasesWalked === 0) {
+      throw new DeadGraphError(
+        `workflow "${workflow.name}" ran no agent phases — the walk from the trigger ` +
+          `found no unlabeled edge to follow (a trigger cannot branch), so the run would ` +
+          `reach the gate battery having done no work`,
+      );
     }
   }
 
@@ -200,7 +218,7 @@ export class WorkflowEngine {
     const dogfood = node.bootsPreview ? await this.#bootDogfoodPreview(ctx) : undefined;
     try {
       // The engine's fixed template variable set — the only context injection.
-      const prompt = renderTemplate(node.promptTemplate ?? "", {
+      let prompt = renderTemplate(node.promptTemplate ?? "", {
         displayKey: ctx.ticket.displayKey,
         title: ctx.ticket.title,
         description: ctx.ticket.description,
@@ -221,6 +239,24 @@ export class WorkflowEngine {
         outcomes: labels.length === 0 ? "none" : labels.join(", "),
         ...(dogfood?.vars ?? {}),
       });
+      // A branching node whose author never templated {{outcomes}} still gets
+      // the routing contract: the engine owns the outcome protocol, and a
+      // phase that was never told to declare one dies a contract-breach it
+      // could not have avoided (Pocock v2 shipped exactly this way).
+      if (labels.length > 0 && !(node.promptTemplate ?? "").includes("{{outcomes}}")) {
+        prompt += [
+          "",
+          "",
+          "## Routing (engine contract)",
+          `This phase ends at a branch. Start kb/${node.name}.md with YAML frontmatter declaring exactly one outcome:`,
+          "",
+          "---",
+          `outcome: <one of: ${labels.join(", ")}>`,
+          "---",
+          "",
+          "The run follows the edge whose label matches your declared outcome; the other branches never run. A missing or unlisted outcome crashes the run.",
+        ].join("\n");
+      }
 
       const log = this.logs.for(ctx.run.id);
       const handle = provider.runPhase(prompt, ctx.worktreePath, { signal: abort.signal });

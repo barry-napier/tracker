@@ -382,6 +382,7 @@ export interface WorkflowHeadGraph {
 export interface DraftViolation {
   rule:
     | "trigger"
+    | "trigger-branch"
     | "orphan"
     | "cycle"
     | "mixed-edges"

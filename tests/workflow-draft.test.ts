@@ -126,6 +126,24 @@ describe("the publish validator", () => {
     );
   });
 
+  test("a branching trigger is rejected — nothing runs to declare its outcome", () => {
+    // The REV-1 incident: labeled edges off the trigger passed validation,
+    // but the engine routes labels by a phase's declared outcome, so the
+    // walk ended at the start and the run reached the battery having done
+    // no work. Both branch targets are otherwise legal.
+    const graph: DraftGraph = {
+      nodes: [trigger(), node("small", { emitsChecks: true }), node("large", { emitsChecks: true })],
+      edges: [edge("t", "small", "single feature"), edge("t", "large", "large initiative")],
+    };
+    expect(validateDraftGraph(graph)).toContainEqual(
+      expect.objectContaining({
+        rule: "trigger-branch",
+        nodeKey: "t",
+        message: expect.stringContaining("single unlabeled edge"),
+      }),
+    );
+  });
+
   test("duplicate edge labels on one node are rejected", () => {
     const graph = validGraph();
     graph.nodes.push(node("c"));
