@@ -319,14 +319,18 @@ export function WorkflowCanvasEditor({
     try {
       // The model must see the latest edits, so the debounced PUT goes first.
       await flush();
-      const result = await apiPost<{ reply: string; draft: WorkflowDraft }>(
-        `/api/workflows/${workflow.id}/draft/chat`,
-        { message },
-      );
-      // The server already saved the draft — mirror it, don't re-PUT.
+      const result = await apiPost<{
+        reply: string;
+        draft: WorkflowDraft;
+        violations?: DraftViolation[];
+      }>(`/api/workflows/${workflow.id}/draft/chat`, { message });
+      // The server already saved the draft — mirror it, don't re-PUT. A
+      // scaffolded edit may come back with publish violations; paint them
+      // on the canvas exactly as a Test run would, so the chat can build
+      // incomplete drafts without hiding what still blocks publish.
       setGraph(result.draft.graph);
       setHasDraft(true);
-      setViolations([]);
+      setViolations(result.violations ?? []);
       setSel(null);
       setPositions(autoLayout(result.draft.graph));
       needsCenter.current = true;

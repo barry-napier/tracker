@@ -353,9 +353,11 @@ export function createApp(
     const graph = head.hasDraft ? store.getWorkflowDraft(id).graph : head.graph;
     const outcome = await runWorkflowChat(provider, graph, body.message, dataDir);
     if (!outcome.ok) return c.json({ error: outcome.error }, 502);
-    // Manual edits may leave a draft invalid until Publish, but a chat edit
-    // is refused outright: the publish validator's verdict is the reason the
-    // user sees, and the draft stays exactly as it was.
+    // Chat edits get manual-edit parity: a shape-valid graph saves even when
+    // the publish validator objects — scaffolding an incomplete draft is the
+    // builder's whole point. The violations ride back on the response so the
+    // canvas paints them exactly as a Test run would; only an unshaped graph
+    // (not a graph at all) is refused, and then the draft stays untouched.
     let violations;
     try {
       violations = validateDraftGraph(outcome.graph);
@@ -363,14 +365,12 @@ export function createApp(
       // The validator assumes a shaped graph; a throw means it wasn't one.
       return c.json({ error: "the model returned an invalid graph: not a graph shape" }, 502);
     }
-    if (violations.length > 0) {
-      return c.json(
-        { error: `that edit was refused: ${violations.map((v) => v.message).join("; ")}` },
-        422,
-      );
-    }
     try {
-      return c.json({ reply: outcome.reply, draft: store.updateWorkflowDraft(id, outcome.graph) });
+      return c.json({
+        reply: outcome.reply,
+        draft: store.updateWorkflowDraft(id, outcome.graph),
+        violations,
+      });
     } catch (error) {
       if (error instanceof ValidationError) {
         return c.json({ error: `the model returned an invalid graph: ${error.message}` }, 502);

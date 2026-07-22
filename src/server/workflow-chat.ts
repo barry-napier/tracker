@@ -30,7 +30,22 @@ Node: {"key": string (stable identity — NEVER change existing keys), "type": "
 Edge: {"from": node key, "to": node key, "conditionLabel": string | null (branch label)}.
 Rules: exactly one trigger node ("ticket-claimed") and it is fixed — never rename, remove,
 or point an edge INTO it. New agent_phase nodes need fresh unique keys (e.g. "phase-review").
-Stages run as one agent session each; steps compile into the stage prompt.`;
+Stages run as one agent session each; steps compile into the stage prompt.
+
+Branching: a run walks ONE path. A node with several outgoing edges is a split point and
+every one of those edges must carry a distinct conditionLabel — the labels are the outcomes
+that node's agent chooses between at runtime, and the run follows the matching edge (the
+other branches never run). Write labels as the answers to the question the stage settles
+(e.g. "needs research" / "straightforward"). Never mix labeled and unlabeled edges out of
+one node; a non-branching node has exactly one unlabeled outgoing edge. A single labeled
+edge is invalid — a branch needs at least two choices.
+To INSERT a stage between two connected stages, repoint the existing edge(s) — do not
+create a parallel path. Graphs are acyclic: never add an edge that closes a loop; retries
+are the orchestrator's job, not the graph's.
+A publishable graph also needs every path from the trigger to reach at least one stage
+with emitsChecks true — the verification gates arm from those. Scaffolding an incomplete
+draft is fine (missing prompts, unnamed branches); the editor shows what still blocks
+publish. Prefer scaffolding what was asked over inventing prompts the user didn't describe.`;
 
 export function buildChatPrompt(graph: DraftGraph, message: string): string {
   return `You are editing a Tracker workflow definition. Do not use any tools, do not read or write files — answer from the JSON below alone.
