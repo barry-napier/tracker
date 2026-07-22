@@ -13,6 +13,18 @@ contextBridge.exposeInMainWorld('tracker', {
     clearCache: () => ipcRenderer.invoke('browser:clear-cache'),
     clearCookies: () => ipcRenderer.invoke('browser:clear-cookies'),
   },
+  // Self-update: state lives in the main process, mirrored over update:state.
+  update: {
+    getState: () => ipcRenderer.invoke('update:get-state'),
+    check: () => ipcRenderer.invoke('update:check'),
+    download: () => ipcRenderer.invoke('update:download'),
+    install: () => ipcRenderer.invoke('update:install'),
+    onState: (handler) => {
+      const listener = (_event, state) => handler(state);
+      ipcRenderer.on('update:state', listener);
+      return () => ipcRenderer.removeListener('update:state', listener);
+    },
+  },
   // Terminal drawer: one PTY per spawn, streamed over term:data/term:exit.
   term: {
     spawn: (opts) => ipcRenderer.invoke('term:spawn', opts),

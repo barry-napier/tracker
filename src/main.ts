@@ -4,6 +4,7 @@ import os from "node:os";
 import * as pty from "node-pty";
 import { appProviders } from "./server/providers/registry.ts";
 import { startServer, type TrackerServer } from "./server/index.ts";
+import { initUpdater } from "./updates/updater.ts";
 
 // One app instance = one orchestrator = one SQLite writer.
 if (!app.requestSingleInstanceLock()) {
@@ -29,7 +30,7 @@ function createSplash(): BrowserWindow {
   return splash;
 }
 
-function createWindow(apiBase: string, splash?: BrowserWindow): void {
+function createWindow(apiBase: string, splash?: BrowserWindow): BrowserWindow {
   const win = new BrowserWindow({
     width: 1400,
     height: 860,
@@ -61,6 +62,7 @@ function createWindow(apiBase: string, splash?: BrowserWindow): void {
   void win.loadFile(path.join(app.getAppPath(), "build", "renderer", "index.html"), {
     query: { apiBase },
   });
+  return win;
 }
 
 app.on("second-instance", () => {
@@ -180,7 +182,8 @@ void app
     }
     const apiBase = server.url;
 
-    createWindow(apiBase, splash);
+    const win = createWindow(apiBase, splash);
+    initUpdater(win, { closeServer: () => server?.close() });
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow(apiBase);

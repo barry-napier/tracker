@@ -1228,6 +1228,19 @@ a.chip-info:hover {
   color: var(--text-muted);
 }
 
+/* Topbar self-update pill: a clickable info-tinted badge. */
+.update-pill {
+  cursor: pointer;
+  background: var(--info-bg);
+  color: var(--info-fg);
+  border-color: var(--info-border);
+  font-family: inherit;
+}
+
+.update-pill:disabled {
+  cursor: default;
+}
+
 .badge-in_progress {
   background: var(--info-bg);
   color: var(--info-fg);

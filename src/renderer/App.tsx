@@ -31,6 +31,7 @@ import { WorkflowCanvasEditor } from "./WorkflowCanvasEditor.tsx";
 import type { WorkflowListing } from "../server/types.ts";
 import { useBoard } from "./useBoard.ts";
 import { ReviewWizard } from "./ReviewWizard.tsx";
+import { UpdatePill } from "./UpdatePill.tsx";
 import { AgentLogs } from "./AgentLogs.tsx";
 import { ArtifactViewer } from "./ArtifactViewer.tsx";
 import { TicketDetail } from "./TicketDetail.tsx";
@@ -453,6 +454,7 @@ function Shell() {
           </button>
         ))}
         <span className="topbar-actions">
+          <UpdatePill />
           <button
             type="button"
             className="icon-btn"

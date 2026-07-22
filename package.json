@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/renderer",
     "test": "vitest run",
     "build": "npm run compile && electron-builder --mac",
-    "build:dir": "npm run compile && electron-builder --mac dir"
+    "build:dir": "npm run compile && electron-builder --mac dir",
+    "release": "npm run compile && electron-builder --mac --publish always"
   },
   "build": {
     "appId": "com.barrynapier.tracker",
@@ -32,9 +33,20 @@
         {
           "target": "dmg",
           "arch": "arm64"
+        },
+        {
+          "target": "zip",
+          "arch": "arm64"
         }
       ],
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "type": "development",
+      "identity": "Apple Development: barry Napier (7A3BU2H4Z7)"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "barry-napier",
+      "repo": "tracker"
     }
   },
   "engines": {
@@ -59,6 +71,7 @@
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "@xyflow/react": "^12.11.2",
+    "electron-updater": "^6.8.9",
     "hono": "^4.12.30",
     "node-pty": "^1.1.0",
     "shiki": "^4.3.1"
