@@ -17,6 +17,7 @@ import { KIND_LABELS, type LogBlockView } from "./AgentLog.tsx";
 import { PROVIDER_LABELS, repoName } from "./format.ts";
 import { KindIcon } from "./kindIcons.tsx";
 import { ProviderIcon } from "./providerIcons.tsx";
+import { Markdown } from "./Markdown.tsx";
 
 const INTAKE_KIND_CARDS: Array<{ key: IntakeKind; label: string; blurb: string; hint: string }> = [
   {
@@ -279,7 +280,11 @@ function AcEditor({
   return (
     <div className="intake-ac">
       <div className="intake-ac-head">
-        <input value={ac.text} onChange={(e) => onChange({ ...ac, text: e.target.value })} />
+        <textarea
+          rows={2}
+          value={ac.text}
+          onChange={(e) => onChange({ ...ac, text: e.target.value })}
+        />
         <select
           value={ac.route}
           onChange={(e) => onChange({ ...ac, route: e.target.value as IntakeAcDraft["route"] })}
@@ -325,6 +330,8 @@ export function IntakeView({
   const [draft, setDraft] = useState<IntakeDraft | null>(null);
   // Agent activity is a peek, not the point — collapsed unless asked for.
   const [showActivity, setShowActivity] = useState(false);
+  // The draft reads as a ticket by default; the form is opt-in.
+  const [editing, setEditing] = useState(false);
   const kicked = useRef(false);
   const polling = useRef(false);
   const log = useIntakeLog(sessionId, busy);
@@ -511,20 +518,73 @@ export function IntakeView({
             </div>
           )}
 
-          {drafted && draft && (
+          {drafted && draft && !editing && (
             <div className="intake-draft">
               <div className="intake-draft-head">
                 <h3>Ticket draft</h3>
-                <span className="dim">edit anything before it enters Backlog</span>
+                <button type="button" className="linklike" onClick={() => setEditing(true)}>
+                  Edit
+                </button>
+              </div>
+              <h2 className="intake-draft-title">
+                <KindIcon kind={session.kind} />
+                {draft.title}
+              </h2>
+              <div className="intake-draft-desc">
+                <Markdown text={draft.description} />
+              </div>
+              <h4 className="dim">Acceptance criteria</h4>
+              <ol className="intake-ac-list">
+                {draft.acs.map((ac, i) => (
+                  <li key={i} className="intake-ac-item">
+                    <div className="intake-ac-row">
+                      <span className="intake-ac-n dim">AC {i + 1}</span>
+                      <span className="intake-ac-text">{ac.text}</span>
+                      <span className={ac.route === "check" ? "chip chip-ok" : "chip chip-warn"}>
+                        {ac.route === "check" ? "✓ scripted check" : "human judgment"}
+                      </span>
+                    </div>
+                    {ac.route === "check" && ac.checkSketch && (
+                      <details className="intake-ac-sketch">
+                        <summary className="dim">check sketch</summary>
+                        <pre>{ac.checkSketch}</pre>
+                      </details>
+                    )}
+                    {ac.route === "human" && ac.humanReason && (
+                      <p className="dim intake-ac-reason">why human: {ac.humanReason}</p>
+                    )}
+                  </li>
+                ))}
+              </ol>
+              <div className="intake-approve-row">
+                <button
+                  type="button"
+                  className="intake-approve"
+                  disabled={draft.title.trim() === "" || draft.acs.length === 0}
+                  onClick={() => void approve()}
+                >
+                  Approve → Backlog
+                </button>
+              </div>
+            </div>
+          )}
+
+          {drafted && draft && editing && (
+            <div className="intake-draft">
+              <div className="intake-draft-head">
+                <h3>Edit draft</h3>
+                <button type="button" className="linklike" onClick={() => setEditing(false)}>
+                  Done
+                </button>
               </div>
               <label className="intake-field">
                 <span className="dim">Title</span>
                 <input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
               </label>
               <label className="intake-field">
-                <span className="dim">Description</span>
+                <span className="dim">Description (markdown)</span>
                 <textarea
-                  rows={8}
+                  rows={14}
                   value={draft.description}
                   onChange={(e) => setDraft({ ...draft, description: e.target.value })}
                 />
@@ -550,9 +610,9 @@ export function IntakeView({
                   type="button"
                   className="intake-approve"
                   disabled={draft.title.trim() === "" || draft.acs.length === 0 || draft.acs.some((ac) => ac.text.trim() === "")}
-                  onClick={() => void approve()}
+                  onClick={() => setEditing(false)}
                 >
-                  Approve → Backlog
+                  Done editing
                 </button>
               </div>
             </div>
