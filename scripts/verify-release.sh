@@ -30,11 +30,15 @@ for f in "$DIST"/*"${TAG#v}"*(.N) "$DIST/latest-mac.yml"; do
   echo "✓ $name"
 done
 
-# Gatekeeper must accept each DMG's app with quarantine attached.
+# Gatekeeper must accept each DMG's app with quarantine attached. The mount
+# point comes from hdiutil's own plist output — guessing via /Volumes
+# globbing picks up stale mounts from previous runs.
 for dmg in "$WORK"/*.dmg(.N); do
   xattr -w com.apple.quarantine "0081;00000000;verify;" "$dmg"
-  hdiutil attach -nobrowse -quiet "$dmg"
-  vol=$(ls -d /Volumes/Tracker* | tail -1)
+  vol=$(hdiutil attach -nobrowse -plist "$dmg" \
+    | plutil -extract 'system-entities' json -o - - \
+    | /usr/bin/python3 -c 'import json,sys; print(next(e["mount-point"] for e in json.load(sys.stdin) if "mount-point" in e))')
+  [[ -d "$vol" ]] || fail "$(basename "$dmg"): could not resolve mount point"
   spctl -a "$vol/Tracker.app" || { hdiutil detach "$vol" -quiet; fail "$(basename "$dmg"): Gatekeeper rejected" }
   xcrun stapler validate -q "$vol/Tracker.app" || { hdiutil detach "$vol" -quiet; fail "$(basename "$dmg"): no stapled ticket" }
   echo "✓ $(basename "$dmg") notarized + stapled"
