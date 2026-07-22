@@ -3240,36 +3240,12 @@ a.chip-info:hover {
   z-index: 6;
 }
 .wfc-chrome-actions { display: flex; gap: 8px; margin-left: auto; }
-.wfc-chrome button {
-  font: inherit;
-  font-size: var(--fs-sm);
-  padding: 5px 14px;
-  border-radius: var(--radius-md);
-  border: none;
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-button);
-  color: var(--text-base);
-  cursor: pointer;
-}
-.wfc-chrome button:hover:not(:disabled) { background: var(--surface-raised-hover); }
-.wfc-chrome button:disabled { opacity: 0.45; cursor: default; }
-.wfc-chrome button.primary {
-  background: var(--info-bg);
-  color: var(--info-fg);
-  box-shadow: inset 0 0 0 1px var(--info-border);
-}
 .wfc-back {
-  display: inline-flex;
-  align-items: center;
   gap: 4px;
 }
 .wfc-chrome .wfc-back {
-  background: none;
-  box-shadow: none;
-  color: var(--text-muted);
   padding-left: 4px;
 }
-.wfc-chrome .wfc-back:hover { background: var(--overlay-hover); }
 .wfc-title {
   font-weight: 600;
   position: absolute;
@@ -3288,6 +3264,7 @@ a.chip-info:hover {
   border-radius: var(--radius-md);
   box-shadow: none;
   color: #fff;
+  font: inherit;
   font-size: var(--fs-xs);
   font-weight: 600;
   display: inline-flex;
@@ -3295,27 +3272,16 @@ a.chip-info:hover {
   justify-content: center;
   cursor: pointer;
 }
-/* Menus inside the chrome must not inherit the chrome's raised buttons. */
+/* Menus sit inside the bold .wfc-title; items go back to body weight. */
 .wfc-chrome .row-menu button {
-  background: none;
-  box-shadow: none;
-  border-radius: var(--radius-sm);
   font-weight: 400;
-  padding: 0.35rem 0.6rem;
-  text-align: left;
 }
-.wfc-chrome .row-menu button:hover:not(:disabled) { background: var(--overlay-hover); }
-.wfc-chrome .row-menu button.danger { color: var(--danger-fg); }
 .wfc-chrome .wfc-title .wfc-title-btn {
-  display: inline-flex;
-  align-items: center;
   gap: 6px;
-  background: none;
-  box-shadow: none;
+  color: var(--text-base);
   font-weight: 600;
   padding: 5px 8px;
 }
-.wfc-chrome .wfc-title .wfc-title-btn:hover { background: var(--overlay-hover); }
 .wfc-title-menu,
 .wfc-appearance {
   top: calc(100% + 4px);
@@ -3332,7 +3298,7 @@ a.chip-info:hover {
   gap: 6px;
   padding: 4px 0.6rem 6px;
 }
-.wfc-chrome .row-menu button.wfc-swatch {
+.row-menu .wfc-swatch {
   width: 22px;
   height: 22px;
   padding: 0;
@@ -3341,11 +3307,11 @@ a.chip-info:hover {
   font-size: var(--fs-xs);
   text-align: center;
 }
-.wfc-chrome .row-menu button.wfc-swatch.selected,
-.wfc-chrome .row-menu button.wfc-iconpick.selected {
+.row-menu .wfc-swatch.selected,
+.row-menu .wfc-iconpick.selected {
   box-shadow: 0 0 0 2px var(--surface-panel), 0 0 0 4px var(--border-focus);
 }
-.wfc-chrome .row-menu button.wfc-iconpick {
+.row-menu .wfc-iconpick {
   width: 26px;
   height: 26px;
   padding: 0;
@@ -3446,16 +3412,10 @@ button.wfc-pill.label { cursor: pointer; }
   padding: 3px 6px;
 }
 .wfc-edge-tools input:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--border-focus); }
-.wfc-edge-tools button {
-  display: inline-flex;
-  border: none;
-  background: none;
-  color: var(--text-muted);
-  cursor: pointer;
+.wfc-edge-tools .icon-btn {
   padding: 2px;
-  border-radius: var(--radius-sm);
 }
-.wfc-edge-tools button:hover { background: var(--overlay-hover); color: var(--danger-fg); }
+.wfc-edge-tools .icon-btn:hover { color: var(--danger-fg); }
 .wfc-edge-violation {
   font-size: var(--fs-xs);
   color: var(--danger-fg);
@@ -3508,7 +3468,7 @@ button.wfc-pill.label { cursor: pointer; }
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-floating);
 }
-.wfc-kind-menu button {
+.wfc-kind-item {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -3522,7 +3482,7 @@ button.wfc-pill.label { cursor: pointer; }
   cursor: pointer;
   text-align: left;
 }
-.wfc-kind-menu button:hover { background: var(--surface-raised-hover); }
+.wfc-kind-item:hover { background: var(--surface-raised-hover); }
 .wfc-kind-menu .wfc-step-plus { margin-left: auto; color: var(--text-muted); }
 .wfc-step-icon {
   display: inline-flex;
@@ -3560,7 +3520,7 @@ button.wfc-pill.label { cursor: pointer; }
   box-shadow: var(--shadow-floating);
   z-index: 6;
 }
-.wfc-toolbar button {
+.wfc-toolbar-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -3573,7 +3533,7 @@ button.wfc-pill.label { cursor: pointer; }
   padding: 2px 8px;
   border-radius: var(--radius-full);
 }
-.wfc-toolbar button:hover { background: var(--overlay-hover); }
+.wfc-toolbar-btn:hover { background: var(--overlay-hover); }
 .wfc-toolbar .wfc-ask.active { background: var(--info-bg); color: var(--info-fg); }
 .wfc-toolbar-divider { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--border-muted); }
 .wfc-zoom-pct { min-width: 44px; text-align: center; color: var(--text-muted); }
@@ -3633,7 +3593,7 @@ button.wfc-pill.label { cursor: pointer; }
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
-.wfc-chat-menu button:hover { background: var(--surface-raised); }
+.wfc-chat-menu button:hover { background: var(--overlay-hover); }
 .wfc-chat-head {
   display: flex;
   align-items: center;
