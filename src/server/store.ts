@@ -27,6 +27,7 @@ import type {
   IntakeStatus,
   IntakeTurn,
   TicketKind,
+  TicketState,
   PhaseExecution,
   PreviewKind,
   PreviewRecord,
@@ -316,9 +317,21 @@ export class Store {
     externalRef?: string;
     kind?: TicketKind;
     acceptanceCriteria: string[];
+    /** Ids of already-existing same-project tickets this one waits on (ADR-0007). */
+    blockedBy?: number[];
   }): TicketWithAcs {
     const project = this.getProject(input.projectId);
     if (!project) throw new NotFoundError(`project ${input.projectId} not found`);
+    // Blockers must exist before the ticket does — that alone keeps the
+    // dependency graph acyclic, with no traversal to prove it.
+    const blockers = [...new Set(input.blockedBy ?? [])].map((id) => {
+      const blocker = this.getTicket(id);
+      if (!blocker) throw new NotFoundError(`blocking ticket ${id} not found`);
+      if (blocker.projectId !== input.projectId) {
+        throw new ValidationError(`blocking ticket ${blocker.displayKey} belongs to a different project`);
+      }
+      return blocker;
+    });
     const now = nowIso();
 
     const { ticket, audit } = withTransaction(this.db, () => {
@@ -352,6 +365,10 @@ export class Store {
       input.acceptanceCriteria.forEach((text, position) => {
         insertAc.run(ticketId, text, position, now, now);
       });
+      const insertDep = this.db.prepare(
+        "INSERT INTO ticket_deps (ticket_id, blocked_by_ticket_id, created_at) VALUES (?, ?, ?)",
+      );
+      for (const blocker of blockers) insertDep.run(ticketId, blocker.id, now);
       const ticket = this.getTicket(ticketId);
       if (!ticket) throw new Error("ticket vanished after insert");
       const audit = this.insertAudit({
@@ -386,7 +403,21 @@ export class Store {
       .get(id);
     const lastFailureReason =
       lastRun === undefined || lastRun.crash_reason === null ? null : String(lastRun.crash_reason);
-    return { ...ticketFromRow(row), acceptanceCriteria: acs, lastFailureReason };
+    // Blockers ride on every read (ADR-0007): the board badge and the claim
+    // query must agree on what "blocked" means, so both derive from these rows.
+    const blockedBy = this.db
+      .prepare(
+        `SELECT b.id, b.display_key, b.state FROM ticket_deps d
+         JOIN tickets b ON b.id = d.blocked_by_ticket_id
+         WHERE d.ticket_id = ? ORDER BY b.id`,
+      )
+      .all(id)
+      .map((dep) => ({
+        ticketId: Number(dep.id),
+        displayKey: String(dep.display_key),
+        state: String(dep.state) as TicketState,
+      }));
+    return { ...ticketFromRow(row), acceptanceCriteria: acs, blockedBy, lastFailureReason };
   }
 
   listTickets(projectId?: number): TicketWithAcs[] {
@@ -507,9 +538,16 @@ export class Store {
       const row = this.db
         .prepare(
           `SELECT id FROM tickets
-           WHERE state = 'todo'
+           WHERE (state = 'todo'
               OR (state = 'in_progress' AND NOT EXISTS (
-                    SELECT 1 FROM runs WHERE runs.ticket_id = tickets.id AND runs.state = 'running'))
+                    SELECT 1 FROM runs WHERE runs.ticket_id = tickets.id AND runs.state = 'running')))
+             -- Dependencies gate the claim, not the promote (ADR-0007): a
+             -- promoted-but-blocked ticket waits here until every blocker is
+             -- done; the blocker's own ticket.updated emit re-wakes the pool.
+             AND NOT EXISTS (
+                    SELECT 1 FROM ticket_deps d
+                    JOIN tickets b ON b.id = d.blocked_by_ticket_id
+                    WHERE d.ticket_id = tickets.id AND b.state != 'done')
            ORDER BY id
            LIMIT 1`,
         )
@@ -1078,38 +1116,6 @@ export class Store {
     this.bus.emit("audit.appended", mergedAudit);
     this.bus.emit("ticket.updated", ticket);
     return ticket;
-  }
-
-  /**
-   * The Done sweep's record half (ticket 42): the preview row goes with the
-   * worktree, and the reap is audited per ticket — disk hygiene is a real
-   * event in the Ticket's life, not silent housekeeping. Ticket state is
-   * untouched; Done stays Done.
-   */
-  reapTicket(
-    ticketId: number,
-    detail: { worktreePath: string | null },
-  ): { previewRemoved: boolean } {
-    const existing = this.getTicket(ticketId);
-    if (!existing) throw new NotFoundError(`ticket ${ticketId} not found`);
-    const { previewRemoved, audit } = withTransaction(this.db, () => {
-      const deleted = this.db.prepare("DELETE FROM previews WHERE ticket_id = ?").run(ticketId);
-      const previewRemoved = Number(deleted.changes) > 0;
-      const audit = this.insertAudit({
-        projectId: existing.projectId,
-        ticketId,
-        actor: "human",
-        type: "worktree.reaped",
-        detail: {
-          worktreePath: detail.worktreePath,
-          previewRemoved,
-          prNumber: existing.prNumber,
-        },
-      });
-      return { previewRemoved, audit };
-    });
-    this.bus.emit("audit.appended", audit);
-    return { previewRemoved };
   }
 
   /**
@@ -2103,6 +2109,8 @@ export class Store {
       title: string;
       description: string;
       acceptanceCriteria: string[];
+      /** 0-based indices of EARLIER tickets in this same batch (ADR-0007). */
+      blockedBy?: number[];
     }>,
   ): { session: IntakeSession; tickets: TicketWithAcs[] } {
     const session = this.getIntakeSession(id);
@@ -2113,9 +2121,32 @@ export class Store {
     if (session.status !== "drafted" && session.status !== "active") {
       throw new StateError(`intake session ${id} is ${session.status}`);
     }
-    const tickets = ticketInputs.map((input) =>
-      this.createTicket({ projectId: session.projectId, ...input }),
-    );
+    // Validate every reference before creating anything: createTicket owns
+    // its own transaction, so a mid-batch failure would strand half the
+    // breakdown on the board.
+    ticketInputs.forEach((input, index) => {
+      const invalid = (input.blockedBy ?? []).filter(
+        (ref) => !Number.isInteger(ref) || ref < 0 || ref >= index,
+      );
+      if (invalid.length > 0) {
+        throw new ValidationError(
+          `breakdown ticket ${index} ("${input.title}") may only be blocked by earlier tickets in the batch — got ${invalid.join(", ")}`,
+        );
+      }
+    });
+    // Earlier-only references resolve as we go: ticket i may name j < i, so
+    // by the time i is created its blockers already have real ids — the same
+    // exists-before invariant that keeps the dependency graph acyclic.
+    const tickets: TicketWithAcs[] = [];
+    for (const { blockedBy = [], ...rest } of ticketInputs) {
+      tickets.push(
+        this.createTicket({
+          projectId: session.projectId,
+          ...rest,
+          blockedBy: blockedBy.map((ref) => tickets[ref]!.id),
+        }),
+      );
+    }
     const remaining: IntakeBreakdown = { ...breakdown, tickets: [] };
     const done = remaining.notYetSpecified.length === 0;
     this.db

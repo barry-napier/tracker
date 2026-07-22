@@ -126,13 +126,6 @@ export class FakeGitHub implements GitHubPort {
     pr.state = "merged";
   }
 
-  async prMerged(remote: string, prNumber: number): Promise<boolean> {
-    const pr = this.#prs.find(
-      (candidate) => candidate.remote === remote && candidate.number === prNumber,
-    );
-    return pr?.state === "merged";
-  }
-
   #requireOpenPr(remote: string, prNumber: number): FakePr {
     const pr = this.#prs.find((candidate) => candidate.remote === remote && candidate.number === prNumber);
     if (!pr) throw new Error(`no PR #${prNumber} on ${remote}`);

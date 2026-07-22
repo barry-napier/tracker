@@ -772,6 +772,24 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
       ALTER TABLE tickets ADD COLUMN kind TEXT NOT NULL DEFAULT 'feature';
     `,
   },
+  {
+    version: 30,
+    sql: `
+      -- Ticket dependencies (ADR-0007): "blocked by" edges between tickets
+      -- of the same project. Claim-gated, never promote-gated: Promote
+      -- records intent, the claim query simply skips tickets whose blockers
+      -- aren't done yet, and the blocker reaching done wakes the pool like
+      -- any other ticket.updated. Edges are acyclic by construction — the
+      -- only writers (intake breakdown, API create) may reference already
+      -- existing tickets only.
+      CREATE TABLE ticket_deps (
+        ticket_id INTEGER NOT NULL REFERENCES tickets(id),
+        blocked_by_ticket_id INTEGER NOT NULL REFERENCES tickets(id),
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (ticket_id, blocked_by_ticket_id)
+      );
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

@@ -804,7 +804,7 @@ a.chip-info:hover {
   font-size: var(--fs-sm);
 }
 
-/* -- toolbar actions: new ticket + worktree sweep, moved off the board -- */
+/* -- toolbar actions: new ticket, moved off the board -- */
 
 .toolbar-action {
   position: relative;
@@ -818,28 +818,6 @@ a.chip-info:hover {
   z-index: 10;
   width: 320px;
   box-shadow: var(--shadow-floating);
-}
-
-.sweep-pop {
-  top: calc(100% + 4px);
-  right: 0;
-  min-width: 240px;
-  max-width: 320px;
-  padding: 0.5rem 0.6rem;
-}
-
-.sweep-note {
-  margin: 0;
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-}
-
-.sweep-note p {
-  margin: 0 0 0.2rem 0.1rem;
-}
-
-.sweep-error {
-  color: var(--danger-fg);
 }
 
 /* -- forms & controls: opencode neutral/contrast buttons -- */

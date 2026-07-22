@@ -95,7 +95,7 @@ export function BoardToolbar({
   /** Selected repo id, null = all. Owned by the URL (?repo=<name>). */
   repoFilter?: number | null;
   onRepoFilter?: (id: number | null) => void;
-  /** Board-level actions (new ticket, sweep) rendered at the far right. */
+  /** Board-level actions (new ticket) rendered at the far left. */
   actions?: ReactNode;
 }) {
   const { weekStart } = controls;
@@ -121,6 +121,7 @@ export function BoardToolbar({
   }, []);
   return (
     <div className="board-toolbar">
+      {actions}
       <select
         value={controls.status}
         onChange={(e) => set({ status: e.target.value as TicketState | "all" })}
@@ -202,7 +203,6 @@ export function BoardToolbar({
           <path d="M4 8 H5.5 M8.5 8 H10 M4 10.5 H5.5 M8.5 10.5 H10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
         </svg>
       </button>
-      {actions}
     </div>
   );
 }

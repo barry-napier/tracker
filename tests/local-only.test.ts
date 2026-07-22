@@ -37,13 +37,10 @@ describe("local-only merge mechanics (docs/tickets/local-only-projects.md)", () 
     const { worktreePath } = await manager.ensureWorktree(repo, "TRK-1", "feat/trk-1");
     const tip = commit(worktreePath, "widget.ts", "export const w = 1\n", "feat: widget");
 
-    expect(await manager.mergedIntoLocalTarget(repo, "feat/trk-1")).toBe(false);
     await manager.mergeIntoLocalTarget(repo, "feat/trk-1");
 
-    // The commit is reachable from the checkout's main, and the safety
-    // predicate the sweep uses agrees.
+    // The commit is reachable from the checkout's main.
     git(source, "merge-base", "--is-ancestor", tip, "main");
-    expect(await manager.mergedIntoLocalTarget(repo, "feat/trk-1")).toBe(true);
   });
 
   test("a conflict aborts cleanly: no half-merge, target untouched", async () => {
@@ -81,7 +78,7 @@ describe("local-only merge mechanics (docs/tickets/local-only-projects.md)", () 
 });
 
 describe("the local-only ticket loop, end to end", () => {
-  test("gates skip pr-fresh, pass verdict merges locally, sweep reaps", async () => {
+  test("gates skip pr-fresh, pass verdict merges locally", async () => {
     const calls: PhaseCall[] = [];
     const provider = scriptedProvider(calls, {
       onPhase: (ctx) => {
@@ -125,9 +122,5 @@ describe("the local-only ticket loop, end to end", () => {
     // The work is on the user checkout's target branch.
     const log = git(repo.path, "log", "--oneline", "main");
     expect(log).toContain("feat: widget");
-
-    // And the sweep's safety predicate answers from git, not GitHub.
-    const sweep = (await api(server, "POST", `/api/projects/${ticket.projectId}/sweep`)).json;
-    expect(sweep.reaped.map((r: any) => r.ticketId)).toContain(ticket.id);
   });
 });

@@ -18,7 +18,6 @@ import type {
   RepoListItem,
   TicketWithAcs,
 } from "../server/types.ts";
-import type { SweepResult } from "../server/sweep.ts";
 import { apiGet, apiPatch, apiPost } from "./api.ts";
 import { PROVIDER_LABELS, repoName } from "./format.ts";
 import { ProviderPicker } from "./ProviderPicker.tsx";
@@ -870,12 +869,7 @@ function Board({
         repoOptions={repos.map((r) => ({ id: r.id, name: repoName(r) }))}
         repoFilter={filteredRepo?.id ?? null}
         onRepoFilter={setRepoFilter}
-        actions={
-          <>
-            <DoneSweep projectId={project.id} />
-            <IntakeLaunch project={project} repos={repos} />
-          </>
-        }
+        actions={<IntakeLaunch project={project} repos={repos} />}
       />
       {controls.view === "month" ? (
         <MonthView
@@ -971,6 +965,9 @@ function TicketCard({
     (ticket.state === "human_review" || ticket.state === "done") &&
     !ticket.arrivedByCap &&
     !ticket.lastFailureReason;
+  // Live blockers only (ADR-0007): an edge whose blocker is done is history.
+  const blockers = ticket.blockedBy.filter((b) => b.state !== "done");
+  const blocked = blockers.length > 0 && ticket.state !== "done";
   return (
     <article className="card" onClick={onOpen}>
       <div className="card-top">
@@ -1021,9 +1018,17 @@ function TicketCard({
             ))}
         </div>
       )}
-      {(verified || ticket.bounceCount > 0 || ticket.acceptanceCriteria.length > 0) && (
+      {(verified || blocked || ticket.bounceCount > 0 || ticket.acceptanceCriteria.length > 0) && (
         <div className="card-chips">
           {verified && <span className="chip chip-ok">✓ Verified</span>}
+          {blocked && (
+            <span
+              className="chip chip-warn"
+              title={`Waits for ${blockers.map((b) => b.displayKey).join(", ")} — claimed only when they're done`}
+            >
+              ⛓ {blockers.map((b) => b.displayKey).join(", ")}
+            </span>
+          )}
           {ticket.bounceCount > 0 && (
             <span className="chip chip-warn" title="Failed attempts so far">
               ↺ {ticket.bounceCount}
@@ -1150,93 +1155,6 @@ function PromoteControl({
   );
 }
 
-
-/**
- * The worktree sweep (ticket 42): Done does not auto-destroy — this toolbar
- * button is the deliberate reap of merged-and-persisted tickets' worktrees
- * and preview records. The report shows in a popover until dismissed; skips
- * are always shown with their reason, never silent.
- */
-function DoneSweep({ projectId }: { projectId: number }) {
-  const [report, setReport] = useState<SweepResult | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Switching tabs must not carry another board's sweep story along.
-  useEffect(() => {
-    setReport(null);
-    setError(null);
-  }, [projectId]);
-
-  // Any outside click or Escape dismisses the report, matching the sort popover.
-  const noteOpen = report !== null || error !== null;
-  useEffect(() => {
-    if (!noteOpen) return;
-    const close = () => {
-      setReport(null);
-      setError(null);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
-    document.addEventListener("click", close);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("click", close);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [noteOpen]);
-
-  const sweep = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      setReport(await apiPost<SweepResult>(`/api/projects/${projectId}/sweep`, {}));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="toolbar-action">
-      <button
-        type="button"
-        className="btn btn-ghost weeknav"
-        onClick={(e) => {
-          // The document-level closer sees this click too; stop it so a
-          // fresh report isn't immediately dismissed.
-          e.stopPropagation();
-          void sweep();
-        }}
-        disabled={busy}
-        title="Reap merged tickets' worktrees and preview records"
-      >
-        {busy ? "Sweeping…" : "⌁ Sweep worktrees"}
-      </button>
-      {noteOpen && (
-        <div className="row-menu sweep-pop" onClick={(e) => e.stopPropagation()}>
-          {error && <p className="sweep-note sweep-error">{error}</p>}
-          {report && (
-            <div className="sweep-note">
-              <p>
-                {report.reaped.length === 0
-                  ? "Nothing to reap."
-                  : `Reaped ${report.reaped.map((r) => r.displayKey).join(", ")}.`}
-              </p>
-              {report.skipped.map((skip) => (
-                <p key={skip.ticketId}>
-                  {skip.displayKey} skipped — {skip.reason}
-                </p>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 /**
  * Ticket creation IS the AI intake (the manual form is gone): the toolbar

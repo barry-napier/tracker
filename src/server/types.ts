@@ -573,8 +573,21 @@ export interface AcCheck {
   updatedAt: string;
 }
 
+/**
+ * A "blocked by" edge as the board wears it (ADR-0007): enough to render
+ * the badge and decide claimability without another lookup. An edge whose
+ * blocker is done is history, not a block.
+ */
+export interface TicketBlocker {
+  ticketId: number;
+  displayKey: string;
+  state: TicketState;
+}
+
 export interface TicketWithAcs extends Ticket {
   acceptanceCriteria: AcceptanceCriterion[];
+  /** Tickets this one waits on (ADR-0007); claimable only when all are done. */
+  blockedBy: TicketBlocker[];
   /**
    * The latest run's failure reason, or null when there is none or the
    * latest run succeeded. Derived, never stored: the board card wears the
@@ -706,6 +719,12 @@ export interface IntakeDraft {
  *  kind (bug | feature), never another initiative. */
 export interface IntakeTicketDraft extends IntakeDraft {
   kind: TicketKind;
+  /**
+   * Dependencies inside the same breakdown: 0-based indices of EARLIER
+   * tickets in the list (forward references are invalid, which keeps the
+   * edges acyclic by construction). Resolved to real ticket ids at approval.
+   */
+  blockedBy?: number[];
 }
 
 /**

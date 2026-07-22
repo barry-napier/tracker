@@ -17,7 +17,6 @@ import type { ProviderInstanceReader } from "./providers/registry.ts";
 import { Reviews } from "./reviews.ts";
 import { RunLogRegistry } from "./runlog.ts";
 import { Store } from "./store.ts";
-import { DoneSweeper } from "./sweep.ts";
 import { Verdicts } from "./verdicts.ts";
 import { sweepOrphanedRuns, WorkerPool } from "./workers.ts";
 import { WorktreeManager } from "./worktrees.ts";
@@ -95,7 +94,6 @@ export async function startServer(options: {
     new Reviews(store, github, worktrees),
     new Home(store),
     previews,
-    new DoneSweeper(store, worktrees, previews, artifacts, github),
     options.dataDir,
     providers,
     github,

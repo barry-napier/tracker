@@ -35,10 +35,10 @@ export interface IntakeFailure {
   error: string;
 }
 
-const QUESTION_CONTRACT = `A question — one real decision, options numbered for a quick reply:
+const QUESTION_CONTRACT = `A question — one real decision, options numbered for a quick reply. Always carry a recommendation: append " (recommended)" to the option you would pick, so the requester can answer with one keystroke:
 \`\`\`json
 {"question": {"text": "<the decision, concretely>",
-  "options": ["<option 1>", "<option 2>"],
+  "options": ["<option 1> (recommended)", "<option 2>"],
   "why": "<why the repo's docs/code cannot answer this>"}}
 \`\`\``;
 
@@ -56,13 +56,17 @@ Or the breakdown — the way is clear enough to ticket:
      "title": "<sharp imperative title>",
      "description": "<full ticket body in the feature format (## Why / ## What / ## Out of scope), naming authority documents>",
      "acs": [{"text": "<criterion>", "route": "check", "checkSketch": "<calibratable shell sketch — fails today, passes after>"},
-             {"text": "<criterion>", "route": "human", "humanReason": "<why judgment>"}]},
-    {"kind": "bug", "title": "…", "description": "<## Observed / ## Expected / ## Reproduction / ## Suspected cause>", "acs": [ … ]}
+             {"text": "<criterion>", "route": "human", "humanReason": "<why judgment>"}],
+     "blockedBy": []},
+    {"kind": "bug", "title": "…", "description": "<## Observed / ## Expected / ## Reproduction / ## Suspected cause>", "acs": [ … ],
+     "blockedBy": [0]}
   ],
   "notYetSpecified": ["<fog: a coming decision you cannot state precisely yet — coarser than a ticket>"],
   "outOfScope": ["<ruled out, with why>"]},
  "note": "<optional: one sentence on what you resolved from the repo without asking>"}
-\`\`\``;
+\`\`\`
+
+"blockedBy" holds 0-based indices of EARLIER tickets in the same list that must be Done before this one may start. Order the list blockers-first; forward references are invalid. Only declare an edge that genuinely gates the work — an edge is a promise the worker pool will wait on.`;
 
 const CONTRACT = `Answer with exactly one fenced JSON block and nothing after it. It must be ONE of:
 
@@ -121,6 +125,10 @@ Work it in this order:
 2. BREADTH-FIRST GRILL — fan out across the whole space rather than deep on any one thread: surface the open decisions and the first steps takeable now. Research the repo between questions; never ask what it already answers.
 3. EMIT THE BREAKDOWN — only tickets whose question is already sharp:
    - Each ticket is a FEATURE or a BUG (never another initiative), individually buildable, with its own routed ACs — same bar as a standalone ticket (feature: Why/What/Out of scope; bug: Observed/Expected/Reproduction/Suspected cause).
+   - TRACER-BULLET SLICES: cut vertically, not by layer — each ticket is a narrow but complete path through every layer it touches, demoable on its own, sized to one fresh agent context window. A ticket whose demo is "the schema exists" is a layer, not a slice; merge it into the slice that first needs it.
+   - PREFACTORING: scan the code the effort touches for "make the change easy, then make the easy change" opportunities. A real prefactor is its own first ticket that later tickets declare in blockedBy. Wide refactors are the exception, expand–contract shaped: expand beside the old, migrate in blast-radius batches, contract when no caller remains.
+   - DEPENDENCY ORDER: list tickets blockers-first and declare each ticket's blockedBy (indices of earlier tickets). The pool claims anything unblocked — an undeclared edge WILL run in parallel with what it needed.
+   - EACH DESCRIPTION IS THE SPEC the implementing agent runs from — it never sees this conversation. Fold the relevant decisions from the grill into the ticket body: name modules, interfaces, schema, and API contracts, but no file paths or code snippets (they go stale). Speak the repo's CONTEXT.md glossary; respect ADRs in the area.
    - FOG OF WAR: decisions you can tell are coming but cannot state precisely yet go in notYetSpecified — NEVER pre-slice fog into vague tickets. The test is whether the question can be stated precisely now, not whether it can be answered now.
    - Work consciously ruled beyond the destination goes in outOfScope with the reason.
    - If the opening grill surfaces NO fog and the work fits one or two tickets, just emit that small breakdown — say so in the note.
@@ -265,12 +273,20 @@ function shapedTicketDraft(value: unknown): IntakeTicketDraft | undefined {
   if (typeof t.description !== "string" || !Array.isArray(t.acs)) return undefined;
   const acs = t.acs.map(shapedAc);
   if (acs.length === 0 || acs.some((ac) => ac === undefined)) return undefined;
-  return {
+  const shaped: IntakeTicketDraft = {
     kind: t.kind,
     title: t.title.trim(),
     description: t.description,
     acs: acs as IntakeAcDraft[],
   };
+  // Dependencies: 0-based indices of earlier tickets (ADR-0007). Malformed
+  // entries drop silently — a bad reference must not sink the whole
+  // breakdown; the store re-validates earlier-only at approval.
+  if (Array.isArray(t.blockedBy)) {
+    const refs = t.blockedBy.filter((ref): ref is number => Number.isInteger(ref) && ref >= 0);
+    if (refs.length > 0) shaped.blockedBy = refs;
+  }
+  return shaped;
 }
 
 /** Concatenated `text` blocks, teeing every event into the session log. */

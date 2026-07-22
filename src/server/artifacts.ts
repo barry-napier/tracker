@@ -67,31 +67,6 @@ export class ArtifactStore {
     this.store.recordArtifacts(runId, worktreeHeadSha, [file]);
   }
 
-  /**
-   * kb/ files this store can't vouch for — no persisted artifact of the same
-   * name and content across the given runs. The Done sweep's evidence guard
-   * (ticket 42): anything listed would be destroyed unvouched, so it blocks
-   * the reap. Flat like persistRun above — kb/ is a flat namespace by
-   * construction, and the two must stay mirror images.
-   */
-  unvouchedKbFiles(runIds: readonly number[], worktreePath: string): string[] {
-    const kbDir = path.join(worktreePath, "kb");
-    if (!existsSync(kbDir)) return [];
-    const vouched = new Set(
-      runIds
-        .flatMap((runId) => this.store.listArtifacts(runId))
-        .map((artifact) => `${artifact.name}:${artifact.contentHash}`),
-    );
-    const missing: string[] = [];
-    for (const name of readdirSync(kbDir)) {
-      const file = path.join(kbDir, name);
-      if (!statSync(file).isFile()) continue;
-      const hash = createHash("sha256").update(readFileSync(file)).digest("hex");
-      if (!vouched.has(`${name}:${hash}`)) missing.push(`kb/${name}`);
-    }
-    return missing;
-  }
-
   /** Blob to disk under the run's artifact dir; returns the Store row input. */
   private persistBlob(
     runId: number,

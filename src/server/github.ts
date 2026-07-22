@@ -69,8 +69,6 @@ export interface GitHubPort {
   mergeability(remote: string, prNumber: number): Promise<Mergeability>;
   /** Merge the PR; throws when GitHub refuses (conflicts, already merged). */
   mergePr(remote: string, prNumber: number): Promise<void>;
-  /** Is the PR merged on the remote? The Done sweep's safety re-check (ticket 42). */
-  prMerged(remote: string, prNumber: number): Promise<boolean>;
 }
 
 /**
@@ -113,10 +111,6 @@ export class NullGitHub implements GitHubPort {
 
   async mergePr(): Promise<void> {
     throw new Error("no GitHub backing configured");
-  }
-
-  async prMerged(): Promise<boolean> {
-    return false;
   }
 }
 
@@ -267,16 +261,6 @@ export class GhGitHub implements GitHubPort {
 
   async mergePr(remote: string, prNumber: number): Promise<void> {
     await gh("pr", "merge", String(prNumber), "--repo", repoSlug(remote), "--squash");
-  }
-
-  async prMerged(remote: string, prNumber: number): Promise<boolean> {
-    const stdout = await gh(
-      "pr", "view", String(prNumber),
-      "--repo", repoSlug(remote),
-      "--json", "state",
-    );
-    const { state } = JSON.parse(stdout) as { state: string };
-    return state === "MERGED";
   }
 }
 

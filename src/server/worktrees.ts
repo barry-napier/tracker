@@ -107,33 +107,6 @@ export class WorktreeManager {
   }
 
   /**
-   * The Done sweep's reap (ticket 42): take the ticket's worktree off disk.
-   * Chained on the repo lock so a racing claim can't have git mid-operation
-   * under the removal. Returns the removed path, or null when there was
-   * nothing on disk. The branch stays in the bare clone — merged history is
-   * GitHub's; the reap is disk hygiene, never ref surgery.
-   */
-  async removeWorktree(repo: WorktreeRepo, ticketKey: string): Promise<string | null> {
-    return this.#chainOnRepoLock(repo, () => this.#removeWorktree(repo, ticketKey));
-  }
-
-  async #removeWorktree(repo: WorktreeRepo, ticketKey: string): Promise<string | null> {
-    const worktreePath = this.worktreePath(repo, ticketKey);
-    if (!existsSync(worktreePath)) return null;
-    const bare = path.join(this.rootDir, "repos", `${repoName(repo)}.git`);
-    try {
-      // --force: swept worktrees legitimately carry unignored kb/ leftovers.
-      await git(bare, "worktree", "remove", "--force", worktreePath);
-    } catch {
-      // The bare clone may be gone or confused; the directory still goes,
-      // and prune reconciles whatever admin records remain.
-      rmSync(worktreePath, { recursive: true, force: true });
-      if (existsSync(bare)) await git(bare, "worktree", "prune").catch(() => {});
-    }
-    return worktreePath;
-  }
-
-  /**
    * Startup reconciliation (ticket 42): remove worktree directories no
    * ticket accounts for — DB reset, repo removed. `keep` holds every path a
    * ticket could still claim; everything else under worktrees/ goes.
@@ -212,22 +185,6 @@ export class WorktreeManager {
       }
       return tip;
     });
-  }
-
-  /**
-   * The local-only sweep-safety check: is the ticket branch's tip reachable
-   * from the checkout's target branch? False on any doubt — an unverifiable
-   * merge must read as unsafe.
-   */
-  async mergedIntoLocalTarget(repo: WorktreeRepo, branch: string): Promise<boolean> {
-    const tip = await this.localBranchTip(repo, branch);
-    if (tip === null) return false;
-    try {
-      await git(repo.path, "merge-base", "--is-ancestor", tip, repo.targetBranch);
-      return true;
-    } catch {
-      return false;
-    }
   }
 
   /** Clone once on first use; every later call is a cheap existence check. */

@@ -273,9 +273,12 @@ function TranscriptTurn({ turn }: { turn: IntakeTurn }) {
 /** One breakdown ticket, read-mode: collapsed to its title row, zoomable. */
 function BreakdownTicket({
   ticket,
+  blockerTitles,
   onRemove,
 }: {
   ticket: IntakeTicketDraft;
+  /** Titles of the earlier batch tickets this one waits on (ADR-0007). */
+  blockerTitles: string[];
   onRemove: () => void;
 }) {
   return (
@@ -286,6 +289,11 @@ function BreakdownTicket({
         <span className="dim">
           {ticket.acs.length} AC{ticket.acs.length === 1 ? "" : "s"}
         </span>
+        {blockerTitles.length > 0 && (
+          <span className="chip chip-warn" title={`Waits for: ${blockerTitles.join(", ")}`}>
+            ⛓ {blockerTitles.length}
+          </span>
+        )}
         <button
           type="button"
           className="intake-ac-remove"
@@ -674,10 +682,27 @@ export function IntakeView({
                     <BreakdownTicket
                       key={i}
                       ticket={ticket}
+                      blockerTitles={(ticket.blockedBy ?? [])
+                        .map((ref) => breakdown.tickets[ref]?.title)
+                        .filter((t): t is string => t !== undefined)}
                       onRemove={() =>
                         setBreakdown({
                           ...breakdown,
-                          tickets: breakdown.tickets.filter((_, j) => j !== i),
+                          // Removing a ticket shifts every later index, so the
+                          // blockedBy references (ADR-0007) must shift with it:
+                          // drop edges onto the removed ticket, renumber the rest.
+                          tickets: breakdown.tickets
+                            .filter((_, j) => j !== i)
+                            .map((t) =>
+                              t.blockedBy === undefined
+                                ? t
+                                : {
+                                    ...t,
+                                    blockedBy: t.blockedBy
+                                      .filter((ref) => ref !== i)
+                                      .map((ref) => (ref > i ? ref - 1 : ref)),
+                                  },
+                            ),
                         })
                       }
                     />

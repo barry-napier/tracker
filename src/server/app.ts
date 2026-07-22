@@ -26,7 +26,6 @@ import {
   type IntakeDraft,
 } from "./types.ts";
 import { DraftInvalidError, NotFoundError, StateError, ValidationError, type Store } from "./store.ts";
-import type { DoneSweeper } from "./sweep.ts";
 import { parseTimeOfDay } from "./automation-schedule.ts";
 import {
   AUTOMATION_CADENCES,
@@ -163,7 +162,6 @@ export function createApp(
   reviews: Reviews,
   home: Home,
   previews: PreviewManager,
-  sweeper: DoneSweeper,
   /** Where the ArtifactStore blobbed run evidence; content serves from here. */
   dataDir: string,
   /** For the draft-edit chat (one provider phase per message); empty in
@@ -542,7 +540,11 @@ export function createApp(
           );
         }
       }
-      const inputs = breakdown.tickets.map((t) => ({ kind: t.kind, ...draftToTicketInput(t) }));
+      const inputs = breakdown.tickets.map((t) => ({
+        kind: t.kind,
+        blockedBy: t.blockedBy,
+        ...draftToTicketInput(t),
+      }));
       const { session: updated, tickets } = store.approveIntakeBreakdown(id, breakdown, inputs);
       return c.json({ session: updated, tickets }, 201);
     }
@@ -938,13 +940,6 @@ export function createApp(
     return c.json(store.listProjectAuditEvents(project.id));
   });
 
-  // The Done-column sweep (ticket 42): deliberate, batched disk hygiene.
-  // The response is the whole story — what was reaped, what was skipped and
-  // why; nothing disappears silently.
-  app.post("/api/projects/:id/sweep", async (c) =>
-    c.json(await sweeper.sweep(Number(c.req.param("id")))),
-  );
-
   app.post("/api/repos", async (c) => {
     const body = await c.req.json<{
       projectId?: number;
@@ -1025,6 +1020,7 @@ export function createApp(
       externalRef?: string;
       kind?: string;
       acceptanceCriteria?: string[];
+      blockedBy?: number[];
     }>();
     if (typeof body.projectId !== "number") return c.json({ error: "projectId is required" }, 400);
     if (!store.getProject(body.projectId)) return c.json({ error: "project not found" }, 404);
@@ -1038,6 +1034,10 @@ export function createApp(
     if (!Array.isArray(acs) || !acs.every(isNonEmptyString)) {
       return c.json({ error: "acceptanceCriteria must be non-empty strings" }, 400);
     }
+    const blockedBy = body.blockedBy ?? [];
+    if (!Array.isArray(blockedBy) || !blockedBy.every((id) => typeof id === "number")) {
+      return c.json({ error: "blockedBy must be ticket ids" }, 400);
+    }
     const ticket = store.createTicket({
       projectId: body.projectId,
       title: body.title,
@@ -1045,6 +1045,7 @@ export function createApp(
       externalRef: isNonEmptyString(body.externalRef) ? body.externalRef : undefined,
       kind: body.kind,
       acceptanceCriteria: acs,
+      blockedBy,
     });
     return c.json(ticket, 201);
   });

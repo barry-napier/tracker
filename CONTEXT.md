@@ -20,6 +20,10 @@ A git repository belonging to a Project. Knows its local path, GitHub remote, ta
 
 A unit of work on a Project's board. Belongs to exactly one Project and, from promotion onward, targets exactly one Repo — one Ticket yields one branch, one PR, one merge. Work spanning multiple Repos is multiple Tickets.
 
+### Blocked By
+
+A dependency edge between two Tickets of the same Project (ADR-0007): the dependent is claimable only when every blocker is Done. Gates the claim, never the promote — a promoted-but-blocked Ticket waits in Todo. Written only where the blocker already exists (API ids, or earlier positions in an intake breakdown), which makes cycles unwritable.
+
 ### Acceptance Criterion (AC)
 
 A single verifiable line item on a Ticket stating something that must be true for the work to be right. Lifecycle: pending → verified, failed, or waived. Verification is by machine (an agent-authored check) or by a human (Manual Walkthrough) — provenance records which. Failing any AC bounces the Ticket. Waiving is human-only and requires a reason. Follow-up Criteria are new ACs born from a failed gate or review, and are treated identically to originals. On a new Run, failed and machine-verified ACs reset to pending; human-verified and waived ACs persist.

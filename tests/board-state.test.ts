@@ -56,6 +56,7 @@ function ticket(overrides: Partial<TicketWithAcs> & { id: number }): TicketWithA
     createdAt: "2026-07-18T00:00:00.000Z",
     updatedAt: "2026-07-18T00:00:00.000Z",
     acceptanceCriteria: [],
+    blockedBy: [],
     lastFailureReason: null,
     ...overrides,
   };
