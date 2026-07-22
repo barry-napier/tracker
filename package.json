@@ -51,7 +51,8 @@
     "publish": {
       "provider": "github",
       "owner": "barry-napier",
-      "repo": "tracker"
+      "repo": "tracker",
+      "releaseType": "release"
     }
   },
   "engines": {
