@@ -287,7 +287,7 @@ export function TicketDetail({
   return (
     <div className="detail-page detail-v2">
       <header className="detail-head">
-        <button type="button" className="crumb-back" onClick={onClose}>
+        <button type="button" className="btn btn-ghost crumb-back" onClick={onClose}>
           <Icon name="chevron-left" size={14} />
           Board
         </button>
@@ -316,7 +316,7 @@ export function TicketDetail({
               !editingDesc ? (
                 <button
                   type="button"
-                  className="panel-action"
+                  className="btn btn-sm panel-action"
                   onClick={() => {
                     setDraftDesc(ticket.description);
                     setEditingDesc(true);
@@ -337,12 +337,12 @@ export function TicketDetail({
                   autoFocus
                 />
                 <div className="desc-edit-actions">
-                  <button type="button" className="panel-action" onClick={saveDescription}>
+                  <button type="button" className="btn btn-sm panel-action" onClick={saveDescription}>
                     Save
                   </button>
                   <button
                     type="button"
-                    className="panel-action dim"
+                    className="btn btn-sm panel-action dim"
                     onClick={() => setEditingDesc(false)}
                   >
                     Cancel
@@ -380,7 +380,7 @@ export function TicketDetail({
                         {criterion.text}
                         {criterion.status !== "waived" && (
                           <button
-                            className="waivebtn"
+                            className="btn btn-warn waivebtn"
                             title="Waive this criterion (requires a reason)"
                             onClick={() => waiveWithPrompt(criterion)}
                           >
@@ -434,7 +434,7 @@ export function TicketDetail({
             <span className="rail-label">Activity</span>
             <button
               type="button"
-              className="logsbtn"
+              className="btn btn-primary btn-sm"
               disabled={!latestRun}
               title={latestRun ? "Open the run's conversation" : "No run yet"}
               onClick={onOpenLogs}
@@ -615,16 +615,16 @@ export function TicketDetail({
 
           <RailGroup title="Actions">
             {(ticket.state === "human_review" || ticket.state === "done") && (
-              <button type="button" className="rail-action rail-action-primary" onClick={onOpenReview}>
+              <button type="button" className="btn btn-primary rail-action" onClick={onOpenReview}>
                 Start Review Wizard
               </button>
             )}
             {ticket.state === "human_review" && (
-              <button type="button" className="rail-action" onClick={retry}>
+              <button type="button" className="btn rail-action" onClick={retry}>
                 Retry — back to Todo
               </button>
             )}
-            <button type="button" className="rail-action" disabled={!latestRun} onClick={onOpenLogs}>
+            <button type="button" className="btn rail-action" disabled={!latestRun} onClick={onOpenLogs}>
               Agent Logs
             </button>
             {actionError && <p className="error rail-error">{actionError}</p>}

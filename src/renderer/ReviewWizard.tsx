@@ -103,7 +103,7 @@ export function ReviewWizard({ ticket, onClose }: { ticket: TicketWithAcs; onClo
     <>
       <div className="veil" onClick={onClose} />
       <div className="wizard" role="dialog" aria-label={`Review ${ticket.displayKey}`}>
-        <button className="close" onClick={onClose} aria-label="Close">
+        <button className="icon-btn close" onClick={onClose} aria-label="Close">
           ✕
         </button>
 
@@ -199,13 +199,17 @@ export function ReviewWizard({ ticket, onClose }: { ticket: TicketWithAcs; onClo
         )}
 
         <footer className="wizfoot">
-          <button onClick={() => setStep(step - 1)} disabled={step === 0}>
+          <button className="btn" onClick={() => setStep(step - 1)} disabled={step === 0}>
             ← Back
           </button>
           <span className="dim">
             Step {step + 1} of {WIZARD_STEPS.length}
           </span>
-          <button onClick={() => setStep(step + 1)} disabled={step === WIZARD_STEPS.length - 1}>
+          <button
+            className="btn"
+            onClick={() => setStep(step + 1)}
+            disabled={step === WIZARD_STEPS.length - 1}
+          >
             Next →
           </button>
         </footer>
@@ -234,7 +238,7 @@ function MarkBar({
       {(["pass", "fail", "skip"] as const).map((status) => (
         <button
           key={status}
-          className={`markbtn mark-${status}${mark?.status === status ? " active" : ""}`}
+          className={`btn btn-sm markbtn mark-${status}${mark?.status === status ? " active" : ""}`}
           onClick={() => onChange({ status, note: mark?.note ?? "" })}
         >
           {GATE_MARKS[status]} {MARK_LABELS[status]}
@@ -421,7 +425,7 @@ function DogfoodDecisions({
               placeholder="Your answer — recorded in the audit trail"
               onChange={(event) => setDrafts({ ...drafts, [decision.id]: event.target.value })}
             />
-            <button disabled={busy === decision.id} onClick={() => void submit(decision)}>
+            <button className="btn" disabled={busy === decision.id} onClick={() => void submit(decision)}>
               Record answer
             </button>
           </div>
@@ -613,7 +617,7 @@ function PreviewGate({
             {view.url} ↗
           </a>
         )}
-        <button disabled={busy} onClick={() => void restart()}>
+        <button className="btn btn-sm" disabled={busy} onClick={() => void restart()}>
           {status === "ready" || status === "starting" ? "Restart" : "Start"}
         </button>
       </div>
@@ -698,18 +702,21 @@ function WalkthroughStep({
             </em>
             <span className="acactions">
               <button
+                className="btn btn-sm"
                 disabled={criterion.status === "verified" && criterion.provenance === "human"}
                 onClick={() => settleAc(`/api/acs/${criterion.id}/verify`, {}, onSettled)}
               >
                 ✓ verify
               </button>
               <button
+                className="btn btn-sm"
                 disabled={criterion.status === "failed" && criterion.provenance === "human"}
                 onClick={() => settleAc(`/api/acs/${criterion.id}/fail`, {}, onSettled)}
               >
                 ✗ fail
               </button>
               <button
+                className="btn btn-sm"
                 disabled={criterion.status === "waived"}
                 onClick={() => waiveWithPrompt(criterion, onSettled)}
               >
@@ -807,10 +814,10 @@ function VerdictStep({
             ))}
           </ul>
           <div className="verdictactions">
-            <button className="danger" disabled={busy} onClick={onReverify}>
+            <button className="btn btn-danger" disabled={busy} onClick={onReverify}>
               Re-verify — bounce for a fresh run
             </button>
-            <button className="warn" disabled={busy} onClick={onForceMerge}>
+            <button className="btn btn-warn" disabled={busy} onClick={onForceMerge}>
               Force merge — waive the drift (audited)
             </button>
           </div>
@@ -822,7 +829,7 @@ function VerdictStep({
       {drift === null && (
         <div className="verdictactions">
           <button
-            className="danger"
+            className="btn btn-danger"
             disabled={busy || failProblems.length > 0}
             title={failProblems.join("; ")}
             onClick={onFailReview}
@@ -830,7 +837,7 @@ function VerdictStep({
             Fail review — bounce with notes
           </button>
           <button
-            className="ok"
+            className="btn btn-ok"
             disabled={busy || blockers.length > 0}
             title={blockers.join("; ")}
             onClick={onMerge}
