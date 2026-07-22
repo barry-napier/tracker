@@ -1558,6 +1558,95 @@ a.chip-info:hover {
   background: #fff;
 }
 
+.recapstep {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-height: 0;
+}
+
+/* The review agent's pre-digest (TRK-3): findings, never chrome. */
+.digest {
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 40%;
+  overflow-y: auto;
+}
+
+.digesthead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--fs-sm);
+}
+
+.digestsection h4 {
+  margin: 0 0 0.25rem;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.digestsection ol,
+.digestsection ul {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: var(--fs-sm);
+}
+
+.digestflag {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+/* Every agent-generated finding wears the chip — AC-41's "clearly marked". */
+.agentchip {
+  border: 1px solid var(--border-base);
+  border-radius: var(--radius-full);
+  padding: 0 0.45rem;
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  background: var(--surface-raised);
+  white-space: nowrap;
+}
+
+.acdigest {
+  display: block;
+  font-size: var(--fs-sm);
+  margin-top: 0.15rem;
+}
+
+.riskchip {
+  border-radius: var(--radius-full);
+  padding: 0 0.45rem;
+  font-size: var(--fs-xs);
+  font-family: var(--font-mono);
+}
+
+.risk-low {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  border: 1px solid var(--ok-border);
+}
+
+.risk-medium {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border: 1px solid var(--warn-border);
+}
+
+.risk-high {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  border: 1px solid var(--danger-border);
+}
+
 .placeholder {
   flex: 1;
   display: flex;

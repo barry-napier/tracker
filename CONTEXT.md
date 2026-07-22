@@ -88,6 +88,10 @@ An optional per-Repo markdown file giving the dogfood phase a user's lens (e.g. 
 
 Recorded proof of the change working, captured against the running Preview Environment during the Run. The agent authors the demo — a Playwright spec for a `ui` Repo, a curl script for an `api` Repo — and the orchestrator executes it, so a demo can never be self-reported. The resulting video or transcript is a Run artifact stamped with the code it was recorded at; the `demo-fresh` Evidence Gate requires that stamp to match the branch tip, and Tickets whose type isn't user-facing owe no demo. The review wizard's Manual Walkthrough plays the video or shows the transcript beside the live preview.
 
+### Review Digest
+
+The review agent's pre-digest of a green Run (ADR-0010): after the Evidence Gate battery passes and before the Ticket enters Human Review, a dedicated session annotates the diff — walkthrough in reading order, risk callouts, AC-to-code mapping — persisted as Run evidence and rendered pre-filled in the review wizard, every finding marked agent-generated. The verdict stays human. The digest carries its own staleness (produced-at HEAD vs branch tip); a failed digest is flagged and the wizard opens raw-diff — the Ticket always reaches Human Review.
+
 ### Audit Trail
 
 The append-only record of domain events describing everything that happened to a Ticket over its life — promoted, claimed, phase transitions, gate results, bounces, verdicts, merges. Each event has an actor (human or agent worker), an event type, and event-specific detail. Events are never updated or deleted. The activity feed in the ticket detail view is the rendered form of the Audit Trail.

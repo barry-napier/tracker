@@ -482,7 +482,13 @@ describe("the startup orphan sweep", () => {
     // Phase-level resume: the recovery run credited the orphan's completed
     // prefix (research, plan — contracts still in the reused worktree) and
     // started executing at implement. The provider never re-ran the prefix…
-    expect(secondCalls.map((call) => call.phase)).toEqual(["implement", "dogfood", "document"]);
+    expect(secondCalls.map((call) => call.phase)).toEqual([
+      "implement",
+      "dogfood",
+      "document",
+      // The green run's review digest (TRK-3), never part of the graph walk.
+      "review-digest",
+    ]);
     // …the credited phases are on the recovery run as completed rows…
     const recovery = runs[0];
     expect(recovery.phases.map((p: any) => [p.phase, p.state])).toEqual([

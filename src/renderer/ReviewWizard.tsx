@@ -18,6 +18,7 @@ import {
   badgeRow,
   demoTranscriptArtifact,
   demoVideoArtifact,
+  digestForAc,
   docsArtifacts,
   DOGFOOD_REPORT_NAME,
   DOGFOOD_RESULTS_NAME,
@@ -27,11 +28,13 @@ import {
   mergeProblems,
   missingArtifactLabel,
   parseDogfoodDecisions,
+  parseReviewDigest,
   RECAP_NAME,
   verdictSteps,
   walkthroughItems,
   WIZARD_STEPS,
   type DogfoodDecision,
+  type ReviewDigestContent,
   type ReviewMarks,
   type StepMark,
 } from "./reviewModel.ts";
@@ -79,6 +82,11 @@ export function ReviewWizard({ ticket, onClose }: { ticket: TicketWithAcs; onClo
 
   const run = payload?.run ?? null;
   const badges = badgeRow(run);
+  // The review agent's pre-digest (TRK-3). Stale findings are invalidated
+  // (AC-43): the recap panel states it and the walkthrough stops pre-filling
+  // from them — the branch moved under what the agent read.
+  const digest = useReviewDigest(payload);
+  const digestFresh = payload?.digest?.freshness === "stale" ? null : digest;
 
   const submitVerdict = async (body: Record<string, unknown>) => {
     setBusy(true);
@@ -162,7 +170,9 @@ export function ReviewWizard({ ticket, onClose }: { ticket: TicketWithAcs; onClo
 
         <div className="stepbody">
           {!payload && !error && <p className="dim">Loading review…</p>}
-          {payload && stepKey === "recap" && <RecapStep ticket={ticket} run={run} />}
+          {payload && stepKey === "recap" && (
+            <RecapStep ticket={ticket} run={run} payload={payload} digest={digest} />
+          )}
           {payload && stepKey === "dogfood" && <DogfoodStep ticket={ticket} run={run} />}
           {payload && stepKey === "pr" && <PrStep ticket={ticket} payload={payload} />}
           {payload && stepKey === "docs" && <DocsStep ticket={ticket} run={run} />}
@@ -170,6 +180,7 @@ export function ReviewWizard({ ticket, onClose }: { ticket: TicketWithAcs; onClo
             <WalkthroughStep
               ticket={ticket}
               run={run}
+              digest={digestFresh}
               preview={preview}
               previewError={previewError}
               onSettled={refetch}
@@ -291,19 +302,128 @@ function Placeholder({ label }: { label: string }) {
   );
 }
 
-function RecapStep({ ticket, run }: { ticket: TicketWithAcs; run: RunWithPhases | null }) {
-  const artifact = findArtifact(run, RECAP_NAME);
-  if (!artifact) return <Placeholder label={missingArtifactLabel(ticket, RECAP_NAME)} />;
-  // Sandboxed exactly per ticket 11 §6: scripts may run for tabs and
-  // interactions, but there is no same-origin access, and the serving
-  // endpoint's CSP kills external loads even if the lint missed one.
+/** Fetch and parse the digest the payload points at; null until it lands. */
+function useReviewDigest(payload: ReviewPayload | null): ReviewDigestContent | null {
+  const artifactId = payload?.digest?.artifactId;
+  const [content, setContent] = useState<ReviewDigestContent | null>(null);
+  useEffect(() => {
+    let disposed = false;
+    setContent(null);
+    if (artifactId === undefined) return;
+    fetch(`${apiBase}/api/artifacts/${artifactId}/content`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`GET digest → ${res.status}`);
+        const text = await res.text();
+        if (!disposed) setContent(parseReviewDigest(text));
+      })
+      .catch(() => {
+        // A digest that won't load is the raw-diff wizard, not an error wall.
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [artifactId]);
+  return content;
+}
+
+/**
+ * The review agent's findings (TRK-3), always wearing the agent chip — the
+ * reviewer must never mistake pre-digested opinion for wizard chrome. A
+ * stale digest states its invalidation and renders nothing else (AC-43);
+ * a failed agent states why the wizard opened raw-diff (AC-42).
+ */
+function DigestPanel({
+  payload,
+  digest,
+}: {
+  payload: ReviewPayload;
+  digest: ReviewDigestContent | null;
+}) {
+  if (payload.digestFailure !== null) {
+    return (
+      <p className="digestflag dim">
+        <span className="agentchip">agent</span> Review agent failed — reviewing from raw evidence.
+        ({payload.digestFailure})
+      </p>
+    );
+  }
+  if (payload.digest === null) return null;
+  if (payload.digest.freshness === "stale") {
+    return (
+      <p className="digestflag dim">
+        <span className="agentchip">agent</span> Digest invalidated: produced at{" "}
+        {payload.digest.producedAtSha.slice(0, 7)}, but the branch has moved — review from the raw
+        evidence.
+      </p>
+    );
+  }
+  if (!digest) return null;
   return (
-    <iframe
-      className="recapframe"
-      src={`${apiBase}/api/artifacts/${artifact.id}/content`}
-      sandbox="allow-scripts"
-      title={`Visual recap for ${ticket.displayKey}`}
-    />
+    <section className="digest">
+      <header className="digesthead">
+        <span className="agentchip">agent digest</span>
+        <span className="dim">
+          produced at {payload.digest.producedAtSha.slice(0, 7)} — the verdict is still yours
+        </span>
+      </header>
+      {digest.walkthrough.length > 0 && (
+        <div className="digestsection">
+          <h4>Read the diff in this order</h4>
+          <ol>
+            {digest.walkthrough.map((entry, index) => (
+              <li key={index}>
+                <code>{entry.file}</code> — {entry.note}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {digest.risks.length > 0 && (
+        <div className="digestsection">
+          <h4>Risk callouts</h4>
+          <ul>
+            {digest.risks.map((risk, index) => (
+              <li key={index}>
+                {risk.severity && <span className={`riskchip risk-${risk.severity}`}>{risk.severity}</span>}{" "}
+                {risk.note}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function RecapStep({
+  ticket,
+  run,
+  payload,
+  digest,
+}: {
+  ticket: TicketWithAcs;
+  run: RunWithPhases | null;
+  payload: ReviewPayload;
+  digest: ReviewDigestContent | null;
+}) {
+  const artifact = findArtifact(run, RECAP_NAME);
+  return (
+    <div className="recapstep">
+      <DigestPanel payload={payload} digest={digest} />
+      {artifact ? (
+        // Sandboxed exactly per ticket 11 §6: scripts may run for tabs and
+        // interactions, but there is no same-origin access, and the serving
+        // endpoint's CSP kills external loads even if the lint missed one.
+        <iframe
+          className="recapframe"
+          src={`${apiBase}/api/artifacts/${artifact.id}/content`}
+          sandbox="allow-scripts"
+          title={`Visual recap for ${ticket.displayKey}`}
+        />
+      ) : (
+        <Placeholder label={missingArtifactLabel(ticket, RECAP_NAME)} />
+      )}
+    </div>
   );
 }
 
@@ -671,12 +791,15 @@ function PreviewGate({
 function WalkthroughStep({
   ticket,
   run,
+  digest,
   preview,
   previewError,
   onSettled,
 }: {
   ticket: TicketWithAcs;
   run: RunWithPhases | null;
+  /** Fresh digest only — stale findings never pre-fill (AC-43). */
+  digest: ReviewDigestContent | null;
   preview: PreviewController;
   previewError: string | null;
   onSettled: () => void;
@@ -694,7 +817,20 @@ function WalkthroughStep({
         {items.map(({ criterion, humanReason }) => (
           <li key={criterion.id}>
             <span className={`dot dot-${criterion.status}`} title={criterion.status} />
-            <span>{criterion.text}</span>
+            <span>
+              {criterion.text}
+              {(() => {
+                // The digest's AC-to-code mapping pre-fills the item (TRK-3),
+                // chip-marked: agent findings, never wizard chrome.
+                const entry = digestForAc(digest, criterion.id);
+                return entry === null ? null : (
+                  <span className="acdigest dim">
+                    <span className="agentchip">agent</span> {entry.note}
+                    {entry.files.length > 0 && <code> ({entry.files.join(", ")})</code>}
+                  </span>
+                );
+              })()}
+            </span>
             <em className="dim">
               {criterion.status}
               {criterion.provenance && ` · ${criterion.provenance}`}

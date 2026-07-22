@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { GitHubPort } from "../src/server/github.ts";
 import type { TrackerServer } from "../src/server/index.ts";
-import type { AgentEvent, PhaseContext } from "../src/server/provider.ts";
+import type { AgentEvent, PhaseContext, RunResult } from "../src/server/provider.ts";
 import type { Project } from "../src/server/types.ts";
 import { FakeProvider, phaseFromPrompt, writePlanChecks } from "../src/server/providers/fake.ts";
 import { git } from "./git-helpers.ts";
@@ -121,6 +121,34 @@ export function writeDogfood(
 /** The opening line the bounce-time authoring brief (TRK-2) is keyed on. */
 const AUTHOR_PROMPT_PREFIX = "You are authoring verification checks";
 
+/** The opening line the review agent's digest brief (TRK-3) is keyed on. */
+const DIGEST_PROMPT_PREFIX = "You are pre-digesting the change";
+
+/**
+ * The review agent's default behavior (TRK-3): a schema-valid digest with
+ * one walkthrough note, one risk, and an acMap entry per AC in the brief.
+ */
+export function writeReviewDigest(cwd: string, prompt: string): void {
+  const acIds = [...prompt.matchAll(/AC-(\d+):/g)].map((match) => Number(match[1]));
+  mkdirSync(path.join(cwd, "kb"), { recursive: true });
+  writeFileSync(
+    path.join(cwd, "kb", "review-digest.json"),
+    JSON.stringify(
+      {
+        walkthrough: [{ file: "widget.txt", note: "The widget lands here — start reading at the top." }],
+        risks: [{ note: "No rollback path if the widget misfires.", severity: "low" }],
+        acMap: acIds.map((acId) => ({
+          acId,
+          note: `Satisfied by the widget change.`,
+          files: ["widget.txt"],
+        })),
+      },
+      null,
+      2,
+    ),
+  );
+}
+
 /**
  * The bounce-time authoring session's default behavior (TRK-2): cover every
  * follow-up AC the brief names with an exit-0 script, merged into whatever
@@ -153,7 +181,9 @@ export function writeAuthoredChecks(
  * runs after a well-behaved phase's side effects, for test-specific extras
  * (a broken recap, a GitHub push). A bounce-time authoring brief (TRK-2) is
  * answered by `authorChecks` — default: exit-0 scripts merged into the
- * manifest — and recorded in `calls` as phase "author-checks".
+ * manifest — and recorded in `calls` as phase "author-checks". A review
+ * digest brief (TRK-3) is answered by `reviewDigest` — default: a
+ * schema-valid digest — and recorded as phase "review-digest".
  */
 export function scriptedProvider(
   calls: PhaseCall[],
@@ -162,6 +192,7 @@ export function scriptedProvider(
     planChecks?: (ctx: PhaseCall) => void;
     onPhase?: (ctx: PhaseCall) => void | Promise<void>;
     authorChecks?: (ctx: PhaseCall) => void;
+    reviewDigest?: (ctx: PhaseCall) => void;
   } = {},
 ): FakeProvider {
   const {
@@ -169,17 +200,24 @@ export function scriptedProvider(
     planChecks = (ctx: PhaseCall) => writePlanChecks(ctx.cwd, ctx.prompt),
     onPhase = () => {},
     authorChecks = (ctx: PhaseCall) => writeAuthoredChecks(ctx.cwd, ctx.prompt),
+    reviewDigest = (ctx: PhaseCall) => writeReviewDigest(ctx.cwd, ctx.prompt),
   } = hooks;
   const attempts = new Map<string, number>();
+  const oneShot = (
+    label: string,
+    handler: (ctx: PhaseCall) => void,
+    ctx: PhaseContext,
+  ): RunResult => {
+    const attempt = (attempts.get(label) ?? 0) + 1;
+    attempts.set(label, attempt);
+    const call = { ...ctx, phase: label, attempt };
+    calls.push(call);
+    handler(call);
+    return { outcome: "completed", providerSessionId: `sess-${label}-${attempt}` };
+  };
   return new FakeProvider(async function* (ctx) {
-    if (ctx.prompt.startsWith(AUTHOR_PROMPT_PREFIX)) {
-      const attempt = (attempts.get("author-checks") ?? 0) + 1;
-      attempts.set("author-checks", attempt);
-      const call = { ...ctx, phase: "author-checks", attempt };
-      calls.push(call);
-      authorChecks(call);
-      return { outcome: "completed" as const, providerSessionId: `sess-author-${attempt}` };
-    }
+    if (ctx.prompt.startsWith(AUTHOR_PROMPT_PREFIX)) return oneShot("author-checks", authorChecks, ctx);
+    if (ctx.prompt.startsWith(DIGEST_PROMPT_PREFIX)) return oneShot("review-digest", reviewDigest, ctx);
     const phase = phaseFromPrompt(ctx.prompt);
     const attempt = (attempts.get(phase) ?? 0) + 1;
     attempts.set(phase, attempt);

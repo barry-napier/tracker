@@ -35,8 +35,9 @@ describe("the full seeded workflow", () => {
 
     await waitForTicketState(server, ticket.id, "human_review");
 
-    // Every phase ran once, in graph order, in the run's worktree.
-    expect(calls.map((c) => c.phase)).toEqual([...PHASES]);
+    // Every phase ran once, in graph order, in the run's worktree — then the
+    // review agent's digest session (TRK-3) before Human Review.
+    expect(calls.map((c) => c.phase)).toEqual([...PHASES, "review-digest"]);
     const runs = (await api(server, "GET", `/api/tickets/${ticket.id}/runs`)).json;
     expect(runs).toHaveLength(1);
     expect(calls.every((c) => c.cwd === runs[0].worktreePath)).toBe(true);
@@ -59,11 +60,12 @@ describe("the full seeded workflow", () => {
     }
 
     // kb/* persisted to app data: kind, content hash, worktree HEAD SHA. Five
-    // phase contracts, the recap, and the dogfood phase's report + results.
+    // phase contracts, the recap, the dogfood phase's report + results, and
+    // the review agent's digest (TRK-3, its own kind).
     const headSha = git(runs[0].worktreePath, "rev-parse", "HEAD");
-    expect(runs[0].artifacts).toHaveLength(8);
+    expect(runs[0].artifacts).toHaveLength(9);
     for (const artifact of runs[0].artifacts) {
-      expect(artifact.kind).toBe("kb");
+      expect(artifact.kind).toBe(artifact.name === "review-digest.json" ? "review-digest" : "kb");
       expect(artifact.contentHash).toMatch(/^[0-9a-f]{64}$/);
       expect(artifact.worktreeHeadSha).toBe(headSha);
       expect(existsSync(path.join(dataDir, artifact.path))).toBe(true);
@@ -74,6 +76,7 @@ describe("the full seeded workflow", () => {
         "recap.html",
         "dogfood-report.md",
         "dogfood-results.json",
+        "review-digest.json",
       ].sort(),
     );
 
@@ -86,7 +89,7 @@ describe("the full seeded workflow", () => {
       [...PHASES].flatMap(() => ["started", "completed"]),
     );
     const runUpdates = client.messages.filter((m) => m.event === "run.updated");
-    expect(runUpdates.at(-1)!.data.artifacts).toHaveLength(8);
+    expect(runUpdates.at(-1)!.data.artifacts.length).toBeGreaterThanOrEqual(8);
 
     const audit = (await api(server, "GET", `/api/tickets/${ticket.id}/audit`)).json;
     const types = audit.map((event: { type: string }) => event.type);
