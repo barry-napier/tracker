@@ -44,6 +44,7 @@ function ticket(overrides: Partial<TicketWithAcs> & { id: number }): TicketWithA
     title: `Ticket ${overrides.id}`,
     description: "",
     state: "backlog",
+    kind: "feature",
     repoId: null,
     provider: null,
     externalRef: null,

@@ -15,7 +15,9 @@ import {
 } from "./home.ts";
 import type { PreviewManager } from "./previews.ts";
 import type { Reviews } from "./reviews.ts";
-import type { RunLogRegistry } from "./runlog.ts";
+import { RunLogRegistry } from "./runlog.ts";
+import { draftToTicketInput, runIntakeTurn } from "./intake.ts";
+import { INTAKE_KINDS, isIntakeKind, type IntakeDraft } from "./types.ts";
 import { DraftInvalidError, NotFoundError, StateError, ValidationError, type Store } from "./store.ts";
 import type { DoneSweeper } from "./sweep.ts";
 import { parseTimeOfDay } from "./automation-schedule.ts";
@@ -375,6 +377,180 @@ export function createApp(
     }
   });
 
+  // AI ticket intake: the pre-Backlog grilling conversation (see intake.ts).
+  // One provider phase per turn, run synchronously in the route like the
+  // draft-edit chat; the per-session SSE log is the live view meanwhile. A
+  // failed turn persists nothing — retry resends the same answer.
+  const intakeLogs = new RunLogRegistry();
+  // One provider turn at a time per session — a double-fired kick (dev
+  // StrictMode, an impatient retry) must not run two research phases.
+  const intakeTurnsInFlight = new Set<number>();
+
+  const runIntake = async (
+    sessionId: number,
+    userText: string | null,
+  ): Promise<{ status: 200 | 400 | 404 | 409 | 502 | 503; body: unknown }> => {
+    const session = store.getIntakeSession(sessionId);
+    if (!session) return { status: 404, body: { error: "not found" } };
+    if (session.status === "approved" || session.status === "discarded") {
+      return { status: 400, body: { error: `session is ${session.status}` } };
+    }
+    const provider = providers[session.provider];
+    if (!provider) {
+      return { status: 503, body: { error: `provider ${session.provider} is not available` } };
+    }
+    const repo = store.getRepo(session.repoId);
+    if (!repo) return { status: 404, body: { error: "repo not found" } };
+    if (intakeTurnsInFlight.has(sessionId)) {
+      return { status: 409, body: { error: "a turn is already running for this session" } };
+    }
+    intakeTurnsInFlight.add(sessionId);
+    try {
+      const turns =
+        userText === null
+          ? session.transcript
+          : [...session.transcript, { role: "user", text: userText } as const];
+      const outcome = await runIntakeTurn(
+        provider,
+        session.kind,
+        session.intent,
+        turns,
+        repo.path,
+        intakeLogs.for(sessionId),
+      );
+      if (!outcome.ok) return { status: 502, body: { error: outcome.error } };
+      const updated = store.updateIntakeSession(sessionId, {
+        transcript: [...turns, outcome.turn],
+        draft: "draft" in outcome.turn ? outcome.turn.draft : undefined,
+      });
+      return { status: 200, body: updated };
+    } finally {
+      intakeTurnsInFlight.delete(sessionId);
+    }
+  };
+
+  app.post("/api/intake", async (c) => {
+    const body = await c.req.json<{
+      projectId?: number;
+      repoId?: number;
+      provider?: string;
+      kind?: string;
+      intent?: string;
+    }>();
+    if (typeof body.projectId !== "number") return c.json({ error: "projectId is required" }, 400);
+    if (typeof body.repoId !== "number") return c.json({ error: "repoId is required" }, 400);
+    if (!isNonEmptyString(body.intent)) return c.json({ error: "intent is required" }, 400);
+    const kind = body.kind ?? "feature";
+    if (!isIntakeKind(kind)) {
+      return c.json({ error: `kind must be one of ${INTAKE_KINDS.join(", ")}` }, 400);
+    }
+    const providerName = body.provider ?? "claude-code";
+    if (!isProvider(providerName)) {
+      return c.json({ error: `provider must be one of ${PROVIDERS.join(", ")}` }, 400);
+    }
+    const session = store.createIntakeSession({
+      projectId: body.projectId,
+      repoId: body.repoId,
+      provider: providerName,
+      kind,
+      intent: body.intent.trim(),
+    });
+    // Create-only: the intake view kicks the first (long) research turn via
+    // /retry after navigating, so the launch button answers instantly.
+    return c.json(session, 201);
+  });
+
+  app.get("/api/intake", (c) => {
+    const projectId = c.req.query("projectId");
+    if (projectId === undefined) return c.json({ error: "projectId is required" }, 400);
+    return c.json(store.listIntakeSessions(Number(projectId)));
+  });
+
+  // turnInFlight lets a reloaded view re-attach to a running turn (show the
+  // busy state and poll) instead of double-kicking into a 409.
+  app.get("/api/intake/:id", (c) => {
+    const session = store.getIntakeSession(Number(c.req.param("id")));
+    if (!session) return c.json({ error: "not found" }, 404);
+    return c.json({ ...session, turnInFlight: intakeTurnsInFlight.has(session.id) });
+  });
+
+  app.post("/api/intake/:id/reply", async (c) => {
+    const body = await c.req.json<{ message?: string }>();
+    if (!isNonEmptyString(body.message)) return c.json({ error: "message is required" }, 400);
+    const result = await runIntake(Number(c.req.param("id")), body.message.trim());
+    return c.json(result.body as object, result.status);
+  });
+
+  // A retry for a session whose last provider turn failed: re-run against
+  // the persisted transcript without adding an answer.
+  app.post("/api/intake/:id/retry", async (c) => {
+    const result = await runIntake(Number(c.req.param("id")), null);
+    return c.json(result.body as object, result.status);
+  });
+
+  app.post("/api/intake/:id/approve", async (c) => {
+    const id = Number(c.req.param("id"));
+    const session = store.getIntakeSession(id);
+    if (!session) return c.json({ error: "not found" }, 404);
+    const body = await c.req.json<{ draft?: IntakeDraft }>().catch(() => ({}) as { draft?: IntakeDraft });
+    // The human's edited draft wins; the session's stands otherwise.
+    const draft = body.draft ?? session.draft;
+    if (!draft) return c.json({ error: "no draft to approve yet" }, 400);
+    if (
+      !isNonEmptyString(draft.title) ||
+      typeof draft.description !== "string" ||
+      !Array.isArray(draft.acs) ||
+      draft.acs.length === 0 ||
+      !draft.acs.every((ac) => isNonEmptyString(ac?.text))
+    ) {
+      return c.json({ error: "draft must carry a title and at least one AC" }, 400);
+    }
+    const { session: updated, ticket } = store.approveIntakeSession(id, draftToTicketInput(draft));
+    return c.json({ session: updated, ticket }, 201);
+  });
+
+  app.delete("/api/intake/:id", (c) => {
+    const session = store.discardIntakeSession(Number(c.req.param("id")));
+    return c.json(session);
+  });
+
+  // Live agent activity for a session's running turn: same block-event SSE
+  // as the per-run log, keyed by session id.
+  app.get("/api/intake/:id/log", (c) => {
+    const session = store.getIntakeSession(Number(c.req.param("id")));
+    if (!session) return c.json({ error: "not found" }, 404);
+    const log = intakeLogs.for(session.id);
+    const lastEventId = Number(c.req.header("last-event-id") ?? 0);
+    return streamSSE(c, async (stream) => {
+      const queue = log.entriesSince(Number.isFinite(lastEventId) ? lastEventId : 0);
+      let notify: (() => void) | undefined;
+      const unsubscribe = log.subscribe((entry) => {
+        queue.push(entry);
+        notify?.();
+      });
+      let closed = false;
+      stream.onAbort(() => {
+        closed = true;
+        unsubscribe();
+        notify?.();
+      });
+      while (!closed) {
+        while (queue.length > 0) {
+          const entry = queue.shift()!;
+          await stream.writeSSE({
+            id: String(entry.seq),
+            event: entry.event.type,
+            data: JSON.stringify(entry.event),
+          });
+        }
+        await new Promise<void>((resolve) => {
+          notify = resolve;
+        });
+        notify = undefined;
+      }
+    });
+  });
+
   // Automations: recurring agent tasks. Templates are saved starting points
   // (seeded from v1's recurring items, user-editable since migration 24);
   // rows are the standing orders; run fires one by hand exactly as the
@@ -695,11 +871,15 @@ export function createApp(
       title?: string;
       description?: string;
       externalRef?: string;
+      kind?: string;
       acceptanceCriteria?: string[];
     }>();
     if (typeof body.projectId !== "number") return c.json({ error: "projectId is required" }, 400);
     if (!isNonEmptyString(body.title)) {
       return c.json({ error: "title is required" }, 400);
+    }
+    if (body.kind !== undefined && !isIntakeKind(body.kind)) {
+      return c.json({ error: `kind must be one of ${INTAKE_KINDS.join(", ")}` }, 400);
     }
     const acs = body.acceptanceCriteria ?? [];
     if (!Array.isArray(acs) || !acs.every(isNonEmptyString)) {
@@ -710,6 +890,7 @@ export function createApp(
       title: body.title,
       description: body.description,
       externalRef: isNonEmptyString(body.externalRef) ? body.externalRef : undefined,
+      kind: body.kind,
       acceptanceCriteria: acs,
     });
     return c.json(ticket, 201);
