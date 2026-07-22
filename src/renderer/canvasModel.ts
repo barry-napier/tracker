@@ -59,6 +59,57 @@ export function addPhase(
   return { graph: { ...graph, nodes: [...graph.nodes, added] }, key };
 }
 
+/**
+ * Insert a phase in sequence after `fromKey`: the new node takes over every
+ * outgoing edge (condition labels ride along), and `fromKey` gets a single
+ * unlabeled edge into it. Sequence-insert is the port-click default — a
+ * branch is a deliberate act (drag to empty canvas), never a side effect of
+ * "add a stage here".
+ */
+export function insertPhase(
+  graph: DraftGraph,
+  fromKey: string,
+  kind?: WorkflowStepType,
+): { graph: DraftGraph; key: string } {
+  if (!findNode(graph, fromKey)) return { graph, key: fromKey };
+  const { graph: withNode, key } = addPhase(graph, kind);
+  return {
+    key,
+    graph: {
+      nodes: withNode.nodes,
+      edges: [
+        ...withNode.edges.map((e) => (e.from === fromKey ? { ...e, from: key } : e)),
+        { from: fromKey, to: key, conditionLabel: null },
+      ],
+    },
+  };
+}
+
+/**
+ * Turn the point below `fromKey` into a fork (the canvas "Condition" —
+ * presentational only, ADR-0001 keeps conditions on edges): add an empty
+ * stage on a new unlabeled edge alongside the existing children, or two
+ * stages when the node was terminal (a branch needs at least two choices).
+ * Every unlabeled edge on the fork then renders its "Add condition" pill,
+ * and the publish validator holds the graph until each branch is named.
+ */
+export function addBranch(graph: DraftGraph, fromKey: string): { graph: DraftGraph; keys: string[] } {
+  if (!findNode(graph, fromKey)) return { graph, keys: [] };
+  const hadChildren = graph.edges.some((e) => e.from === fromKey);
+  const stubs = hadChildren ? 1 : 2;
+  const keys: string[] = [];
+  let next = graph;
+  for (let i = 0; i < stubs; i += 1) {
+    const added = addPhase(next);
+    keys.push(added.key);
+    next = {
+      nodes: added.graph.nodes,
+      edges: [...added.graph.edges, { from: fromKey, to: added.key, conditionLabel: null }],
+    };
+  }
+  return { graph: next, keys };
+}
+
 /** Remove a node and every edge touching it. The trigger is undeletable. */
 export function deleteNode(graph: DraftGraph, key: string): DraftGraph {
   const node = findNode(graph, key);

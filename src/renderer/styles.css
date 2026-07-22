@@ -3649,6 +3649,18 @@ button.wfc-pill.label { cursor: pointer; }
   cursor: crosshair;
 }
 .wfc-canvas .react-flow__handle.wfc-port:hover { box-shadow: inset 0 0 0 2px var(--border-focus); }
+/* A forking port reads as a split point: the circle becomes a diamond
+   (rotated square) sitting a touch lower, Lindy's condition junction. */
+.wfc-canvas .react-flow__handle.wfc-port.forks {
+  bottom: -9px;
+  border-radius: 2px;
+  transform: translateX(-50%) rotate(45deg);
+  box-shadow: inset 0 0 0 1.5px var(--info-border);
+  background: var(--info-bg);
+}
+.wfc-canvas .react-flow__handle.wfc-port.forks:hover {
+  box-shadow: inset 0 0 0 2px var(--border-focus);
+}
 .wfc-canvas .react-flow__handle-top {
   top: 0;
   left: 0;
@@ -4062,6 +4074,13 @@ button.wfc-pill.label { cursor: pointer; }
 }
 .wfc-inspector h3 { margin: 0; font-size: var(--fs-base); }
 .wfc-inspector > .wfc-pill { align-self: flex-start; }
+/* Outcomes: the stage's branch labels, editable in place — the inspector
+   view of the split point (the diamond on the canvas). */
+.wfc-outcomes { display: flex; flex-direction: column; gap: 6px; }
+.wfc-outcomes .wfc-steps-head { display: inline-flex; align-items: center; }
+.wfc-outcome-row { display: flex; align-items: center; gap: 8px; }
+.wfc-outcome-row input { flex: 1; min-width: 0; }
+.wfc-outcome-to { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wfc-inspector label {
   display: flex;
   flex-direction: column;

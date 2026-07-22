@@ -23,6 +23,7 @@ const VIEWBOXES: Partial<Record<IconName, string>> = {
   play: "0 0 16 16",
   paperclip: "0 0 16 16",
   mic: "0 0 16 16",
+  split: "0 0 16 16",
 };
 
 const PATHS = {
@@ -43,6 +44,13 @@ const PATHS = {
   ),
   "close-small": (
     <path d="M6 6L14 14M14 6L6 14" stroke="currentColor" strokeLinecap="square" />
+  ),
+  split: (
+    <path
+      d="M8 2.5V6M8 6L3.5 10.5V13.5M8 6L12.5 10.5V13.5"
+      stroke="currentColor"
+      strokeLinecap="square"
+    />
   ),
   "dots-horizontal": (
     <>

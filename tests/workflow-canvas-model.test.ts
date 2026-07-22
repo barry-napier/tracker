@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { DraftEdge, DraftGraph, DraftNode, DraftViolation } from "../src/server/types.ts";
 import {
+  addBranch,
   addEdge,
   addPhase,
   addStep,
@@ -8,6 +9,7 @@ import {
   deleteEdge,
   deleteNode,
   deleteStep,
+  insertPhase,
   NODE_H,
   nodeHeight,
   relabelEdge,
@@ -63,6 +65,51 @@ describe("addPhase", () => {
     expect(second.key).not.toBe(first.key);
     const names = second.graph.nodes.map((n) => n.name);
     expect(new Set(names).size).toBe(names.length);
+  });
+});
+
+describe("insertPhase", () => {
+  test("slots into the sequence: takes over outgoing edges, labels ride along", () => {
+    // a branches to b ("code") and c ("docs"); inserting after a moves the
+    // whole branch point onto the new node.
+    const { graph: next, key } = insertPhase(graph(), "a");
+    expect(next.edges).toContainEqual(edge("a", key));
+    expect(next.edges).toContainEqual(edge(key, "b", "code"));
+    expect(next.edges).toContainEqual(edge(key, "c", "docs"));
+    expect(next.edges.filter((e) => e.from === "a")).toHaveLength(1);
+  });
+
+  test("after a terminal node it is a plain append", () => {
+    const { graph: next, key } = insertPhase(graph(), "b");
+    expect(next.edges).toContainEqual(edge("b", key));
+    expect(next.edges.filter((e) => e.from === key)).toHaveLength(0);
+  });
+
+  test("unknown key is a refusal (same reference)", () => {
+    const g = graph();
+    expect(insertPhase(g, "nope").graph).toBe(g);
+  });
+});
+
+describe("addBranch", () => {
+  test("alongside existing children it adds one unlabeled stub", () => {
+    const { graph: next, keys } = addBranch(graph(), "a");
+    expect(keys).toHaveLength(1);
+    expect(next.edges).toContainEqual(edge("a", keys[0]!));
+    // The existing labeled branches are untouched.
+    expect(next.edges).toContainEqual(edge("a", "b", "code"));
+    expect(next.edges).toContainEqual(edge("a", "c", "docs"));
+  });
+
+  test("on a terminal node it stubs both choices — a branch needs two", () => {
+    const { graph: next, keys } = addBranch(graph(), "b");
+    expect(keys).toHaveLength(2);
+    for (const key of keys) expect(next.edges).toContainEqual(edge("b", key));
+  });
+
+  test("unknown key is a refusal (same reference)", () => {
+    const g = graph();
+    expect(addBranch(g, "nope").graph).toBe(g);
   });
 });
 

@@ -34,6 +34,7 @@ import { ApiError, apiDelete, apiGet, apiPatch, apiPost, apiPut, errorMessage } 
 import { AVATAR_COLORS, avatarColor } from "./Home.tsx";
 import { Icon, isIconName, type IconName } from "./icons.tsx";
 import {
+  addBranch,
   addEdge,
   addPhase,
   addStep,
@@ -41,6 +42,7 @@ import {
   deleteEdge,
   deleteNode,
   deleteStep,
+  insertPhase,
   NODE_W,
   nodeHeight,
   relabelEdge,
@@ -69,6 +71,9 @@ const STEP_TYPE_ICONS: Record<WorkflowStepType, IconName> = {
 type StageNodeData = {
   node: DraftNode;
   messages: string[];
+  // ≥2 outgoing edges: the port renders a split-point diamond (the visible
+  // "condition" — Lindy's junction, compiled to labeled edges).
+  forks: boolean;
   // Click on the bottom port opens the stage-kind menu right below the node
   // (same menu a drag-to-empty-canvas opens at the drop point).
   onCreateChild: (at: { x: number; y: number }, screen: { x: number; y: number }) => void;
@@ -122,10 +127,14 @@ export function WorkflowCanvasEditor({
   const [violations, setViolations] = useState<DraftViolation[]>([]);
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const [confirmingLeave, setConfirmingLeave] = useState(false);
-  // A connection dropped on empty canvas: the stage-kind menu decides what
-  // gets created there (Lindy's "Select next step"); null = no menu up.
+  // A connection dropped on empty canvas or a port click: the stage-kind
+  // menu decides what gets created (Lindy's "Select next step"); null = no
+  // menu up. Mode is the Lindy split-point rule — "insert" slots the new
+  // stage into the sequence (port click), "branch" fans out (an explicit
+  // drag to empty canvas).
   const [pendingChild, setPendingChild] = useState<{
     from: string;
+    mode: "insert" | "branch";
     at: { x: number; y: number };
     screen: { x: number; y: number };
   } | null>(null);
@@ -376,7 +385,10 @@ export function WorkflowCanvasEditor({
     data: {
       node,
       messages: nodeViolations.get(node.key) ?? [],
-      onCreateChild: (at, screen) => setPendingChild({ from: node.key, at, screen }),
+      forks: graph.edges.filter((e) => e.from === node.key).length >= 2,
+      // Port click = sequence insert (the new stage slots in before any
+      // existing children); branching is only ever the explicit drag.
+      onCreateChild: (at, screen) => setPendingChild({ from: node.key, mode: "insert", at, screen }),
       onOpenStep: (index) => {
         setSel({ kind: "node", key: node.key, stepIndex: index });
         setPendingChild(null);
@@ -464,9 +476,9 @@ export function WorkflowCanvasEditor({
               setPendingChild(null);
             }}
             onCreateChild={(from, at, screen) => {
-              // A connection dropped on empty canvas asks what kind of stage
-              // grows there; creation happens when the menu answers.
-              setPendingChild({ from, at, screen });
+              // A connection dropped on empty canvas is the explicit split
+              // gesture: it branches; creation happens when the menu answers.
+              setPendingChild({ from, mode: "branch", at, screen });
             }}
           />
           {pendingChild && (
@@ -475,14 +487,30 @@ export function WorkflowCanvasEditor({
               style={{ left: pendingChild.screen.x, top: pendingChild.screen.y }}
               onPointerDown={(e) => e.stopPropagation()}
             >
-              <span className="menu-label">Select next stage</span>
+              <span className="menu-label">
+                {pendingChild.mode === "insert" &&
+                graph.edges.some((e) => e.from === pendingChild.from)
+                  ? "Insert next stage"
+                  : "Select next stage"}
+              </span>
               {WORKFLOW_STEP_TYPES.map((kind) => (
                 <button
                   key={kind}
                   type="button"
                   onClick={() => {
-                    const { from, at } = pendingChild;
+                    const { from, mode, at } = pendingChild;
                     setPendingChild(null);
+                    if (mode === "insert") {
+                      // Slot into the sequence: the new stage takes over the
+                      // outgoing edges; positions re-flow so the graph reads
+                      // in its new order.
+                      const { graph: next, key } = insertPhase(graph, from, kind);
+                      apply(next);
+                      setPositions(autoLayout(next));
+                      needsCenter.current = true;
+                      setSel({ kind: "node", key });
+                      return;
+                    }
                     const { graph: withNode, key } = addPhase(graph, kind);
                     setPositions((p) => ({ ...p, [key]: { x: at.x - NODE_W / 2, y: at.y } }));
                     apply(addEdge(withNode, from, key));
@@ -496,6 +524,34 @@ export function WorkflowCanvasEditor({
                   <span className="wfc-step-plus">+</span>
                 </button>
               ))}
+              {pendingChild.mode === "insert" && (
+                <>
+                  <hr className="menu-divider" />
+                  <button
+                    type="button"
+                    title="Split the flow here — each branch gets a condition to name"
+                    onClick={() => {
+                      const { from } = pendingChild;
+                      setPendingChild(null);
+                      // "Condition" is a fork, not a stage (ADR-0001): the
+                      // decision lives on the labeled edges it creates.
+                      const { graph: next, keys } = addBranch(graph, from);
+                      if (next === graph) return;
+                      apply(next);
+                      setPositions(autoLayout(next));
+                      needsCenter.current = true;
+                      const first = keys[0];
+                      if (first !== undefined) setSel({ kind: "node", key: first });
+                    }}
+                  >
+                    <span className="wfc-step-icon">
+                      <Icon name="split" size={14} />
+                    </span>
+                    Condition
+                    <span className="wfc-step-plus">+</span>
+                  </button>
+                </>
+              )}
             </div>
           )}
           {chatOpen && (
@@ -526,6 +582,14 @@ export function WorkflowCanvasEditor({
               key={`${selectedNode.key}:${selectedStep ?? "stage"}`}
               node={selectedNode}
               initialStep={selectedStep}
+              branches={graph.edges
+                .map((edge, index) => ({
+                  index,
+                  label: edge.conditionLabel,
+                  to: graph.nodes.find((n) => n.key === edge.to)?.name ?? edge.to,
+                }))
+                .filter((b) => graph.edges[b.index]!.from === selectedNode.key)}
+              onRelabelBranch={(index, label) => apply(relabelEdge(graph, index, label))}
               onPatch={(patch) => apply(updateNode(graph, selectedNode.key, patch))}
               onAddStep={(type) => apply(addStep(graph, selectedNode.key, type))}
               onPatchStep={(index, patch) => apply(updateStep(graph, selectedNode.key, index, patch))}
@@ -702,7 +766,7 @@ function CanvasToolbar({ chatOpen, onToggleChat }: { chatOpen: boolean; onToggle
 }
 
 function StageNodeView({ data, selected, positionAbsoluteX, positionAbsoluteY }: NodeProps<StageNode>) {
-  const { node, messages } = data;
+  const { node, messages, forks } = data;
   const height = nodeHeight(node);
   // A plain click on the port (no drag) asks what stage grows below; the
   // pending-child position mirrors where a dropped connection would land.
@@ -760,8 +824,8 @@ function StageNodeView({ data, selected, positionAbsoluteX, positionAbsoluteY }:
         <Handle
           type="source"
           position={Position.Bottom}
-          className="wfc-port"
-          title="Click to add a stage, drag to connect"
+          className={forks ? "wfc-port forks" : "wfc-port"}
+          title={forks ? "Split point — branches walk their condition labels" : "Click to add a stage, drag to connect"}
           onClick={onPortClick}
         />
       </div>
@@ -1333,6 +1397,8 @@ function EditorChrome({
 function Inspector({
   node,
   initialStep = null,
+  branches = [],
+  onRelabelBranch,
   onPatch,
   onAddStep,
   onPatchStep,
@@ -1342,6 +1408,10 @@ function Inspector({
   node: DraftNode;
   /** Open drilled into this step (a card step-row click); null = stage view. */
   initialStep?: number | null;
+  /** This stage's outgoing edges — ≥2 makes it a branch node whose phase
+      must end by declaring one of the labels as its outcome. */
+  branches?: { index: number; label: string | null; to: string }[];
+  onRelabelBranch?: (index: number, label: string) => void;
   onPatch: (patch: Partial<Pick<DraftNode, "name" | "promptTemplate" | "emitsChecks" | "gateRequirements">>) => void;
   onAddStep: (type: WorkflowStepType) => void;
   onPatchStep: (index: number, patch: { title?: string; prompt?: string }) => void;
@@ -1485,6 +1555,30 @@ function Inspector({
           }
         />
       </label>
+      {branches.length >= 2 && (
+        <div className="wfc-outcomes">
+          <span className="wfc-steps-head">
+            <Icon name="split" size={13} className="wfc-pill-icon" /> Outcomes
+          </span>
+          <p className="dim wfc-hint">
+            This stage is a split point: its agent ends the phase by declaring one of these
+            outcomes, and the run follows the matching branch — the others never run.
+          </p>
+          {branches.map((branch) => (
+            <label key={branch.index} className="wfc-outcome-row">
+              <input
+                placeholder="unnamed — won't publish"
+                defaultValue={branch.label ?? ""}
+                onBlur={(e) => onRelabelBranch?.(branch.index, e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                }}
+              />
+              <span className="dim wfc-outcome-to">→ {branch.to}</span>
+            </label>
+          ))}
+        </div>
+      )}
       <button type="button" className="wfc-linklike danger" onClick={onDelete}>
         Delete stage
       </button>
