@@ -1897,6 +1897,97 @@ a.chip-info:hover {
   color: var(--text-muted);
 }
 
+/* -- shared button family (DESIGN.md → Components → Button) --
+   One anatomy, four archetypes: .btn (raised, the default), .btn-primary
+   (contrast), .btn-ghost (transparent), .icon-btn (below). Modifiers:
+   .btn-sm (compact chip contexts), .btn-ok/-warn/-danger (status fills).
+   Contexts may keep layout-only rules (margin/flex/gap) — never anatomy.
+   Hovers use background-color and the press tint layers a background-image
+   so variant fills keep their color under the overlay. */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  background: var(--surface-raised);
+  border: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-button);
+  color: var(--text-base);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background-color: var(--surface-raised-hover);
+}
+
+.btn:active:not(:disabled) {
+  background-image: linear-gradient(var(--overlay-pressed), var(--overlay-pressed));
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn-primary {
+  background-color: var(--contrast-bg);
+  color: var(--contrast-fg);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--contrast-bg) 88%, var(--surface-panel));
+}
+
+.btn-ghost {
+  background: none;
+  box-shadow: none;
+  color: var(--text-muted);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background-color: var(--overlay-hover);
+  color: var(--text-base);
+}
+
+.btn-sm {
+  padding: 0.15rem 0.6rem;
+}
+
+.btn-ok:not(:disabled) {
+  background-color: var(--ok-bg);
+  color: var(--ok-fg);
+  box-shadow: 0 0 0 1px var(--ok-border);
+}
+
+.btn-warn:not(:disabled) {
+  background-color: var(--warn-bg);
+  color: var(--warn-fg);
+  box-shadow: 0 0 0 1px var(--warn-border);
+}
+
+.btn-danger:not(:disabled) {
+  background-color: var(--danger-bg);
+  color: var(--danger-fg);
+  box-shadow: 0 0 0 1px var(--danger-border);
+}
+
+.btn-ok:hover:not(:disabled) {
+  background-color: var(--ok-bg);
+}
+
+.btn-warn:hover:not(:disabled) {
+  background-color: var(--warn-bg);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: var(--danger-bg);
+}
+
 .icon-btn {
   display: inline-flex;
   align-items: center;
