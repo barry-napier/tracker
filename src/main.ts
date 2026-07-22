@@ -1,5 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } from "electron";
 import { execFileSync } from "node:child_process";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import os from "node:os";
 import * as pty from "node-pty";
@@ -176,9 +178,50 @@ ipcMain.handle("tracker:pick-folder", async () => {
   return result.canceled ? null : (result.filePaths[0] ?? null);
 });
 
+/**
+ * One-time storage migration for the unsigned → Developer ID transition
+ * (v0.2.6). The old adhoc-signed builds created the "Tracker Safe Storage"
+ * keychain item, and its ACL is bound to that signature — so the signed app
+ * touching it (safeStorage.isEncryptionAvailable at boot) makes macOS throw
+ * a "wants to use your confidential information" password prompt, which
+ * reads as malware to users. Deleting the item needs no prompt (ACLs guard
+ * reading, not deleting); Electron mints a fresh item owned by this
+ * signature on next use. The old token ciphertext dies with the key, so the
+ * auth row is cleared too — the app simply shows signed-out and the user
+ * reconnects GitHub in-app.
+ */
+const STORAGE_GENERATION = 2;
+function migrateSafeStorageGeneration(): void {
+  if (process.platform !== "darwin") return;
+  const userData = app.getPath("userData");
+  const marker = path.join(userData, "storage-generation");
+  try {
+    if (readFileSync(marker, "utf8").trim() === String(STORAGE_GENERATION)) return;
+  } catch {
+    // No marker: pre-generation install (or fresh — deletions below no-op).
+  }
+  try {
+    execFileSync("security", ["delete-generic-password", "-s", "Tracker Safe Storage"], {
+      stdio: "ignore",
+    });
+  } catch {
+    // Item absent — fresh install or already migrated by hand.
+  }
+  try {
+    const db = new DatabaseSync(path.join(userData, "tracker.db"));
+    db.exec("DELETE FROM auth_account");
+    db.close();
+  } catch {
+    // No DB or no auth table yet — nothing stored under the old key.
+  }
+  mkdirSync(userData, { recursive: true });
+  writeFileSync(marker, String(STORAGE_GENERATION));
+}
+
 void app
   .whenReady()
   .then(async () => {
+    migrateSafeStorageGeneration();
     const splash = createSplash();
     const boot = (port: number) =>
       startServer({
