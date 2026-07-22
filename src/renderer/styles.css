@@ -3036,21 +3036,6 @@ a.chip-info:hover {
   color: var(--blue-500);
 }
 
-.provider-add-btn {
-  font: inherit;
-  font-size: var(--fs-sm);
-  color: var(--text-base);
-  background: var(--surface-raised);
-  border: 1px solid var(--border-base);
-  border-radius: var(--radius-md);
-  padding: 0.4rem 0.8rem;
-  cursor: pointer;
-}
-
-.provider-add-btn:hover {
-  background: var(--surface-raised-hover);
-}
-
 .provider-chip.warn {
   font-size: var(--fs-xs);
   color: var(--amber-600, #b45309);
@@ -3073,7 +3058,7 @@ a.chip-info:hover {
   position: relative;
 }
 
-.pp button.pp-trigger {
+.pp-trigger {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -3087,11 +3072,11 @@ a.chip-info:hover {
   cursor: pointer;
 }
 
-.pp button.pp-trigger:hover {
+.pp-trigger:hover {
   background: var(--surface-raised);
 }
 
-.pp button.pp-trigger svg {
+.pp-trigger svg {
   color: var(--text-faint);
 }
 
@@ -3109,7 +3094,7 @@ a.chip-info:hover {
   padding: 0.25rem;
 }
 
-.pp button.pp-option {
+.pp-option {
   display: flex;
   align-items: center;
   gap: 0.55rem;
@@ -3125,11 +3110,11 @@ a.chip-info:hover {
   cursor: pointer;
 }
 
-.pp button.pp-option:hover:not(:disabled) {
+.pp-option:hover:not(:disabled) {
   background: var(--surface-raised);
 }
 
-.pp button.pp-option:disabled {
+.pp-option:disabled {
   cursor: not-allowed;
   color: var(--text-muted);
 }
@@ -3161,36 +3146,6 @@ a.chip-info:hover {
 .pp-empty {
   padding: 0.5rem 0.6rem;
   font-size: var(--fs-sm);
-}
-
-/* Inside the promote form, the generic .promoteform button skin (including
-   its :first-child primary treatment) must not bleed into the picker. */
-.promoteform .pp button.pp-trigger {
-  background: var(--surface-input);
-  border: 1px solid var(--border-base);
-  border-radius: var(--radius-md);
-  color: var(--text-base);
-  padding: 0.35rem 0.6rem;
-}
-
-.promoteform .pp button.pp-trigger:hover:not(:disabled) {
-  background: var(--surface-raised);
-}
-
-.promoteform .pp button.pp-option {
-  background: none;
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--text-base);
-  padding: 0.45rem 0.55rem;
-}
-
-.promoteform .pp button.pp-option:hover:not(:disabled) {
-  background: var(--surface-raised);
-}
-
-.promoteform .pp button.pp-option:disabled {
-  color: var(--text-muted);
 }
 
 .icon-btn:disabled {
@@ -5714,36 +5669,10 @@ button.wfc-pill.label { cursor: pointer; }
   gap: 0.5rem;
 }
 
-/* App button grammar (home-empty-cta / wf-create-form): contrast primary,
-   raised secondary, both on --shadow-button. */
+/* Anatomy comes from .btn/.btn-primary; only the flow-column alignment
+   stays scoped. */
 .signin-primary {
-  background: var(--contrast-bg);
-  color: var(--contrast-fg);
-  border: none;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-button);
-  font: inherit;
-  padding: 0.4rem 0.9rem;
   align-self: flex-start;
-  cursor: pointer;
-}
-
-.signin-primary:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.signin-actions button:not(.signin-primary),
-.settings-row button,
-.settings-actions button {
-  background: var(--surface-raised);
-  border: none;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-button);
-  color: var(--text-base);
-  font: inherit;
-  padding: 0.4rem 0.9rem;
-  cursor: pointer;
 }
 
 /* -- Settings shell (ADR-0006) ------------------------------------------ */
@@ -5766,25 +5695,11 @@ button.wfc-pill.label { cursor: pointer; }
   gap: 0.15rem;
 }
 
+/* Layout over .btn-ghost anatomy. */
 .settings-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  background: none;
-  border: none;
-  border-radius: var(--radius-md);
-  font: inherit;
-  font-size: var(--fs-sm);
-  color: var(--text-muted);
   padding: 0.25rem 0.4rem;
   margin-bottom: 0.75rem;
-  cursor: pointer;
   align-self: flex-start;
-}
-
-.settings-back:hover {
-  background: var(--overlay-hover);
-  color: var(--text-base);
 }
 
 .settings-nav-group {
@@ -5897,7 +5812,3 @@ button.wfc-pill.label { cursor: pointer; }
   font-weight: 500;
 }
 
-.settings-card button.danger {
-  color: var(--red-500);
-  border-color: currentColor;
-}

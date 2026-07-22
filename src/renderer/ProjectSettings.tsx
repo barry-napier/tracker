@@ -263,7 +263,7 @@ export function ProviderConfigSection() {
                   <div className="provider-form-foot">
                     <button
                       type="button"
-                      className="danger"
+                      className="btn btn-danger"
                       onClick={() => void remove(instance.id)}
                     >
                       Delete
@@ -279,7 +279,7 @@ export function ProviderConfigSection() {
         <div className="provider-catalog">
           <div className="provider-catalog-head">
             <span>Choose a provider</span>
-            <button type="button" onClick={() => setAdding(false)}>
+            <button type="button" className="btn btn-sm" onClick={() => setAdding(false)}>
               Cancel
             </button>
           </div>
@@ -300,7 +300,7 @@ export function ProviderConfigSection() {
           ))}
         </div>
       ) : (
-        <button type="button" className="provider-add-btn" onClick={() => setAdding(true)}>
+        <button type="button" className="btn" onClick={() => setAdding(true)}>
           + Add provider
         </button>
       )}

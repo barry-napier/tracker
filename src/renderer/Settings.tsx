@@ -15,7 +15,7 @@ export function SettingsShell() {
   return (
     <div className="settings">
       <nav className="settings-nav">
-        <button type="button" className="settings-back" onClick={() => navigate("/")}>
+        <button type="button" className="btn btn-ghost settings-back" onClick={() => navigate("/")}>
           <Icon name="chevron-left" size={14} /> Back to app
         </button>
         <div className="settings-nav-group dim">Account</div>
@@ -99,17 +99,17 @@ export function SettingsGeneral() {
           <span className="settings-actions">
             <button
               type="button"
-              className="danger"
+              className="btn btn-danger"
               onClick={() => void signOut().then(() => refresh())}
             >
               Confirm sign out
             </button>
-            <button type="button" onClick={() => setConfirming(false)}>
+            <button type="button" className="btn" onClick={() => setConfirming(false)}>
               Keep me signed in
             </button>
           </span>
         ) : (
-          <button type="button" onClick={() => setConfirming(true)}>
+          <button type="button" className="btn" onClick={() => setConfirming(true)}>
             Sign out
           </button>
         )}
@@ -136,7 +136,7 @@ export function SettingsConnections() {
           )}
         </div>
         {user ? (
-          <button type="button" onClick={() => void signOut().then(() => refresh())}>
+          <button type="button" className="btn" onClick={() => void signOut().then(() => refresh())}>
             Disconnect
           </button>
         ) : (
