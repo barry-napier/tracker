@@ -1,7 +1,7 @@
 {
   "name": "tracker",
   "productName": "Tracker",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "private": true,
   "description": "Tracker desktop app",
   "type": "module",
@@ -40,8 +40,11 @@
         }
       ],
       "category": "public.app-category.developer-tools",
-      "type": "development",
-      "identity": "Apple Development: barry Napier (7A3BU2H4Z7)"
+      "type": "distribution",
+      "identity": "barry Napier (B45SDP2V36)",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "notarize": true
     },
     "publish": {
       "provider": "github",
