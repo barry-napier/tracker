@@ -17,7 +17,14 @@ import type { PreviewManager } from "./previews.ts";
 import type { Reviews } from "./reviews.ts";
 import { RunLogRegistry } from "./runlog.ts";
 import { draftToTicketInput, runIntakeTurn } from "./intake.ts";
-import { INTAKE_KINDS, isIntakeKind, type IntakeDraft } from "./types.ts";
+import {
+  INTAKE_KINDS,
+  isIntakeKind,
+  isTicketKind,
+  TICKET_KINDS,
+  type IntakeBreakdown,
+  type IntakeDraft,
+} from "./types.ts";
 import { DraftInvalidError, NotFoundError, StateError, ValidationError, type Store } from "./store.ts";
 import type { DoneSweeper } from "./sweep.ts";
 import { parseTimeOfDay } from "./automation-schedule.ts";
@@ -422,6 +429,7 @@ export function createApp(
       const updated = store.updateIntakeSession(sessionId, {
         transcript: [...turns, outcome.turn],
         draft: "draft" in outcome.turn ? outcome.turn.draft : undefined,
+        breakdown: "breakdown" in outcome.turn ? outcome.turn.breakdown : undefined,
       });
       return { status: 200, body: updated };
     } finally {
@@ -492,7 +500,37 @@ export function createApp(
     const id = Number(c.req.param("id"));
     const session = store.getIntakeSession(id);
     if (!session) return c.json({ error: "not found" }, 404);
-    const body = await c.req.json<{ draft?: IntakeDraft }>().catch(() => ({}) as { draft?: IntakeDraft });
+    const body = await c.req
+      .json<{ draft?: IntakeDraft; breakdown?: IntakeBreakdown }>()
+      .catch(() => ({}) as { draft?: IntakeDraft; breakdown?: IntakeBreakdown });
+
+    // Initiative sessions approve a breakdown: every ticket in it lands in
+    // Backlog as its own feature/bug; remaining fog keeps the session open.
+    if (session.kind === "initiative") {
+      const breakdown = body.breakdown ?? session.breakdown;
+      if (!breakdown) return c.json({ error: "no breakdown to approve yet" }, 400);
+      if (!Array.isArray(breakdown.tickets) || breakdown.tickets.length === 0) {
+        return c.json({ error: "the breakdown has no tickets to approve" }, 400);
+      }
+      for (const t of breakdown.tickets) {
+        if (
+          !isTicketKind(t?.kind) ||
+          !isNonEmptyString(t?.title) ||
+          !Array.isArray(t?.acs) ||
+          t.acs.length === 0 ||
+          !t.acs.every((ac) => isNonEmptyString(ac?.text))
+        ) {
+          return c.json(
+            { error: "every breakdown ticket needs a kind (bug|feature), title, and at least one AC" },
+            400,
+          );
+        }
+      }
+      const inputs = breakdown.tickets.map((t) => ({ kind: t.kind, ...draftToTicketInput(t) }));
+      const { session: updated, tickets } = store.approveIntakeBreakdown(id, breakdown, inputs);
+      return c.json({ session: updated, tickets }, 201);
+    }
+
     // The human's edited draft wins; the session's stands otherwise.
     const draft = body.draft ?? session.draft;
     if (!draft) return c.json({ error: "no draft to approve yet" }, 400);
@@ -878,8 +916,8 @@ export function createApp(
     if (!isNonEmptyString(body.title)) {
       return c.json({ error: "title is required" }, 400);
     }
-    if (body.kind !== undefined && !isIntakeKind(body.kind)) {
-      return c.json({ error: `kind must be one of ${INTAKE_KINDS.join(", ")}` }, 400);
+    if (body.kind !== undefined && !isTicketKind(body.kind)) {
+      return c.json({ error: `kind must be one of ${TICKET_KINDS.join(", ")}` }, 400);
     }
     const acs = body.acceptanceCriteria ?? [];
     if (!Array.isArray(acs) || !acs.every(isNonEmptyString)) {

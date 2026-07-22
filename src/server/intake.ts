@@ -1,12 +1,15 @@
 import type { AgentEvent, Provider } from "./provider.ts";
 import type { RunLog } from "./runlog.ts";
 import { RunLogRegistry } from "./runlog.ts";
-import type {
-  IntakeAcDraft,
-  IntakeDraft,
-  IntakeKind,
-  IntakeQuestion,
-  IntakeTurn,
+import {
+  isTicketKind,
+  type IntakeAcDraft,
+  type IntakeBreakdown,
+  type IntakeDraft,
+  type IntakeKind,
+  type IntakeQuestion,
+  type IntakeTicketDraft,
+  type IntakeTurn,
 } from "./types.ts";
 
 /**
@@ -32,14 +35,38 @@ export interface IntakeFailure {
   error: string;
 }
 
-const CONTRACT = `Answer with exactly one fenced JSON block and nothing after it. It must be ONE of:
-
-A question — one real decision, options numbered for a quick reply:
+const QUESTION_CONTRACT = `A question — one real decision, options numbered for a quick reply:
 \`\`\`json
 {"question": {"text": "<the decision, concretely>",
   "options": ["<option 1>", "<option 2>"],
   "why": "<why the repo's docs/code cannot answer this>"}}
-\`\`\`
+\`\`\``;
+
+/** Initiative sessions answer with a question or the Wayfinder breakdown. */
+const BREAKDOWN_CONTRACT = `Answer with exactly one fenced JSON block and nothing after it. It must be ONE of:
+
+${QUESTION_CONTRACT}
+
+Or the breakdown — the way is clear enough to ticket:
+\`\`\`json
+{"breakdown": {
+  "destination": "<one or two lines: what reaching the end of this effort looks like>",
+  "tickets": [
+    {"kind": "feature",
+     "title": "<sharp imperative title>",
+     "description": "<full ticket body in the feature format (## Why / ## What / ## Out of scope), naming authority documents>",
+     "acs": [{"text": "<criterion>", "route": "check", "checkSketch": "<calibratable shell sketch — fails today, passes after>"},
+             {"text": "<criterion>", "route": "human", "humanReason": "<why judgment>"}]},
+    {"kind": "bug", "title": "…", "description": "<## Observed / ## Expected / ## Reproduction / ## Suspected cause>", "acs": [ … ]}
+  ],
+  "notYetSpecified": ["<fog: a coming decision you cannot state precisely yet — coarser than a ticket>"],
+  "outOfScope": ["<ruled out, with why>"]},
+ "note": "<optional: one sentence on what you resolved from the repo without asking>"}
+\`\`\``;
+
+const CONTRACT = `Answer with exactly one fenced JSON block and nothing after it. It must be ONE of:
+
+${QUESTION_CONTRACT}
 
 Or the finished draft:
 \`\`\`json
@@ -87,22 +114,17 @@ ACs for a bug: at least one check-routed AC that reproduces the defect (fails to
 <what a reasonable implementer might include but must not>
 
 ACs for a feature: each user-visible behavior gets its own AC, routed to a check where a script can decide it and to human where only judgment can.`,
-  initiative: `Create a LARGE INITIATIVE ticket based on the following format. The description must fill every section:
+  initiative: `This is a LARGE INITIATIVE — a wayfinding session, not a ticket. An initiative NEVER becomes a board ticket; your output is a BREAKDOWN of concrete feature/bug tickets, plus the fog you deliberately did not ticket.
 
-## Goal
-<the end state, one paragraph>
-
-## Motivation
-<why now; what it unblocks>
-
-## Scope
-In: <bulleted>
-Out: <bulleted — be aggressive here; initiatives die of scope>
-
-## Suggested breakdown
-<3-7 candidate child tickets, one line each — this ticket is the umbrella; the breakdown seeds the follow-up tickets>
-
-ACs for an initiative: define "done" for the umbrella itself (e.g. every child ticket filed, a measurable end state reached) — mostly human-routed, with checks only where an end state is mechanically observable.`,
+Work it in this order:
+1. NAME THE DESTINATION first — grill until you can state, in one or two lines, what reaching the end of this effort looks like. The destination fixes the scope; every later question is measured against it.
+2. BREADTH-FIRST GRILL — fan out across the whole space rather than deep on any one thread: surface the open decisions and the first steps takeable now. Research the repo between questions; never ask what it already answers.
+3. EMIT THE BREAKDOWN — only tickets whose question is already sharp:
+   - Each ticket is a FEATURE or a BUG (never another initiative), individually buildable, with its own routed ACs — same bar as a standalone ticket (feature: Why/What/Out of scope; bug: Observed/Expected/Reproduction/Suspected cause).
+   - FOG OF WAR: decisions you can tell are coming but cannot state precisely yet go in notYetSpecified — NEVER pre-slice fog into vague tickets. The test is whether the question can be stated precisely now, not whether it can be answered now.
+   - Work consciously ruled beyond the destination goes in outOfScope with the reason.
+   - If the opening grill surfaces NO fog and the work fits one or two tickets, just emit that small breakdown — say so in the note.
+Plan, don't do: every ticket you emit is a decision already made; nothing in the breakdown should still be a question.`,
 };
 
 const RULES = `Rules — these are hard:
@@ -118,6 +140,7 @@ function transcriptLines(intent: string, turns: IntakeTurn[]): string {
   for (const turn of turns) {
     if (turn.role === "user") lines.push(`Requester answered: ${turn.text}`);
     else if ("question" in turn) lines.push(`You asked: ${turn.question.text}`);
+    else if ("breakdown" in turn) lines.push(`You emitted a breakdown: ${JSON.stringify(turn.breakdown)}`);
     else lines.push(`You drafted: ${JSON.stringify(turn.draft)}`);
   }
   return lines.join("\n");
@@ -133,9 +156,13 @@ ${RULES}
 Conversation so far:
 ${transcriptLines(intent, turns)}
 
-${turns.some((t) => t.role === "agent") ? "Continue: either ask the next real question, or emit the draft if nothing real remains." : "Begin by researching the repo, then ask your first question or emit the draft."}
+${
+    turns.some((t) => t.role === "agent")
+      ? `Continue: either ask the next real question, or emit the ${kind === "initiative" ? "breakdown" : "draft"} if nothing real remains.`
+      : `Begin by researching the repo, then ask your first question or emit the ${kind === "initiative" ? "breakdown" : "draft"}.`
+  }
 
-${CONTRACT}`;
+${kind === "initiative" ? BREAKDOWN_CONTRACT : CONTRACT}`;
 }
 
 function shapedAc(value: unknown): IntakeAcDraft | undefined {
@@ -160,7 +187,12 @@ export function parseIntakeResponse(text: string): IntakeAgentTurn | IntakeFailu
   } catch {
     return { ok: false, error: "the model's answer contained no parseable JSON block" };
   }
-  const body = parsed as { question?: unknown; draft?: unknown; note?: unknown };
+  const body = parsed as {
+    question?: unknown;
+    draft?: unknown;
+    breakdown?: unknown;
+    note?: unknown;
+  };
 
   if (body.question !== undefined) {
     const q = body.question as Partial<IntakeQuestion>;
@@ -192,7 +224,53 @@ export function parseIntakeResponse(text: string): IntakeAgentTurn | IntakeFailu
     return { ok: true, turn };
   }
 
-  return { ok: false, error: "the model's JSON carried neither question nor draft" };
+  if (body.breakdown !== undefined) {
+    const b = body.breakdown as Partial<IntakeBreakdown>;
+    if (typeof b?.destination !== "string" || b.destination.trim() === "" || !Array.isArray(b.tickets)) {
+      return { ok: false, error: "the model's breakdown was missing destination or tickets" };
+    }
+    const tickets = b.tickets.map(shapedTicketDraft);
+    if (tickets.some((t) => t === undefined)) {
+      return { ok: false, error: "the model's breakdown had a malformed ticket" };
+    }
+    const strings = (value: unknown): string[] =>
+      Array.isArray(value)
+        ? value.filter((s): s is string => typeof s === "string" && s.trim() !== "")
+        : [];
+    const breakdown: IntakeBreakdown = {
+      destination: b.destination.trim(),
+      tickets: tickets as IntakeTicketDraft[],
+      notYetSpecified: strings(b.notYetSpecified),
+      outOfScope: strings(b.outOfScope),
+    };
+    if (breakdown.tickets.length === 0 && breakdown.notYetSpecified.length === 0) {
+      return { ok: false, error: "the model's breakdown carried no tickets and no fog" };
+    }
+    const turn: { role: "agent"; breakdown: IntakeBreakdown; note?: string } = {
+      role: "agent",
+      breakdown,
+    };
+    if (typeof body.note === "string" && body.note.trim() !== "") turn.note = body.note;
+    return { ok: true, turn };
+  }
+
+  return { ok: false, error: "the model's JSON carried neither question, draft, nor breakdown" };
+}
+
+/** A breakdown ticket: a full draft plus a board kind — never an initiative. */
+function shapedTicketDraft(value: unknown): IntakeTicketDraft | undefined {
+  const t = value as Partial<IntakeTicketDraft>;
+  if (!isTicketKind(t?.kind)) return undefined;
+  if (typeof t.title !== "string" || t.title.trim() === "") return undefined;
+  if (typeof t.description !== "string" || !Array.isArray(t.acs)) return undefined;
+  const acs = t.acs.map(shapedAc);
+  if (acs.length === 0 || acs.some((ac) => ac === undefined)) return undefined;
+  return {
+    kind: t.kind,
+    title: t.title.trim(),
+    description: t.description,
+    acs: acs as IntakeAcDraft[],
+  };
 }
 
 /** Concatenated `text` blocks, teeing every event into the session log. */

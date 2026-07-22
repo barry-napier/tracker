@@ -249,7 +249,122 @@ describe("buildIntakePrompt", () => {
   test("leads with the kind's ticket template", async () => {
     const { buildIntakePrompt } = await import("../src/server/intake.ts");
     expect(buildIntakePrompt("bug", "x", [])).toContain("Create a BUG ticket based on the following format");
-    expect(buildIntakePrompt("initiative", "x", [])).toContain("Suggested breakdown");
+    expect(buildIntakePrompt("initiative", "x", [])).toContain("NAME THE DESTINATION");
+    expect(buildIntakePrompt("initiative", "x", [])).toContain("notYetSpecified");
     expect(buildIntakePrompt("feature", "x", [])).toContain("Out of scope");
+  });
+});
+
+const BREAKDOWN = `\`\`\`json\n${JSON.stringify({
+  breakdown: {
+    destination: "Provider seam supports streaming partial text everywhere",
+    tickets: [
+      {
+        kind: "feature",
+        title: "Stream deltas in the workflow chat",
+        description: "## Why\nx\n\n## What\ny\n\n## Out of scope\nz",
+        acs: [{ text: "Chat renders deltas", route: "human", humanReason: "visual" }],
+      },
+      {
+        kind: "bug",
+        title: "Log view drops unclosed blocks",
+        description: "## Observed\nx\n\n## Expected\ny\n\n## Reproduction\n1. z\n\n## Suspected cause\nq",
+        acs: [{ text: "Unclosed blocks render", route: "check", checkSketch: "exit 1" }],
+      },
+    ],
+    notYetSpecified: ["Cost reporting shape for streamed runs"],
+    outOfScope: ["Rewriting the ACP transport"],
+  },
+  note: "Named the destination from the intent without asking.",
+})}\n\`\`\``;
+
+describe("initiative sessions (wayfinder-shaped)", () => {
+  test("breakdown → approve files feature/bug tickets; fog keeps the session open", async () => {
+    const server = await bootServer(undefined, {
+      providers: { "claude-code": chattyProvider(BREAKDOWN) },
+    });
+    const { project, repo } = await seedWorkspace(server);
+    const session = (
+      await api(server, "POST", "/api/intake", {
+        projectId: project.id,
+        repoId: repo.id,
+        kind: "initiative",
+        intent: "streaming everywhere",
+      })
+    ).json;
+
+    const charted = await api(server, "POST", `/api/intake/${session.id}/retry`, {});
+    expect(charted.status).toBe(200);
+    expect(charted.json.status).toBe("drafted");
+    expect(charted.json.draft).toBeNull();
+    expect(charted.json.breakdown.tickets).toHaveLength(2);
+    expect(charted.json.breakdown.notYetSpecified).toHaveLength(1);
+
+    const approved = await api(server, "POST", `/api/intake/${session.id}/approve`, {});
+    expect(approved.status).toBe(201);
+    expect(approved.json.tickets).toHaveLength(2);
+    expect(approved.json.tickets.map((t: { kind: string }) => t.kind)).toEqual([
+      "feature",
+      "bug",
+    ]);
+    expect(approved.json.tickets[0].state).toBe("backlog");
+    expect(approved.json.tickets[1].description).toContain("## Suggested checks");
+    // Fog remains → the session stays open with an emptied ticket batch.
+    expect(approved.json.session.status).toBe("drafted");
+    expect(approved.json.session.breakdown.tickets).toHaveLength(0);
+    expect(approved.json.session.breakdown.notYetSpecified).toHaveLength(1);
+    // Nothing left to file → a second approve is refused.
+    expect((await api(server, "POST", `/api/intake/${session.id}/approve`, {})).status).toBe(400);
+  });
+
+  test("a fog-free breakdown closes the session on approval", async () => {
+    const clear = BREAKDOWN.replace(
+      '"notYetSpecified":["Cost reporting shape for streamed runs"]',
+      '"notYetSpecified":[]',
+    );
+    const server = await bootServer(undefined, {
+      providers: { "claude-code": chattyProvider(clear) },
+    });
+    const { project, repo } = await seedWorkspace(server);
+    const session = (
+      await api(server, "POST", "/api/intake", {
+        projectId: project.id,
+        repoId: repo.id,
+        kind: "initiative",
+        intent: "streaming everywhere",
+      })
+    ).json;
+    await api(server, "POST", `/api/intake/${session.id}/retry`, {});
+    const approved = await api(server, "POST", `/api/intake/${session.id}/approve`, {});
+    expect(approved.status).toBe(201);
+    expect(approved.json.session.status).toBe("approved");
+  });
+
+  test("initiative never lands as a ticket kind", async () => {
+    const server = await bootServer(undefined, {
+      providers: { "claude-code": chattyProvider(BREAKDOWN) },
+    });
+    const { project } = await seedWorkspace(server);
+    const refused = await api(server, "POST", "/api/tickets", {
+      projectId: project.id,
+      title: "umbrella",
+      kind: "initiative",
+      acceptanceCriteria: ["x"],
+    });
+    expect(refused.status).toBe(400);
+  });
+});
+
+describe("parseIntakeResponse breakdown shape", () => {
+  test("rejects initiative-kind tickets and empty breakdowns", () => {
+    const bad = (b: unknown) =>
+      parseIntakeResponse(`\`\`\`json\n${JSON.stringify({ breakdown: b })}\n\`\`\``).ok;
+    expect(
+      bad({ destination: "d", tickets: [{ kind: "initiative", title: "t", description: "d", acs: [{ text: "a", route: "human" }] }], notYetSpecified: [] }),
+    ).toBe(false);
+    expect(bad({ destination: "d", tickets: [], notYetSpecified: [] })).toBe(false);
+    expect(
+      bad({ destination: "d", tickets: [], notYetSpecified: ["fog remains"] }),
+    ).toBe(true);
   });
 });

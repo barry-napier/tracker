@@ -695,6 +695,15 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
       ALTER TABLE tickets ADD COLUMN kind TEXT NOT NULL DEFAULT 'feature';
     `,
   },
+  {
+    version: 28,
+    sql: `
+      -- Initiatives became a session mode (Wayfinder-shaped), never a board
+      -- ticket: an initiative session emits feature/bug tickets. Normalize
+      -- any ticket rows that predate the rule.
+      UPDATE tickets SET kind = 'feature' WHERE kind NOT IN ('bug', 'feature');
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

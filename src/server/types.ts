@@ -122,10 +122,10 @@ export interface Ticket {
   title: string;
   description: string;
   state: TicketState;
-  /** What the ticket is about (bug | feature | initiative); set at intake
-   *  approval, defaulted to feature for API-created tickets. Drives the
-   *  Jira-style type icon on cards. */
-  kind: IntakeKind;
+  /** What the ticket is about (bug | feature); set at intake approval,
+   *  defaulted to feature for API-created tickets. Drives the Jira-style
+   *  type icon on cards. */
+  kind: TicketKind;
   /** Null until promotion; promotion targets exactly one Repo. */
   repoId: number | null;
   /** Null until promotion; picked per-ticket, defaulted from the Project. */
@@ -620,11 +620,20 @@ export interface AuditEvent {
 export const INTAKE_STATUSES = ["active", "drafted", "approved", "discarded"] as const;
 export type IntakeStatus = (typeof INTAKE_STATUSES)[number];
 
-/** What the ticket is about — picked up front; selects the ticket template. */
+/** What an intake session is about — picked up front; selects the flow.
+ *  "initiative" is Wayfinder-shaped and never lands on the board itself:
+ *  its output is a batch of feature/bug tickets. */
 export const INTAKE_KINDS = ["bug", "feature", "initiative"] as const;
 export type IntakeKind = (typeof INTAKE_KINDS)[number];
 export function isIntakeKind(value: unknown): value is IntakeKind {
   return typeof value === "string" && (INTAKE_KINDS as readonly string[]).includes(value);
+}
+
+/** What a board ticket can be — initiatives are a session mode, never a ticket. */
+export const TICKET_KINDS = ["bug", "feature"] as const;
+export type TicketKind = (typeof TICKET_KINDS)[number];
+export function isTicketKind(value: unknown): value is TicketKind {
+  return typeof value === "string" && (TICKET_KINDS as readonly string[]).includes(value);
 }
 
 /** One decision the repo could not answer — the only kind worth asking. */
@@ -654,11 +663,31 @@ export interface IntakeDraft {
   acs: IntakeAcDraft[];
 }
 
+/** One buildable ticket inside an initiative breakdown — always a board
+ *  kind (bug | feature), never another initiative. */
+export interface IntakeTicketDraft extends IntakeDraft {
+  kind: TicketKind;
+}
+
+/**
+ * The Wayfinder-shaped output of an initiative session: the named
+ * destination, the tickets sharp enough to build now, and the fog — what's
+ * coming but can't be stated precisely yet (never ticketed), plus what was
+ * consciously ruled out of scope.
+ */
+export interface IntakeBreakdown {
+  destination: string;
+  tickets: IntakeTicketDraft[];
+  notYetSpecified: string[];
+  outOfScope: string[];
+}
+
 /** The conversation as stored: user answers and agent turns interleaved. */
 export type IntakeTurn =
   | { role: "user"; text: string }
   | { role: "agent"; question: IntakeQuestion }
-  | { role: "agent"; draft: IntakeDraft; note?: string };
+  | { role: "agent"; draft: IntakeDraft; note?: string }
+  | { role: "agent"; breakdown: IntakeBreakdown; note?: string };
 
 export interface IntakeSession {
   id: number;
@@ -669,8 +698,11 @@ export interface IntakeSession {
   kind: IntakeKind;
   intent: string;
   transcript: IntakeTurn[];
+  /** Bug/feature sessions: the single ticket draft. Null for initiatives. */
   draft: IntakeDraft | null;
-  /** Set on approval — the ticket the draft became. */
+  /** Initiative sessions: the Wayfinder breakdown. Null otherwise. */
+  breakdown: IntakeBreakdown | null;
+  /** Set on approval — the ticket the draft became (bug/feature only). */
   ticketId: number | null;
   createdAt: string;
   updatedAt: string;

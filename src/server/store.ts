@@ -20,11 +20,13 @@ import type {
   FollowUpSeed,
   GateResult,
   GateStatus,
+  IntakeBreakdown,
   IntakeDraft,
   IntakeKind,
   IntakeSession,
   IntakeStatus,
   IntakeTurn,
+  TicketKind,
   PhaseExecution,
   PreviewKind,
   PreviewRecord,
@@ -308,7 +310,7 @@ export class Store {
     title: string;
     description?: string;
     externalRef?: string;
-    kind?: IntakeKind;
+    kind?: TicketKind;
     acceptanceCriteria: string[];
   }): TicketWithAcs {
     const project = this.getProject(input.projectId);
@@ -1867,7 +1869,15 @@ export class Store {
       kind: String(row.kind) as IntakeKind,
       intent: String(row.intent),
       transcript: JSON.parse(String(row.transcript)) as IntakeTurn[],
-      draft: row.draft === null ? null : (JSON.parse(String(row.draft)) as IntakeDraft),
+      // One storage column, two shapes: the session's kind says which.
+      draft:
+        row.draft === null || String(row.kind) === "initiative"
+          ? null
+          : (JSON.parse(String(row.draft)) as IntakeDraft),
+      breakdown:
+        row.draft === null || String(row.kind) !== "initiative"
+          ? null
+          : (JSON.parse(String(row.draft)) as IntakeBreakdown),
       ticketId: row.ticket_id === null ? null : Number(row.ticket_id),
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
@@ -1884,14 +1894,20 @@ export class Store {
       .map((row) => this.getIntakeSession(Number(row.id))!);
   }
 
-  /** Replace transcript (and draft, when the agent produced one) after a turn. */
+  /** Replace transcript (and draft/breakdown, when the agent produced one)
+   *  after a turn. Both shapes share the draft storage column. */
   updateIntakeSession(
     id: number,
-    patch: { transcript: IntakeTurn[]; draft?: IntakeDraft | null },
+    patch: {
+      transcript: IntakeTurn[];
+      draft?: IntakeDraft | null;
+      breakdown?: IntakeBreakdown | null;
+    },
   ): IntakeSession {
     const session = this.getIntakeSession(id);
     if (!session) throw new NotFoundError(`intake session ${id} not found`);
-    const draft = patch.draft === undefined ? session.draft : patch.draft;
+    const stored = patch.breakdown ?? patch.draft;
+    const draft = stored === undefined ? (session.draft ?? session.breakdown) : stored;
     const status = draft !== null ? "drafted" : "active";
     this.db
       .prepare(
@@ -1922,6 +1938,9 @@ export class Store {
     if (session.status !== "drafted" && session.status !== "active") {
       throw new StateError(`intake session ${id} is ${session.status}`);
     }
+    if (session.kind === "initiative") {
+      throw new StateError("initiative sessions approve a breakdown, not a single draft");
+    }
     const ticket = this.createTicket({
       projectId: session.projectId,
       kind: session.kind,
@@ -1931,6 +1950,41 @@ export class Store {
       .prepare("UPDATE intake_sessions SET status = 'approved', ticket_id = ?, updated_at = ? WHERE id = ?")
       .run(ticket.id, nowIso(), id);
     return { session: this.getIntakeSession(id)!, ticket };
+  }
+
+  /**
+   * Materialize an initiative breakdown's tickets into the Backlog. The
+   * emitted tickets leave the breakdown; remaining fog (Not yet specified)
+   * keeps the session open for another round of grilling — the session only
+   * closes when nothing sharp or foggy remains.
+   */
+  approveIntakeBreakdown(
+    id: number,
+    breakdown: IntakeBreakdown,
+    ticketInputs: Array<{
+      kind: TicketKind;
+      title: string;
+      description: string;
+      acceptanceCriteria: string[];
+    }>,
+  ): { session: IntakeSession; tickets: TicketWithAcs[] } {
+    const session = this.getIntakeSession(id);
+    if (!session) throw new NotFoundError(`intake session ${id} not found`);
+    if (session.kind !== "initiative") {
+      throw new StateError("only initiative sessions carry a breakdown");
+    }
+    if (session.status !== "drafted" && session.status !== "active") {
+      throw new StateError(`intake session ${id} is ${session.status}`);
+    }
+    const tickets = ticketInputs.map((input) =>
+      this.createTicket({ projectId: session.projectId, ...input }),
+    );
+    const remaining: IntakeBreakdown = { ...breakdown, tickets: [] };
+    const done = remaining.notYetSpecified.length === 0;
+    this.db
+      .prepare("UPDATE intake_sessions SET draft = ?, status = ?, updated_at = ? WHERE id = ?")
+      .run(JSON.stringify(remaining), done ? "approved" : "drafted", nowIso(), id);
+    return { session: this.getIntakeSession(id)!, tickets };
   }
 
   discardIntakeSession(id: number): IntakeSession {

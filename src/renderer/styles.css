@@ -6393,3 +6393,77 @@ button.wfc-pill.label { cursor: pointer; }
   margin: 0.3rem 0 0 2.1rem;
   font-size: var(--fs-xs);
 }
+
+/* Initiative breakdown card */
+.intake-bd-dest {
+  margin: 0;
+  font-size: var(--fs-base);
+  line-height: 1.5;
+}
+
+.intake-bd-filed {
+  margin: 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-md);
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  font-size: var(--fs-sm);
+}
+
+.intake-bd-ticket {
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken-faint);
+  padding: 0.5rem 0.7rem;
+}
+
+.intake-bd-ticket summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.intake-bd-ticket summary::-webkit-details-marker {
+  display: none;
+}
+
+.intake-bd-ticket summary::before {
+  content: "▸";
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+}
+
+.intake-bd-ticket[open] summary::before {
+  content: "▾";
+}
+
+.intake-bd-title {
+  flex: 1;
+  font-weight: 500;
+}
+
+.intake-bd-body {
+  margin-top: 0.6rem;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  font-size: var(--fs-base);
+}
+
+.intake-bd-fog {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: var(--fs-base);
+  line-height: 1.5;
+}
+
+.intake-bd-fog li {
+  margin-bottom: 0.25rem;
+}
+
+.intake-bd-hint {
+  margin: 0.2rem 0 0;
+  font-size: var(--fs-xs);
+}

@@ -3,9 +3,11 @@ import { useNavigate } from "react-router";
 import {
   PROVIDERS,
   type IntakeAcDraft,
+  type IntakeBreakdown,
   type IntakeDraft,
   type IntakeKind,
   type IntakeSession,
+  type IntakeTicketDraft,
   type IntakeTurn,
   type Project,
   type ProviderName,
@@ -35,8 +37,9 @@ const INTAKE_KIND_CARDS: Array<{ key: IntakeKind; label: string; blurb: string; 
   {
     key: "initiative",
     label: "Large initiative",
-    blurb: "A big goal. The agent scopes it hard and sketches the child-ticket breakdown.",
-    hint: "What's the big goal? The agent will scope it with you.",
+    blurb:
+      "A big, foggy goal. Wayfinder-style: name the destination, grill breadth-first, and file only the feature/bug tickets that are sharp — the board never sees an initiative.",
+    hint: "What's the destination? The agent will chart the way with you.",
   },
 ];
 
@@ -258,6 +261,19 @@ function TranscriptTurn({ turn }: { turn: IntakeTurn }) {
       </div>
     );
   }
+  if ("breakdown" in turn) {
+    const b = turn.breakdown;
+    return (
+      <div className="intake-turn intake-turn-agent">
+        <p>
+          Charted <strong>{b.destination}</strong> — {b.tickets.length} ticket
+          {b.tickets.length === 1 ? "" : "s"}
+          {b.notYetSpecified.length > 0 && `, ${b.notYetSpecified.length} still in the fog`}.
+          {turn.note ? ` ${turn.note}` : ""}
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="intake-turn intake-turn-agent">
       <p>
@@ -265,6 +281,63 @@ function TranscriptTurn({ turn }: { turn: IntakeTurn }) {
         {turn.draft.acs.length === 1 ? "" : "s"}.{turn.note ? ` ${turn.note}` : ""}
       </p>
     </div>
+  );
+}
+
+/** One breakdown ticket, read-mode: collapsed to its title row, zoomable. */
+function BreakdownTicket({
+  ticket,
+  onRemove,
+}: {
+  ticket: IntakeTicketDraft;
+  onRemove: () => void;
+}) {
+  return (
+    <details className="intake-bd-ticket">
+      <summary>
+        <KindIcon kind={ticket.kind} size={14} />
+        <span className="intake-bd-title">{ticket.title}</span>
+        <span className="dim">
+          {ticket.acs.length} AC{ticket.acs.length === 1 ? "" : "s"}
+        </span>
+        <button
+          type="button"
+          className="intake-ac-remove"
+          title="Drop from this batch (it will not be filed)"
+          onClick={(e) => {
+            e.preventDefault();
+            onRemove();
+          }}
+        >
+          ✕
+        </button>
+      </summary>
+      <div className="intake-bd-body">
+        <Markdown text={ticket.description} />
+        <ol className="intake-ac-list">
+          {ticket.acs.map((ac, i) => (
+            <li key={i} className="intake-ac-item">
+              <div className="intake-ac-row">
+                <span className="intake-ac-n dim">AC {i + 1}</span>
+                <span className="intake-ac-text">{ac.text}</span>
+                <span className={ac.route === "check" ? "chip chip-ok" : "chip chip-warn"}>
+                  {ac.route === "check" ? "✓ scripted check" : "human judgment"}
+                </span>
+              </div>
+              {ac.route === "check" && ac.checkSketch && (
+                <details className="intake-ac-sketch">
+                  <summary className="dim">check sketch</summary>
+                  <pre>{ac.checkSketch}</pre>
+                </details>
+              )}
+              {ac.route === "human" && ac.humanReason && (
+                <p className="dim intake-ac-reason">why human: {ac.humanReason}</p>
+              )}
+            </li>
+          ))}
+        </ol>
+      </div>
+    </details>
   );
 }
 
@@ -328,6 +401,8 @@ export function IntakeView({
   const [error, setError] = useState<string | null>(null);
   const [answer, setAnswer] = useState("");
   const [draft, setDraft] = useState<IntakeDraft | null>(null);
+  const [breakdown, setBreakdown] = useState<IntakeBreakdown | null>(null);
+  const [filedNote, setFiledNote] = useState<string | null>(null);
   // Agent activity is a peek, not the point — collapsed unless asked for.
   const [showActivity, setShowActivity] = useState(false);
   // The draft reads as a ticket by default; the form is opt-in.
@@ -340,6 +415,7 @@ export function IntakeView({
   const apply = (next: IntakeSession) => {
     setSession(next);
     setDraft(next.draft);
+    setBreakdown(next.breakdown);
   };
 
   /**
@@ -424,6 +500,7 @@ export function IntakeView({
   // the input surface; the draft panel stays for reference either way.
   const asking = !busy && open && last !== null && "question" in last;
   const drafted = !busy && open && draft !== null && !asking;
+  const charted = !busy && open && breakdown !== null && !asking;
 
   const approve = async () => {
     if (!draft) return;
@@ -432,6 +509,31 @@ export function IntakeView({
     try {
       await apiPost<{ ticket: TicketWithAcs }>(`/api/intake/${sessionId}/approve`, { draft });
       navigate(`/projects/${projectId}`);
+    } catch (e) {
+      setError(errorMessage(e));
+      setBusy(false);
+    }
+  };
+
+  /** Initiative approval: file the batch; fog keeps the session open. */
+  const approveBreakdown = async () => {
+    if (!breakdown || breakdown.tickets.length === 0) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await apiPost<{ session: IntakeSession; tickets: TicketWithAcs[] }>(
+        `/api/intake/${sessionId}/approve`,
+        { breakdown },
+      );
+      if (result.session.status === "approved") {
+        navigate(`/projects/${projectId}`);
+        return;
+      }
+      apply(result.session);
+      setFiledNote(
+        `Filed ${result.tickets.map((t) => t.displayKey).join(", ")} to Backlog — the fog below stays open here.`,
+      );
+      setBusy(false);
     } catch (e) {
       setError(errorMessage(e));
       setBusy(false);
@@ -569,6 +671,71 @@ export function IntakeView({
             </div>
           )}
 
+          {charted && breakdown && (
+            <div className="intake-draft">
+              <div className="intake-draft-head">
+                <h3>Initiative breakdown</h3>
+                <span className="dim">only features and bugs reach the board</span>
+              </div>
+              <p className="intake-bd-dest">
+                <span className="dim">Destination:</span> {breakdown.destination}
+              </p>
+              {filedNote && <p className="intake-bd-filed">{filedNote}</p>}
+              {breakdown.tickets.length > 0 && (
+                <>
+                  <h4 className="dim">Tickets ready to file</h4>
+                  {breakdown.tickets.map((ticket, i) => (
+                    <BreakdownTicket
+                      key={i}
+                      ticket={ticket}
+                      onRemove={() =>
+                        setBreakdown({
+                          ...breakdown,
+                          tickets: breakdown.tickets.filter((_, j) => j !== i),
+                        })
+                      }
+                    />
+                  ))}
+                </>
+              )}
+              {breakdown.notYetSpecified.length > 0 && (
+                <>
+                  <h4 className="dim">Not yet specified — the fog</h4>
+                  <ul className="intake-bd-fog">
+                    {breakdown.notYetSpecified.map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
+                  </ul>
+                  <p className="dim intake-bd-hint">
+                    Deliberately not ticketed — keep answering below to clear it, then more
+                    tickets graduate out.
+                  </p>
+                </>
+              )}
+              {breakdown.outOfScope.length > 0 && (
+                <>
+                  <h4 className="dim">Out of scope</h4>
+                  <ul className="intake-bd-fog">
+                    {breakdown.outOfScope.map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+              <div className="intake-approve-row">
+                <button
+                  type="button"
+                  className="intake-approve"
+                  disabled={breakdown.tickets.length === 0}
+                  onClick={() => void approveBreakdown()}
+                >
+                  File {breakdown.tickets.length} ticket
+                  {breakdown.tickets.length === 1 ? "" : "s"} → Backlog
+                </button>
+              </div>
+            </div>
+          )}
+
           {drafted && draft && editing && (
             <div className="intake-draft">
               <div className="intake-draft-head">
@@ -620,7 +787,7 @@ export function IntakeView({
         </section>
       </div>
 
-      {(asking || drafted) && last && (
+      {(asking || drafted || charted) && last && (
         <form
           className="intake-composer"
           onSubmit={(e) => {
@@ -647,7 +814,13 @@ export function IntakeView({
           <div className="intake-composer-row">
             <input
               autoFocus={asking}
-              placeholder={asking ? "Answer, or pick an option above…" : "Feedback on the draft…"}
+              placeholder={
+                asking
+                  ? "Answer, or pick an option above…"
+                  : charted
+                    ? "Feedback, or answer toward the fog…"
+                    : "Feedback on the draft…"
+              }
               value={answer}
               onChange={(e) => setAnswer(e.target.value)}
             />
