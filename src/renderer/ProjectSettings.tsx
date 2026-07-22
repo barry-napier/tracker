@@ -226,7 +226,7 @@ export function ProjectSettings({
         </section>
         <ProviderConfigSection />
         <div className="formrow">
-          <button type="button" onClick={onClose}>
+          <button type="button" className="btn btn-primary" onClick={onClose}>
             Close
           </button>
         </div>

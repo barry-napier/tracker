@@ -740,23 +740,6 @@ a.chip-info:hover {
   display: inline-flex;
 }
 
-.toolbar-new {
-  display: inline-flex;
-  align-items: center;
-  background: var(--contrast-bg);
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--contrast-fg);
-  font: inherit;
-  font-size: var(--fs-sm);
-  padding: 0.3rem 0.7rem;
-  cursor: pointer;
-}
-
-.toolbar-new:hover {
-  background: color-mix(in srgb, var(--contrast-bg) 88%, var(--contrast-fg));
-}
-
 .newform-pop {
   position: absolute;
   top: calc(100% + 4px);
@@ -827,43 +810,6 @@ a.chip-info:hover {
   gap: 0.4rem;
 }
 
-.newform button,
-.promoteform button,
-.wizfoot button {
-  background: var(--surface-raised);
-  border: none;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-button);
-  color: var(--text-base);
-  font: inherit;
-  padding: 0.3rem 0.7rem;
-  cursor: pointer;
-}
-
-.newform button:hover:not(:disabled),
-.promoteform button:hover:not(:disabled),
-.wizfoot button:hover:not(:disabled) {
-  background: var(--surface-raised-hover);
-}
-
-.newform button[type="submit"]:not(:disabled),
-.promoteform button:first-child:not(:disabled) {
-  background: var(--contrast-bg);
-  color: var(--contrast-fg);
-}
-
-.newform button[type="submit"]:hover:not(:disabled),
-.promoteform button:first-child:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--contrast-bg) 88%, var(--contrast-fg));
-}
-
-.newform button:disabled,
-.wizfoot button:disabled {
-  color: var(--text-faint);
-  box-shadow: 0 0 0 0.5px var(--border-base);
-  cursor: default;
-}
-
 .newform label {
   display: flex;
   flex-direction: column;
@@ -884,19 +830,7 @@ a.chip-info:hover {
 
 .promote {
   align-self: flex-start;
-  background: none;
-  border: none;
-  box-shadow: 0 0 0 0.5px var(--border-base);
-  border-radius: var(--radius-sm);
   color: var(--text-accent);
-  font: inherit;
-  font-size: var(--fs-sm);
-  padding: 0.15rem 0.5rem;
-  cursor: pointer;
-}
-
-.promote:hover {
-  background: var(--overlay-hover);
 }
 
 .promoteform {
@@ -914,11 +848,6 @@ a.chip-info:hover {
   flex-direction: column;
   gap: 0.15rem;
   color: var(--text-muted);
-}
-
-.promoteform button {
-  font-size: var(--fs-sm);
-  padding: 0.25rem 0.5rem;
 }
 
 /* -- messaging -- */
@@ -962,25 +891,6 @@ a.chip-info:hover {
 
 .wf-confirm strong {
   color: var(--text-base);
-}
-
-.wf-confirm button,
-.git-init button {
-  background: var(--surface-raised);
-  border: none;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-button);
-  color: var(--text-base);
-  font: inherit;
-  font-size: var(--fs-sm);
-  padding: 0.3rem 0.8rem;
-  cursor: pointer;
-}
-
-.wf-confirm button:first-of-type,
-.git-init button {
-  background: var(--contrast-bg);
-  color: var(--contrast-fg);
 }
 
 /* The board's git-init offer: same informational posture as .wf-confirm. */
@@ -1239,18 +1149,8 @@ a.chip-info:hover {
   position: absolute;
   top: 0.7rem;
   right: 0.8rem;
-  background: none;
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--fs-base);
   padding: 0.1rem 0.4rem;
-  cursor: pointer;
-}
-
-.wizard .close:hover {
-  color: var(--text-base);
-  background: var(--overlay-hover);
 }
 
 .description {
@@ -1497,18 +1397,6 @@ a.chip-info:hover {
 
 .reviewbtn {
   align-self: flex-start;
-  background: var(--warn-bg);
-  border: 1px solid var(--warn-border);
-  border-radius: var(--radius-sm);
-  color: var(--warn-fg);
-  font: inherit;
-  font-size: var(--fs-sm);
-  padding: 0.15rem 0.5rem;
-  cursor: pointer;
-}
-
-.reviewbtn:hover {
-  border-color: var(--warn-fg);
 }
 
 .wizard {
@@ -2321,38 +2209,6 @@ a.chip-info:hover {
   padding: 1.5rem 0.6rem;
 }
 
-.home-empty-cta button {
-  background: var(--contrast-bg);
-  border: none;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-button);
-  color: var(--contrast-fg);
-  font: inherit;
-  padding: 0.4rem 0.9rem;
-  cursor: pointer;
-}
-
-.home-empty-cta button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.home-link {
-  align-self: flex-start;
-  background: none;
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--text-accent);
-  font: inherit;
-  padding: 0.35rem 0.6rem;
-  cursor: pointer;
-}
-
-.home-link:hover {
-  background: var(--overlay-hover);
-  color: var(--text-accent-hover);
-}
-
 .home-parent {
   display: flex;
   gap: 0.4rem;
@@ -2370,22 +2226,6 @@ a.chip-info:hover {
   padding: 0.3rem 0.5rem;
 }
 
-.home-parent button {
-  background: var(--contrast-bg);
-  color: var(--contrast-fg);
-  border: none;
-  border-radius: var(--radius-md);
-  font: inherit;
-  font-size: var(--fs-sm);
-  padding: 0.3rem 0.7rem;
-  cursor: pointer;
-}
-
-.home-parent button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 /* -- wizard verdicts: step marks, walkthrough actions, final verdict (ticket 33) -- */
 
 .markbar {
@@ -2397,22 +2237,13 @@ a.chip-info:hover {
   font-size: var(--fs-sm);
 }
 
-.markbtn,
-.acactions button {
-  background: var(--surface-raised);
-  border: none;
+/* Mark pills keep their shape and quiet color; anatomy comes from .btn. */
+.markbtn {
   border-radius: var(--radius-full);
-  box-shadow: var(--shadow-button);
   color: var(--text-muted);
-  font: inherit;
-  font-size: var(--fs-sm);
-  padding: 0.15rem 0.6rem;
-  cursor: pointer;
 }
 
-.markbtn:hover:not(:disabled),
-.acactions button:hover:not(:disabled) {
-  background: var(--surface-raised-hover);
+.markbtn:hover:not(:disabled) {
   color: var(--text-base);
 }
 
@@ -2427,12 +2258,6 @@ a.chip-info:hover {
   grid-column: 3;
   grid-row: 1 / span 2;
   align-self: center;
-}
-
-.acactions button:disabled {
-  color: var(--text-faint);
-  box-shadow: 0 0 0 0.5px var(--border-base);
-  cursor: default;
 }
 
 .markbtn.active.mark-pass {
@@ -2601,45 +2426,6 @@ a.chip-info:hover {
   margin-top: 0.8rem;
 }
 
-.verdictactions button {
-  background: var(--surface-raised);
-  border: none;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-button);
-  color: var(--text-base);
-  font: inherit;
-  padding: 0.35rem 0.8rem;
-  cursor: pointer;
-}
-
-.verdictactions button:hover:not(:disabled) {
-  background: var(--surface-raised-hover);
-}
-
-.verdictactions button:disabled {
-  color: var(--text-faint);
-  box-shadow: 0 0 0 0.5px var(--border-base);
-  cursor: default;
-}
-
-.verdictactions button.ok:not(:disabled) {
-  background: var(--ok-bg);
-  color: var(--ok-fg);
-  box-shadow: 0 0 0 1px var(--ok-border);
-}
-
-.verdictactions button.danger:not(:disabled) {
-  background: var(--danger-bg);
-  color: var(--danger-fg);
-  box-shadow: 0 0 0 1px var(--danger-border);
-}
-
-.verdictactions button.warn:not(:disabled) {
-  background: var(--warn-bg);
-  color: var(--warn-fg);
-  box-shadow: 0 0 0 1px var(--warn-border);
-}
-
 /* -- live preview in the Manual Walkthrough (ticket 34) -- */
 
 .previewpanel {
@@ -2668,20 +2454,6 @@ a.chip-info:hover {
 
 .previewrow button {
   margin-left: auto;
-  background: var(--surface-raised);
-  border: none;
-  border-radius: var(--radius-full);
-  box-shadow: var(--shadow-button);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--fs-sm);
-  padding: 0.15rem 0.6rem;
-  cursor: pointer;
-}
-
-.previewrow button:hover:not(:disabled) {
-  background: var(--surface-raised-hover);
-  color: var(--text-base);
 }
 
 .previewstatus {
@@ -2740,7 +2512,7 @@ a.chip-info:hover {
   border-radius: var(--radius-full);
 }
 
-.home-nav button {
+.home-nav-tab {
   background: none;
   border: none;
   border-radius: var(--radius-full);
@@ -2751,11 +2523,11 @@ a.chip-info:hover {
   cursor: pointer;
 }
 
-.home-nav button:hover {
+.home-nav-tab:hover {
   color: var(--text-base);
 }
 
-.home-nav button.active {
+.home-nav-tab.active {
   background: var(--surface-raised);
   color: var(--text-base);
   box-shadow: var(--shadow-raised);
@@ -3062,35 +2834,6 @@ a.chip-info:hover {
 
 .wf-successors label:hover {
   background: var(--overlay-hover);
-}
-
-.wf-dialog .formrow button {
-  background: var(--surface-raised);
-  border: none;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-button);
-  color: var(--text-base);
-  font: inherit;
-  padding: 0.3rem 0.7rem;
-  cursor: pointer;
-}
-
-.wf-dialog .formrow button:first-child:not(:disabled) {
-  background: var(--contrast-bg);
-  color: var(--contrast-fg);
-}
-
-.wf-dialog .formrow button:hover:not(:disabled) {
-  background: var(--surface-raised-hover);
-}
-
-.wf-dialog .formrow button:first-child:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--contrast-bg) 88%, var(--contrast-fg));
-}
-
-.wf-dialog .formrow button:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 /* -- workflow picker + project settings (ticket 45) -- */
@@ -4685,39 +4428,6 @@ button.wfc-pill.label { cursor: pointer; }
 .auto-dialog-foot .formrow {
   margin-top: 0;
   flex: none;
-}
-
-.auto-dialog-foot .formrow button {
-  background: var(--surface-raised);
-  border: none;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-button);
-  color: var(--text-base);
-  font: inherit;
-  padding: 0.35rem 0.8rem;
-  cursor: pointer;
-}
-
-/* Cancel is secondary; only Create wears the contrast fill. The first-child
-   rule from .wf-dialog would crown Cancel — undo it explicitly. */
-.auto-dialog .formrow button:first-child:not(:disabled) {
-  background: var(--surface-raised);
-  color: var(--text-base);
-}
-
-.auto-dialog .formrow button:first-child:hover:not(:disabled) {
-  background: var(--surface-raised-hover);
-}
-
-.auto-dialog .formrow button.auto-create:not(:disabled),
-.auto-dialog-foot .formrow button.auto-create:not(:disabled) {
-  background: var(--contrast-bg);
-  color: var(--contrast-fg);
-}
-
-.auto-dialog-foot .formrow button:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 /* -- Team work: repo picker + cross-repo PR feed -- */

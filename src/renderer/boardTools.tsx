@@ -165,25 +165,25 @@ export function BoardToolbar({
         <kbd>/</kbd>
       </div>
       <div className="board-toolbar-spacer" />
-      <button type="button" className="weeknav" onClick={() => set({ weekStart: addDays(weekStart, -7) })}>
+      <button type="button" className="btn btn-ghost weeknav" onClick={() => set({ weekStart: addDays(weekStart, -7) })}>
         ‹
       </button>
       <span className="week-range">
         {FMT_DAY.format(weekStart)} – {FMT_DAY_YEAR.format(weekEnd)}
       </span>
-      <button type="button" className="weeknav" onClick={() => set({ weekStart: addDays(weekStart, 7) })}>
+      <button type="button" className="btn btn-ghost weeknav" onClick={() => set({ weekStart: addDays(weekStart, 7) })}>
         ›
       </button>
       <button
         type="button"
-        className={"weeknav week-this" + (isThisWeek ? " week-this-active" : "")}
+        className={"btn btn-ghost weeknav week-this" + (isThisWeek ? " week-this-active" : "")}
         onClick={() => set({ weekStart: mondayOf(new Date()) })}
       >
         This week
       </button>
       <button
         type="button"
-        className={"weeknav" + (controls.view === "month" ? " week-this-active" : "")}
+        className={"btn btn-ghost weeknav" + (controls.view === "month" ? " week-this-active" : "")}
         title="Month view"
         onClick={() => set({ view: controls.view === "month" ? "board" : "month" })}
       >
@@ -247,14 +247,14 @@ export function MonthView({
         <div className="board-toolbar-spacer" />
         <button
           type="button"
-          className="weeknav"
+          className="btn btn-ghost weeknav"
           onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))}
         >
           ‹
         </button>
         <button
           type="button"
-          className="weeknav"
+          className="btn btn-ghost weeknav"
           onClick={() => {
             const now = new Date();
             setCursor(new Date(now.getFullYear(), now.getMonth(), 1));
@@ -264,7 +264,7 @@ export function MonthView({
         </button>
         <button
           type="button"
-          className="weeknav"
+          className="btn btn-ghost weeknav"
           onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))}
         >
           ›
