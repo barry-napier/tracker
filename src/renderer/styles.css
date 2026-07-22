@@ -7107,6 +7107,8 @@ button.wfc-pill.label { cursor: pointer; }
 .intake-bd-hint {
   margin: 0.2rem 0 0;
   font-size: var(--fs-xs);
+}
+
 /* -- Sign-in gate (ADR-0006) -------------------------------------------- */
 
 .signin-screen {
