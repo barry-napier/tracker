@@ -298,7 +298,10 @@ export class CopilotProvider implements Provider {
   }
 
   runPhase(prompt: string, cwd: string, opts?: RunPhaseOpts): PhaseHandle {
-    const config = this.config();
+    // Per-call model override (RunPhaseOpts.model), this phase only.
+    const resolved = this.config();
+    const config =
+      opts?.model === undefined ? resolved : { ...resolved, model: opts.model };
     const mapper = new WrapperMapper();
     const queue: AgentEvent[] = [];
     let notify: (() => void) | undefined;

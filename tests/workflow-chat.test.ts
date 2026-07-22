@@ -112,8 +112,10 @@ describe("workflow draft chat", () => {
     expect(response.json.error).toMatch(/invalid graph/);
   });
 
-  test("a graph the publish validator rejects is refused with its reason, draft untouched", async () => {
-    // Bolt a second trigger onto the seeded graph — shape-valid, semantically wrong.
+  test("a scaffolded graph with publish violations saves, violations ride back", async () => {
+    // Manual-edit parity: the builder may leave a draft unpublishable (here a
+    // second trigger — shape-valid, semantically wrong); the save goes
+    // through and the validator's verdicts come back for the canvas to paint.
     const probe = await bootServer();
     const head = (await api(probe, "GET", "/api/workflows/1/head")).json;
     await runCleanups();
@@ -130,14 +132,49 @@ describe("workflow draft chat", () => {
     const server = await bootServer(undefined, {
       providers: { "claude-code": chattyProvider(answer) },
     });
-    const before = (await api(server, "GET", "/api/workflows/1/draft")).json;
     const response = await api(server, "POST", "/api/workflows/1/draft/chat", {
       message: "add another trigger",
     });
-    expect(response.status).toBe(422);
-    expect(response.json.error).toMatch(/second trigger/);
+    expect(response.status).toBe(200);
+    expect(response.json.violations.map((v: { rule: string }) => v.rule)).toContain("trigger");
     const after = (await api(server, "GET", "/api/workflows/1/draft")).json;
-    expect(after.graph).toEqual(before.graph);
+    expect(after.graph.nodes.map((n: { key: string }) => n.key)).toContain("trigger-2");
+  });
+
+  test("a clean edit returns an empty violations list", async () => {
+    const probe = await bootServer();
+    const head = (await api(probe, "GET", "/api/workflows/1/head")).json;
+    await runCleanups();
+
+    const updated = extendedGraph(head.graph as DraftGraph);
+    const answer = `\`\`\`json\n${JSON.stringify({ reply: "Done.", graph: updated })}\n\`\`\``;
+    const server = await bootServer(undefined, {
+      providers: { "claude-code": chattyProvider(answer) },
+    });
+    const response = await api(server, "POST", "/api/workflows/1/draft/chat", {
+      message: "add a review stage",
+    });
+    expect(response.status).toBe(200);
+    expect(response.json.violations).toEqual([]);
+  });
+
+  test("a model override rides RunPhaseOpts; absent means the instance default", async () => {
+    const probe = await bootServer();
+    const head = (await api(probe, "GET", "/api/workflows/1/head")).json;
+    await runCleanups();
+
+    const answer = `\`\`\`json\n${JSON.stringify({ reply: "ok", graph: head.graph })}\n\`\`\``;
+    const provider = chattyProvider(answer);
+    const server = await bootServer(undefined, { providers: { "claude-code": provider } });
+
+    await api(server, "POST", "/api/workflows/1/draft/chat", {
+      message: "no-op",
+      model: "haiku",
+    });
+    expect(provider.lastOpts?.model).toBe("haiku");
+
+    await api(server, "POST", "/api/workflows/1/draft/chat", { message: "no-op" });
+    expect(provider.lastOpts?.model).toBeUndefined();
   });
 
   test("no registered provider is a 503; a blank message a 400", async () => {

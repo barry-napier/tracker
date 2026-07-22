@@ -36,10 +36,11 @@ import {
   type AutomationCadence,
   type AutomationPriority,
   type PreviewKind,
-  type ProviderConfig,
-  type ProviderName,
+  type ProviderInstance,
 } from "./types.ts";
+import { availabilityReason } from "./availability.ts";
 import { NullGitHub, repoSlug, type GitHubPort } from "./github.ts";
+import { GitHubAuth, PlaintextCipher } from "./auth.ts";
 import { DriftError, type Verdicts } from "./verdicts.ts";
 import { git } from "./worktrees.ts";
 import type { ProviderRegistry } from "./provider.ts";
@@ -55,7 +56,10 @@ function isNonEmptyString(value: unknown): value is string {
  * checked the same way in both routes; title/prompt/enabled stay route-local
  * (required on create, optional on patch).
  */
-function parseAutomationBody(body: Record<string, unknown>):
+function parseAutomationBody(
+  body: Record<string, unknown>,
+  hasProviderInstance: (id: string) => boolean,
+):
   | { patch: Partial<{
       category: string;
       priority: AutomationPriority;
@@ -63,7 +67,7 @@ function parseAutomationBody(body: Record<string, unknown>):
       timeOfDay: string | null;
       dayOfWeek: number | null;
       projectId: number | null;
-      provider: ProviderName | null;
+      provider: string | null;
     }> }
   | { error: string } {
   const patch: Extract<ReturnType<typeof parseAutomationBody>, { patch: unknown }>["patch"] = {};
@@ -107,8 +111,9 @@ function parseAutomationBody(body: Record<string, unknown>):
   }
   if ("provider" in body) {
     if (body.provider === null) patch.provider = null;
-    else if (isProvider(body.provider)) patch.provider = body.provider;
-    else return { error: `provider must be null or one of ${PROVIDERS.join(", ")}` };
+    else if (typeof body.provider === "string" && hasProviderInstance(body.provider)) {
+      patch.provider = body.provider;
+    } else return { error: "provider must be null or a configured provider instance id" };
   }
   return { patch };
 }
@@ -166,6 +171,8 @@ export function createApp(
   providers: ProviderRegistry = {},
   /** Team work's repo/PR listings; defaults to the honest-zero backing. */
   github: GitHubPort = new NullGitHub(),
+  /** GitHub identity (ADR-0006); tests build one on a PlaintextCipher. */
+  auth: GitHubAuth = new GitHubAuth(store, new PlaintextCipher()),
 ): Hono {
   const app = new Hono();
 
@@ -196,8 +203,8 @@ export function createApp(
     if (!isNonEmptyString(body.name)) {
       return c.json({ error: "name is required" }, 400);
     }
-    if (body.defaultProvider !== undefined && !isProvider(body.defaultProvider)) {
-      return c.json({ error: `defaultProvider must be one of ${PROVIDERS.join(", ")}` }, 400);
+    if (body.defaultProvider !== undefined && !store.getProviderInstance(body.defaultProvider)) {
+      return c.json({ error: "defaultProvider must be a configured provider instance id" }, 400);
     }
     if (body.workflowId !== undefined && typeof body.workflowId !== "number") {
       return c.json({ error: "workflowId must be a number" }, 400);
@@ -338,14 +345,14 @@ export function createApp(
   // shape check as PUT guards the save, so a hallucinated graph is a 502
   // and the draft stays as it was.
   app.post("/api/workflows/:id/draft/chat", async (c) => {
-    const body = await c.req.json<{ message?: string; provider?: string }>();
+    const body = await c.req.json<{ message?: string; provider?: string; model?: string }>();
     if (!isNonEmptyString(body.message)) {
       return c.json({ error: "message is required" }, 400);
     }
-    const providerName = body.provider ?? "claude-code";
-    if (!isProvider(providerName)) {
-      return c.json({ error: `provider must be one of ${PROVIDERS.join(", ")}` }, 400);
-    }
+    // The renderer sends a ProviderInstance id; a bare request without one
+    // falls back to any registered instance rather than a hard-coded name —
+    // registry keys are instance ids, not driver names.
+    const providerName = body.provider ?? Object.keys(providers)[0] ?? "claude-code";
     const provider = providers[providerName];
     if (!provider) {
       return c.json({ error: `provider ${providerName} is not available` }, 503);
@@ -356,11 +363,20 @@ export function createApp(
     // first touch that cuts the draft, same as the editor's PUT).
     const head = store.getWorkflowHeadGraph(id);
     const graph = head.hasDraft ? store.getWorkflowDraft(id).graph : head.graph;
-    const outcome = await runWorkflowChat(provider, graph, body.message, dataDir);
+    const outcome = await runWorkflowChat(
+      provider,
+      graph,
+      body.message,
+      dataDir,
+      undefined,
+      isNonEmptyString(body.model) ? body.model : undefined,
+    );
     if (!outcome.ok) return c.json({ error: outcome.error }, 502);
-    // Manual edits may leave a draft invalid until Publish, but a chat edit
-    // is refused outright: the publish validator's verdict is the reason the
-    // user sees, and the draft stays exactly as it was.
+    // Chat edits get manual-edit parity: a shape-valid graph saves even when
+    // the publish validator objects — scaffolding an incomplete draft is the
+    // builder's whole point. The violations ride back on the response so the
+    // canvas paints them exactly as a Test run would; only an unshaped graph
+    // (not a graph at all) is refused, and then the draft stays untouched.
     let violations;
     try {
       violations = validateDraftGraph(outcome.graph);
@@ -368,14 +384,12 @@ export function createApp(
       // The validator assumes a shaped graph; a throw means it wasn't one.
       return c.json({ error: "the model returned an invalid graph: not a graph shape" }, 502);
     }
-    if (violations.length > 0) {
-      return c.json(
-        { error: `that edit was refused: ${violations.map((v) => v.message).join("; ")}` },
-        422,
-      );
-    }
     try {
-      return c.json({ reply: outcome.reply, draft: store.updateWorkflowDraft(id, outcome.graph) });
+      return c.json({
+        reply: outcome.reply,
+        draft: store.updateWorkflowDraft(id, outcome.graph),
+        violations,
+      });
     } catch (error) {
       if (error instanceof ValidationError) {
         return c.json({ error: `the model returned an invalid graph: ${error.message}` }, 502);
@@ -452,9 +466,11 @@ export function createApp(
     if (!isIntakeKind(kind)) {
       return c.json({ error: `kind must be one of ${INTAKE_KINDS.join(", ")}` }, 400);
     }
-    const providerName = body.provider ?? "claude-code";
-    if (!isProvider(providerName)) {
-      return c.json({ error: `provider must be one of ${PROVIDERS.join(", ")}` }, 400);
+    // A ProviderInstance id (main's registry keys), not a driver name.
+    const providerName =
+      body.provider ?? store.listProviderInstances().find((i) => i.enabled)?.id ?? "claude-code";
+    if (!store.getProviderInstance(providerName)) {
+      return c.json({ error: `provider ${providerName} is not configured` }, 400);
     }
     const session = store.createIntakeSession({
       projectId: body.projectId,
@@ -623,11 +639,14 @@ export function createApp(
   app.get("/api/automations", (c) => c.json(store.listAutomations()));
   app.post("/api/automations", async (c) => {
     const body = await c.req.json<Record<string, unknown>>();
-    const parsed = parseAutomationBody(body);
+    const parsed = parseAutomationBody(body, (id) => store.getProviderInstance(id) !== undefined);
     if ("error" in parsed) return c.json({ error: parsed.error }, 400);
     if (!isNonEmptyString(body.title)) return c.json({ error: "title is required" }, 400);
     if (typeof body.prompt !== "string" || body.prompt.trim() === "") {
       return c.json({ error: "prompt is required" }, 400);
+    }
+    if (typeof parsed.patch.projectId === "number" && !store.getProject(parsed.patch.projectId)) {
+      return c.json({ error: "project not found" }, 404);
     }
     return c.json(
       store.createAutomation({ ...parsed.patch, title: body.title, prompt: body.prompt }),
@@ -636,8 +655,11 @@ export function createApp(
   });
   app.patch("/api/automations/:id", async (c) => {
     const body = await c.req.json<Record<string, unknown>>();
-    const parsed = parseAutomationBody(body);
+    const parsed = parseAutomationBody(body, (id) => store.getProviderInstance(id) !== undefined);
     if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+    if (typeof parsed.patch.projectId === "number" && !store.getProject(parsed.patch.projectId)) {
+      return c.json({ error: "project not found" }, 404);
+    }
     const patch: Parameters<Store["updateAutomation"]>[1] = { ...parsed.patch };
     if (isNonEmptyString(body.title)) patch.title = body.title;
     if (typeof body.prompt === "string" && body.prompt.trim() !== "") patch.prompt = body.prompt;
@@ -695,14 +717,38 @@ export function createApp(
   // App-level provider config (ticket 38): one row per provider name, shared
   // by every Project. Adapters read it fresh per phase, so a save here lands
   // on the next claim without an app restart.
-  app.get("/api/provider-config", (c) => c.json(store.listProviderConfigs()));
-  app.patch("/api/provider-config/:provider", async (c) => {
-    const provider = c.req.param("provider");
-    if (!isProvider(provider)) return c.json({ error: `unknown provider ${provider}` }, 404);
-    const body = await c.req
-      .json<Record<string, unknown>>()
-      .catch(() => ({}) as Record<string, unknown>);
-    const patch: Partial<Omit<ProviderConfig, "provider">> = {};
+  // -- auth (ADR-0006): GitHub device flow. The renderer drives the polling
+  // cadence; the token never crosses this boundary — status carries profile
+  // fields only. TRACKER_NO_AUTH=1 tells the gate not to demand sign-in.
+  app.get("/api/auth/status", (c) =>
+    c.json({ ...auth.status(), required: process.env.TRACKER_NO_AUTH !== "1" }),
+  );
+  app.post("/api/auth/device/start", async (c) => c.json(await auth.startDeviceFlow()));
+  app.post("/api/auth/device/poll", async (c) => {
+    const body = await c.req.json<{ sessionId?: string }>();
+    if (!isNonEmptyString(body.sessionId)) {
+      return c.json({ error: "sessionId is required" }, 400);
+    }
+    return c.json(await auth.pollOnce(body.sessionId));
+  });
+  app.post("/api/auth/device/cancel", async (c) => {
+    const body = await c.req.json<{ sessionId?: string }>();
+    if (isNonEmptyString(body.sessionId)) auth.cancel(body.sessionId);
+    return c.json({ ok: true });
+  });
+  app.post("/api/auth/signout", (c) => {
+    auth.signOut();
+    return c.json({ ok: true });
+  });
+
+  // The provider list (migration 26): user-managed instances over the fixed
+  // driver set. Config-field parsing is shared by add/patch below.
+  const parseInstanceConfigBody = (
+    body: Record<string, unknown>,
+  ):
+    | { patch: Partial<Omit<ProviderInstance, "id" | "driver">> }
+    | { error: string } => {
+    const patch: Partial<Omit<ProviderInstance, "id" | "driver">> = {};
     // Present-and-null clears; absent leaves alone. Empty strings from a form
     // field are the user blanking it, which is the same as clearing.
     for (const field of ["binaryPath", "model"] as const) {
@@ -714,25 +760,92 @@ export function createApp(
         // whitespace would store "" and read as a pinned model named nothing.
         const trimmed = value.trim();
         patch[field] = trimmed === "" ? null : trimmed;
-      } else return c.json({ error: `${field} must be a string or null` }, 400);
+      } else return { error: `${field} must be a string or null` };
     }
     if ("maxBudgetUsd" in body) {
       const value = body.maxBudgetUsd;
       if (value === null || value === "") patch.maxBudgetUsd = null;
       else if (typeof value === "number" && Number.isFinite(value)) patch.maxBudgetUsd = value;
-      else return c.json({ error: "maxBudgetUsd must be a number or null" }, 400);
+      else return { error: "maxBudgetUsd must be a number or null" };
     }
     if ("env" in body) {
       const value = body.env;
       if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return c.json({ error: "env must be an object" }, 400);
+        return { error: "env must be an object" };
       }
       if (Object.values(value).some((v) => typeof v !== "string")) {
-        return c.json({ error: "env values must be strings" }, 400);
+        return { error: "env values must be strings" };
       }
       patch.env = value as Record<string, string>;
     }
-    return c.json(store.setProviderConfig(provider, patch));
+    if ("displayName" in body) {
+      if (!isNonEmptyString(body.displayName)) {
+        return { error: "displayName must be a non-empty string" };
+      }
+      patch.displayName = body.displayName.trim();
+    }
+    if ("enabled" in body) {
+      if (typeof body.enabled !== "boolean") return { error: "enabled must be a boolean" };
+      patch.enabled = body.enabled;
+    }
+    return { patch };
+  };
+
+  // Each row carries its live PATH-shaped availability (availability.ts):
+  // recomputed per request so an install or a binaryPath edit shows on the
+  // next open, no restart or refresh dance.
+  app.get("/api/provider-instances", (c) =>
+    c.json(
+      store.listProviderInstances().map((instance) => {
+        const reason = availabilityReason(instance);
+        return { ...instance, available: reason === null, availabilityReason: reason };
+      }),
+    ),
+  );
+  app.post("/api/provider-instances", async (c) => {
+    const body = await c.req
+      .json<Record<string, unknown>>()
+      .catch(() => ({}) as Record<string, unknown>);
+    if (!isProvider(body.driver)) {
+      return c.json({ error: `driver must be one of ${PROVIDERS.join(", ")}` }, 400);
+    }
+    if (!isNonEmptyString(body.displayName)) {
+      return c.json({ error: "displayName is required" }, 400);
+    }
+    const parsed = parseInstanceConfigBody(body);
+    if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+    const created = store.addProviderInstance({
+      driver: body.driver,
+      displayName: body.displayName,
+    });
+    // Config fields on create are a convenience over add-then-patch.
+    const { displayName: _renamed, ...config } = parsed.patch;
+    return c.json(
+      Object.keys(config).length === 0
+        ? created
+        : store.setProviderInstance(created.id, config),
+      201,
+    );
+  });
+  app.patch("/api/provider-instances/:id", async (c) => {
+    const id = c.req.param("id");
+    if (!store.getProviderInstance(id)) {
+      return c.json({ error: `unknown provider instance ${id}` }, 404);
+    }
+    const body = await c.req
+      .json<Record<string, unknown>>()
+      .catch(() => ({}) as Record<string, unknown>);
+    const parsed = parseInstanceConfigBody(body);
+    if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+    return c.json(store.setProviderInstance(id, parsed.patch));
+  });
+  app.delete("/api/provider-instances/:id", (c) => {
+    const id = c.req.param("id");
+    if (!store.getProviderInstance(id)) {
+      return c.json({ error: `unknown provider instance ${id}` }, 404);
+    }
+    store.deleteProviderInstance(id);
+    return c.json({ ok: true });
   });
 
   app.get("/api/projects", (c) =>
@@ -846,6 +959,7 @@ export function createApp(
       personaPath?: string;
     }>();
     if (typeof body.projectId !== "number") return c.json({ error: "projectId is required" }, 400);
+    if (!store.getProject(body.projectId)) return c.json({ error: "project not found" }, 404);
     if (!isNonEmptyString(body.path)) return c.json({ error: "path is required" }, 400);
     // Null/omitted = a local-only Repo (docs/tickets/local-only-projects.md);
     // when given, the remote must at least be a non-empty string.
@@ -913,6 +1027,7 @@ export function createApp(
       acceptanceCriteria?: string[];
     }>();
     if (typeof body.projectId !== "number") return c.json({ error: "projectId is required" }, 400);
+    if (!store.getProject(body.projectId)) return c.json({ error: "project not found" }, 404);
     if (!isNonEmptyString(body.title)) {
       return c.json({ error: "title is required" }, 400);
     }
@@ -1021,12 +1136,17 @@ export function createApp(
   app.post("/api/tickets/:id/promote", async (c) => {
     const body = await c.req.json<{ repoId?: number; provider?: string }>();
     if (typeof body.repoId !== "number") return c.json({ error: "repoId is required" }, 400);
-    if (!isProvider(body.provider)) {
-      return c.json({ error: `provider must be one of ${PROVIDERS.join(", ")}` }, 400);
+    const instance =
+      typeof body.provider === "string" ? store.getProviderInstance(body.provider) : undefined;
+    if (!instance) {
+      return c.json({ error: "provider must be a configured provider instance id" }, 400);
+    }
+    if (!instance.enabled) {
+      return c.json({ error: `provider ${instance.id} is disabled` }, 400);
     }
     const ticket = store.promoteTicket(Number(c.req.param("id")), {
       repoId: body.repoId,
-      provider: body.provider,
+      provider: instance.id,
     });
     return c.json(ticket);
   });

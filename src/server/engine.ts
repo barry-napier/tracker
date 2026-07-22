@@ -78,6 +78,11 @@ export class WorkflowEngine {
     // Context travels between phases as files: each completed phase's
     // contract doc joins the {{priorKb}} handoff for the ones after it.
     const priorKb: string[] = [];
+    // Phase-level resume: a predecessor that died mid-run (app quit, crash)
+    // left its completed phases' work in the reused worktree. Credit that
+    // prefix — the contract file on disk is the proof — and start executing
+    // at the first uncredited node instead of replaying the whole graph.
+    let credit = this.store.priorPhaseCredit(ctx.run, ctx.worktreePath);
     // Walk from the trigger. A branch node (labeled outgoing edges) routes by
     // the phase's declared outcome; every other node follows its single
     // unlabeled edge, so a v1 linear graph runs exactly as before. Following
@@ -90,13 +95,23 @@ export class WorkflowEngine {
       }
       const labels = branchLabels(workflow, node);
       let outcome: string | null;
-      try {
-        outcome = await this.#runPhase(ctx, provider, node, priorKb, labels);
-      } catch (error) {
-        if (!(error instanceof PhaseDeathError)) throw error;
-        // The crash policy's one retry (ticket 41): phases are idempotent,
-        // and most deaths are weather. A second death ends the Run.
-        outcome = await this.#runPhase(ctx, provider, node, priorKb, labels);
+      const resumed = credit.has(node.id)
+        ? this.#tryResume(ctx, node, credit.get(node.id) ?? null)
+        : undefined;
+      if (resumed !== undefined) {
+        outcome = resumed;
+      } else {
+        // Prefix only: once one phase re-runs, everything after it re-runs
+        // too — later phases build on the one that just changed the tree.
+        credit = new Map();
+        try {
+          outcome = await this.#runPhase(ctx, provider, node, priorKb, labels);
+        } catch (error) {
+          if (!(error instanceof PhaseDeathError)) throw error;
+          // The crash policy's one retry (ticket 41): phases are idempotent,
+          // and most deaths are weather. A second death ends the Run.
+          outcome = await this.#runPhase(ctx, provider, node, priorKb, labels);
+        }
       }
       priorKb.push(`kb/${node.name}.md`);
       node =
@@ -104,6 +119,26 @@ export class WorkflowEngine {
           ? nextNode(workflow, node)
           : nextNodeByLabel(workflow, node, outcome);
     }
+  }
+
+  /**
+   * Credit one phase from the prior crashed Run instead of re-running it.
+   * Returns the credited outcome (`null` for a non-branching node) when the
+   * credit holds up against the worktree, or undefined when it doesn't —
+   * the caller then executes the phase for real. The proof required: the
+   * contract file is still on disk, and a check-emitting node's manifest
+   * still covers every pending AC (statuses may have moved since the crash).
+   */
+  #tryResume(ctx: RunContext, node: WorkflowNode, outcome: string | null): string | null | undefined {
+    if (!existsSync(path.join(ctx.worktreePath, "kb", `${node.name}.md`))) return undefined;
+    if (node.emitsChecks) {
+      const acs = this.store.getTicket(ctx.ticket.id)!.acceptanceCriteria;
+      const manifest = readCheckManifest(ctx.worktreePath, acs);
+      if (!manifest.ok) return undefined;
+      this.store.registerAcChecks(ctx.run.id, manifest.entries);
+    }
+    this.store.recordResumedPhase(ctx.run.id, node, outcome);
+    return outcome;
   }
 
   /**

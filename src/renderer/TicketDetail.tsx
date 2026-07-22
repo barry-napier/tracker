@@ -8,10 +8,11 @@ import type {
   RunWithPhases,
   TicketWithAcs,
 } from "../server/types.ts";
-import { apiBase, apiPatch, apiPost, errorMessage } from "./api.ts";
+import { apiPatch, apiPost, errorMessage } from "./api.ts";
 import { waiveWithPrompt } from "./acActions.ts";
 import { GATE_MARKS, PROVIDER_LABELS, repoName, timeAgo } from "./format.ts";
 import { Icon } from "./icons.tsx";
+import { useAuth } from "./auth.ts";
 import { STATE_LABELS } from "./ticketStates.ts";
 
 const ORIGIN_LABELS: Record<AcceptanceCriterion["origin"], string | null> = {
@@ -211,6 +212,7 @@ export function TicketDetail({
   onClose,
   onOpenLogs,
   onOpenReview,
+  onOpenArtifact,
 }: {
   ticket: TicketWithAcs;
   projectName: string;
@@ -222,12 +224,16 @@ export function TicketDetail({
   onClose: () => void;
   onOpenLogs: () => void;
   onOpenReview: () => void;
+  onOpenArtifact: (artifactId: number) => void;
 }) {
   const repo = repos.find((r) => r.id === ticket.repoId);
   const latestRun = runs[0];
 
   const [editingDesc, setEditingDesc] = useState(false);
   const [openAttempts, setOpenAttempts] = useState<Set<number>>(new Set());
+  // Single-account app (ADR-0006): every "human" audit actor is the signed-in
+  // user. Display-side mapping only — the audit rows keep the semantic actor.
+  const { user } = useAuth();
   const [draftDesc, setDraftDesc] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -289,7 +295,6 @@ export function TicketDetail({
         <span className="crumb dim">{projectName}</span>
         <span className="crumb-sep dim">/</span>
         <span className="crumb">{ticket.displayKey}</span>
-        <span className={`badge badge-${ticket.state}`}>{STATE_LABELS[ticket.state]}</span>
       </header>
 
       <div className="detail-panes">
@@ -443,17 +448,16 @@ export function TicketDetail({
               <span className="rail-label">Artifacts</span>
               <div className="artifact-chips">
                 {artifacts.map((artifact) => (
-                  <a
+                  <button
+                    type="button"
                     key={artifact.id}
                     className="artifact-chip"
-                    href={`${apiBase}/api/artifacts/${artifact.id}/content`}
-                    target="_blank"
-                    rel="noreferrer"
+                    onClick={() => onOpenArtifact(artifact.id)}
                     title={`${artifact.kind} · ${artifact.name}`}
                   >
                     <span className="artifactkind dim">{artifact.kind}</span>
                     {artifact.name}
-                  </a>
+                  </button>
                 ))}
               </div>
             </div>
@@ -473,7 +477,16 @@ export function TicketDetail({
                           event.actor === "agent" ? "activity-actor agent" : "activity-actor"
                         }
                       >
-                        {event.actor}
+                        {event.actor === "human" && user ? (
+                          <>
+                            {user.avatarUrl && (
+                              <img className="activity-avatar" src={user.avatarUrl} alt="" />
+                            )}
+                            {user.login}
+                          </>
+                        ) : (
+                          event.actor
+                        )}
                       </span>{" "}
                       {clip(activityText(event))}
                     </span>
@@ -547,7 +560,9 @@ export function TicketDetail({
             </div>
             <div className="rail-row">
               <span className="rail-key dim">Provider</span>
-              <span>{ticket.provider ? PROVIDER_LABELS[ticket.provider] : "—"}</span>
+              <span>
+                {ticket.provider ? (PROVIDER_LABELS[ticket.provider] ?? ticket.provider) : "—"}
+              </span>
             </div>
             {ticket.externalRef && (
               <div className="rail-row">

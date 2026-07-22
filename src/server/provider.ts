@@ -6,7 +6,6 @@
  * union below — the same shape the per-run SSE log stream serves.
  */
 
-import type { ProviderName } from "./types.ts";
 
 /** One entry in the agent's conversation, as the log view renders it. */
 export type AgentBlock =
@@ -40,6 +39,12 @@ export interface RunResult {
 export interface RunPhaseOpts {
   /** Uniform cancellation: adapters SIGTERM their child on abort. */
   signal?: AbortSignal;
+  /**
+   * Per-call override of the instance's pinned model (the builder chat's
+   * model chip). Adapters that can't honor it ignore it — the phase still
+   * runs, on the instance's model.
+   */
+  model?: string;
 }
 
 export interface PhaseHandle {
@@ -102,5 +107,5 @@ export interface Provider {
   probe(): Promise<ProbeResult>;
 }
 
-/** Adapters registered per provider name; a missing entry crashes the claim. */
-export type ProviderRegistry = Partial<Record<ProviderName, Provider>>;
+/** Adapters keyed by ProviderInstance id; a missing entry crashes the claim. */
+export type ProviderRegistry = Partial<Record<string, Provider>>;

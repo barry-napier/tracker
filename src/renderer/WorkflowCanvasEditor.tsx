@@ -33,7 +33,10 @@ import { WORKFLOW_STEP_TYPES } from "../server/types.ts";
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost, apiPut, errorMessage } from "./api.ts";
 import { AVATAR_COLORS, avatarColor } from "./Home.tsx";
 import { Icon, isIconName, type IconName } from "./icons.tsx";
+import { ProviderPicker } from "./ProviderPicker.tsx";
+import { MODEL_CHOICES, useProviderInstances } from "./providers.ts";
 import {
+  addBranch,
   addEdge,
   addPhase,
   addStep,
@@ -41,8 +44,9 @@ import {
   deleteEdge,
   deleteNode,
   deleteStep,
-  NODE_H,
+  insertPhase,
   NODE_W,
+  nodeHeight,
   relabelEdge,
   STEP_TYPE_LABELS,
   updateNode,
@@ -51,7 +55,10 @@ import {
   violationsByNode,
 } from "./canvasModel.ts";
 
-type Selection = { kind: "node"; key: string } | { kind: "edge"; index: number } | null;
+type Selection =
+  | { kind: "node"; key: string; stepIndex?: number }
+  | { kind: "edge"; index: number }
+  | null;
 
 const STEP_TYPE_ICONS: Record<WorkflowStepType, IconName> = {
   "search-global": "book",
@@ -66,9 +73,14 @@ const STEP_TYPE_ICONS: Record<WorkflowStepType, IconName> = {
 type StageNodeData = {
   node: DraftNode;
   messages: string[];
+  // ≥2 outgoing edges: the port renders a split-point diamond (the visible
+  // "condition" — Lindy's junction, compiled to labeled edges).
+  forks: boolean;
   // Click on the bottom port opens the stage-kind menu right below the node
   // (same menu a drag-to-empty-canvas opens at the drop point).
   onCreateChild: (at: { x: number; y: number }, screen: { x: number; y: number }) => void;
+  // A step row on the card selects the node with the inspector opened there.
+  onOpenStep: (index: number) => void;
 };
 type StageNode = FlowNode<StageNodeData, "stage">;
 
@@ -76,6 +88,10 @@ type StageNode = FlowNode<StageNodeData, "stage">;
 type StageEdgeData = {
   label: string | null;
   messages: string[];
+  // Unlabeled on a branching node: the pill renders as an "Add condition"
+  // prompt so the ambiguity is visible before Test/publish flags it.
+  needsLabel: boolean;
+  onSelect: () => void;
   onRelabel: (label: string) => void;
   onDelete: () => void;
 };
@@ -113,10 +129,14 @@ export function WorkflowCanvasEditor({
   const [violations, setViolations] = useState<DraftViolation[]>([]);
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
   const [confirmingLeave, setConfirmingLeave] = useState(false);
-  // A connection dropped on empty canvas: the stage-kind menu decides what
-  // gets created there (Lindy's "Select next step"); null = no menu up.
+  // A connection dropped on empty canvas or a port click: the stage-kind
+  // menu decides what gets created (Lindy's "Select next step"); null = no
+  // menu up. Mode is the Lindy split-point rule — "insert" slots the new
+  // stage into the sequence (port click), "branch" fans out (an explicit
+  // drag to empty canvas).
   const [pendingChild, setPendingChild] = useState<{
     from: string;
+    mode: "insert" | "branch";
     at: { x: number; y: number };
     screen: { x: number; y: number };
   } | null>(null);
@@ -128,6 +148,23 @@ export function WorkflowCanvasEditor({
   const [chatOpen, setChatOpen] = useState(false);
   const [chatLog, setChatLog] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
+  // The instance the chat runs on (model rides on the instance, as
+  // everywhere else); null until the provider list arrives, then the first
+  // usable instance. View-local — picking is per-session, not persisted.
+  const [chatProvider, setChatProvider] = useState<string | null>(null);
+  // Ad-hoc model for the chat only (RunPhaseOpts.model); null = the
+  // instance's pinned model. Cleared when the provider changes — a model
+  // alias only means something to the driver it was picked for.
+  const [chatModel, setChatModel] = useState<string | null>(null);
+  const providerInstances = useProviderInstances();
+  useEffect(() => {
+    if (chatProvider !== null || providerInstances === null) return;
+    const usable = providerInstances.find((i) => i.enabled && i.available)
+      ?? providerInstances.find((i) => i.enabled);
+    if (usable) setChatProvider(usable.id);
+  }, [chatProvider, providerInstances]);
+  const chatDriver =
+    providerInstances?.find((i) => i.id === chatProvider)?.driver ?? null;
   // A failed ask lands here (banner above the input), not in the transcript;
   // the failed message rides along so Retry can resend it.
   const [chatError, setChatError] = useState<{ message: string; failed: string } | null>(null);
@@ -301,14 +338,22 @@ export function WorkflowCanvasEditor({
     try {
       // The model must see the latest edits, so the debounced PUT goes first.
       await flush();
-      const result = await apiPost<{ reply: string; draft: WorkflowDraft }>(
-        `/api/workflows/${workflow.id}/draft/chat`,
-        { message },
-      );
-      // The server already saved the draft — mirror it, don't re-PUT.
+      const result = await apiPost<{
+        reply: string;
+        draft: WorkflowDraft;
+        violations?: DraftViolation[];
+      }>(`/api/workflows/${workflow.id}/draft/chat`, {
+        message,
+        ...(chatProvider !== null && { provider: chatProvider }),
+        ...(chatModel !== null && { model: chatModel }),
+      });
+      // The server already saved the draft — mirror it, don't re-PUT. A
+      // scaffolded edit may come back with publish violations; paint them
+      // on the canvas exactly as a Test run would, so the chat can build
+      // incomplete drafts without hiding what still blocks publish.
       setGraph(result.draft.graph);
       setHasDraft(true);
-      setViolations([]);
+      setViolations(result.violations ?? []);
       setSel(null);
       setPositions(autoLayout(result.draft.graph));
       needsCenter.current = true;
@@ -357,6 +402,7 @@ export function WorkflowCanvasEditor({
   const edgeViolations = violationsByEdge(violations);
   const globalViolations = violations.filter((v) => v.nodeKey === undefined && v.edgeIndex === undefined);
   const selectedNode = sel?.kind === "node" ? graph.nodes.find((n) => n.key === sel.key) ?? null : null;
+  const selectedStep = sel?.kind === "node" ? sel.stepIndex ?? null : null;
 
   const flowNodes: StageNode[] = graph.nodes.map((node) => ({
     id: node.key,
@@ -366,7 +412,14 @@ export function WorkflowCanvasEditor({
     data: {
       node,
       messages: nodeViolations.get(node.key) ?? [],
-      onCreateChild: (at, screen) => setPendingChild({ from: node.key, at, screen }),
+      forks: graph.edges.filter((e) => e.from === node.key).length >= 2,
+      // Port click = sequence insert (the new stage slots in before any
+      // existing children); branching is only ever the explicit drag.
+      onCreateChild: (at, screen) => setPendingChild({ from: node.key, mode: "insert", at, screen }),
+      onOpenStep: (index) => {
+        setSel({ kind: "node", key: node.key, stepIndex: index });
+        setPendingChild(null);
+      },
     },
   }));
   const flowEdges: StageEdge[] = graph.edges.map((edge, index) => ({
@@ -378,6 +431,13 @@ export function WorkflowCanvasEditor({
     data: {
       label: edge.conditionLabel,
       messages: edgeViolations.get(index) ?? [],
+      needsLabel:
+        edge.conditionLabel === null &&
+        graph.edges.filter((e) => e.from === edge.from).length >= 2,
+      onSelect: () => {
+        setSel({ kind: "edge", index });
+        setPendingChild(null);
+      },
       onRelabel: (label: string) => apply(relabelEdge(graph, index, label)),
       onDelete: () => {
         apply(deleteEdge(graph, index));
@@ -398,7 +458,15 @@ export function WorkflowCanvasEditor({
   };
 
   const onConnect = (connection: Connection) => {
-    apply(addEdge(graph, connection.source, connection.target));
+    const next = addEdge(graph, connection.source, connection.target);
+    if (next === graph) return; // refused: self-edge, duplicate, into trigger
+    apply(next);
+    // The connect created a fan-out: branches need condition labels, so the
+    // fresh edge opens straight into its label editor (Lindy asks at the
+    // fork, not at publish).
+    if (next.edges.filter((e) => e.from === connection.source).length >= 2) {
+      setSel({ kind: "edge", index: next.edges.length - 1 });
+    }
   };
 
   return (
@@ -435,9 +503,9 @@ export function WorkflowCanvasEditor({
               setPendingChild(null);
             }}
             onCreateChild={(from, at, screen) => {
-              // A connection dropped on empty canvas asks what kind of stage
-              // grows there; creation happens when the menu answers.
-              setPendingChild({ from, at, screen });
+              // A connection dropped on empty canvas is the explicit split
+              // gesture: it branches; creation happens when the menu answers.
+              setPendingChild({ from, mode: "branch", at, screen });
             }}
           />
           {pendingChild && (
@@ -446,14 +514,30 @@ export function WorkflowCanvasEditor({
               style={{ left: pendingChild.screen.x, top: pendingChild.screen.y }}
               onPointerDown={(e) => e.stopPropagation()}
             >
-              <span className="menu-label">Select next stage</span>
+              <span className="menu-label">
+                {pendingChild.mode === "insert" &&
+                graph.edges.some((e) => e.from === pendingChild.from)
+                  ? "Insert next stage"
+                  : "Select next stage"}
+              </span>
               {WORKFLOW_STEP_TYPES.map((kind) => (
                 <button
                   key={kind}
                   type="button"
                   onClick={() => {
-                    const { from, at } = pendingChild;
+                    const { from, mode, at } = pendingChild;
                     setPendingChild(null);
+                    if (mode === "insert") {
+                      // Slot into the sequence: the new stage takes over the
+                      // outgoing edges; positions re-flow so the graph reads
+                      // in its new order.
+                      const { graph: next, key } = insertPhase(graph, from, kind);
+                      apply(next);
+                      setPositions(autoLayout(next));
+                      needsCenter.current = true;
+                      setSel({ kind: "node", key });
+                      return;
+                    }
                     const { graph: withNode, key } = addPhase(graph, kind);
                     setPositions((p) => ({ ...p, [key]: { x: at.x - NODE_W / 2, y: at.y } }));
                     apply(addEdge(withNode, from, key));
@@ -467,6 +551,34 @@ export function WorkflowCanvasEditor({
                   <span className="wfc-step-plus">+</span>
                 </button>
               ))}
+              {pendingChild.mode === "insert" && (
+                <>
+                  <hr className="menu-divider" />
+                  <button
+                    type="button"
+                    title="Split the flow here — each branch gets a condition to name"
+                    onClick={() => {
+                      const { from } = pendingChild;
+                      setPendingChild(null);
+                      // "Condition" is a fork, not a stage (ADR-0001): the
+                      // decision lives on the labeled edges it creates.
+                      const { graph: next, keys } = addBranch(graph, from);
+                      if (next === graph) return;
+                      apply(next);
+                      setPositions(autoLayout(next));
+                      needsCenter.current = true;
+                      const first = keys[0];
+                      if (first !== undefined) setSel({ kind: "node", key: first });
+                    }}
+                  >
+                    <span className="wfc-step-icon">
+                      <Icon name="split" size={14} />
+                    </span>
+                    Condition
+                    <span className="wfc-step-plus">+</span>
+                  </button>
+                </>
+              )}
             </div>
           )}
           {chatOpen && (
@@ -474,6 +586,14 @@ export function WorkflowCanvasEditor({
               log={chatLog}
               busy={chatBusy}
               error={chatError}
+              provider={chatProvider}
+              onPickProvider={(id) => {
+                setChatProvider(id);
+                setChatModel(null);
+              }}
+              model={chatModel}
+              modelChoices={chatDriver === null ? [] : MODEL_CHOICES[chatDriver]}
+              onPickModel={setChatModel}
               onSend={(m) => void sendChat(m)}
               onRetry={() => {
                 if (chatError === null) return;
@@ -492,8 +612,19 @@ export function WorkflowCanvasEditor({
           )}
           {selectedNode && (
             <Inspector
-              key={selectedNode.key}
+              // stepIndex in the key: a card's step-row click re-mounts the
+              // inspector drilled into that step, even mid-edit.
+              key={`${selectedNode.key}:${selectedStep ?? "stage"}`}
               node={selectedNode}
+              initialStep={selectedStep}
+              branches={graph.edges
+                .map((edge, index) => ({
+                  index,
+                  label: edge.conditionLabel,
+                  to: graph.nodes.find((n) => n.key === edge.to)?.name ?? edge.to,
+                }))
+                .filter((b) => graph.edges[b.index]!.from === selectedNode.key)}
+              onRelabelBranch={(index, label) => apply(relabelEdge(graph, index, label))}
               onPatch={(patch) => apply(updateNode(graph, selectedNode.key, patch))}
               onAddStep={(type) => apply(addStep(graph, selectedNode.key, type))}
               onPatchStep={(index, patch) => apply(updateStep(graph, selectedNode.key, index, patch))}
@@ -670,21 +801,22 @@ function CanvasToolbar({ chatOpen, onToggleChat }: { chatOpen: boolean; onToggle
 }
 
 function StageNodeView({ data, selected, positionAbsoluteX, positionAbsoluteY }: NodeProps<StageNode>) {
-  const { node, messages } = data;
+  const { node, messages, forks } = data;
+  const height = nodeHeight(node);
   // A plain click on the port (no drag) asks what stage grows below; the
   // pending-child position mirrors where a dropped connection would land.
   const onPortClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     data.onCreateChild(
-      { x: positionAbsoluteX + NODE_W / 2, y: positionAbsoluteY + NODE_H + 56 },
+      { x: positionAbsoluteX + NODE_W / 2, y: positionAbsoluteY + height + 56 },
       { x: e.clientX, y: e.clientY },
     );
   };
   return (
     <div>
       <div
-        className={`wfc-node${selected ? " selected" : ""}${node.type === "trigger" ? " trigger" : ""}${messages.length > 0 ? " violation" : ""}`}
-        style={{ width: NODE_W, height: NODE_H }}
+        className={`wfc-node${selected ? " selected" : ""}${node.type === "trigger" ? " trigger" : ""}${node.steps.length > 0 ? " has-steps" : ""}${messages.length > 0 ? " violation" : ""}`}
+        style={{ width: NODE_W, height }}
       >
         {/* The model refuses edges into the trigger, so it offers no target. */}
         {node.type !== "trigger" && <Handle type="target" position={Position.Top} />}
@@ -694,7 +826,6 @@ function StageNodeView({ data, selected, positionAbsoluteX, positionAbsoluteY }:
           {node.type === "trigger" ? "Ticket claimed" : node.name}
         </span>
         <span className="wfc-badges">
-          {node.steps.length > 0 && <span className="wfc-pill label">{node.steps.length} steps</span>}
           {node.emitsChecks && <span className="wfc-pill ok">checks</span>}
           {node.gateRequirements.length > 0 && (
             <span className="wfc-pill info" title={`owes ${node.gateRequirements.join(", ")}`}>
@@ -702,11 +833,34 @@ function StageNodeView({ data, selected, positionAbsoluteX, positionAbsoluteY }:
             </span>
           )}
         </span>
+        {/* Steps read on the card (the Lindy legibility): icon + title rows;
+            a row click opens the inspector already drilled into that step. */}
+        {node.steps.length > 0 && (
+          <span className="wfc-node-steps">
+            {node.steps.map((s, i) => (
+              <button
+                key={i}
+                type="button"
+                className="wfc-node-steprow"
+                title={STEP_TYPE_LABELS[s.type]}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  data.onOpenStep(i);
+                }}
+              >
+                <span className="wfc-step-icon">
+                  <Icon name={STEP_TYPE_ICONS[s.type]} size={13} />
+                </span>
+                <span className="wfc-step-title">{s.title}</span>
+              </button>
+            ))}
+          </span>
+        )}
         <Handle
           type="source"
           position={Position.Bottom}
-          className="wfc-port"
-          title="Click to add a stage, drag to connect"
+          className={forks ? "wfc-port forks" : "wfc-port"}
+          title={forks ? "Split point — branches walk their condition labels" : "Click to add a stage, drag to connect"}
           onClick={onPortClick}
         />
       </div>
@@ -733,6 +887,16 @@ function StageEdgeView({
   const [path] = getStraightPath({ sourceX, sourceY, targetX, targetY });
   const label = data?.label ?? null;
   const messages = data?.messages ?? [];
+  const needsLabel = data?.needsLabel ?? false;
+  // Pills anchor a fixed drop below the source port (not the edge midpoint),
+  // so sibling branch pills line up even when their targets sit at different
+  // heights; x follows the edge's slope at that y. Short edges fall back to
+  // the midpoint so the pill never overshoots the target.
+  const PILL_DROP = 34;
+  const t =
+    targetY - sourceY > PILL_DROP * 2 ? PILL_DROP / (targetY - sourceY) : 0.5;
+  const pillX = sourceX + (targetX - sourceX) * t;
+  const pillY = sourceY + (targetY - sourceY) * t;
   return (
     <>
       <BaseEdge
@@ -740,13 +904,13 @@ function StageEdgeView({
         path={path}
         className={`wfc-edge-path${selected ? " selected" : ""}${messages.length > 0 ? " violation" : ""}`}
       />
-      {(selected || label !== null || messages.length > 0) && (
+      {(selected || label !== null || needsLabel || messages.length > 0) && (
         <EdgeLabelRenderer>
           <div
             className="wfc-edge-label"
             style={{
               position: "absolute",
-              transform: `translate(-50%, -50%) translate(${(sourceX + targetX) / 2}px, ${(sourceY + targetY) / 2}px)`,
+              transform: `translate(-50%, -50%) translate(${pillX}px, ${pillY}px)`,
               pointerEvents: "all",
             }}
           >
@@ -756,8 +920,22 @@ function StageEdgeView({
                 onRelabel={(l) => data?.onRelabel(l)}
                 onDelete={() => data?.onDelete()}
               />
+            ) : label !== null ? (
+              // The branch pill is a first-class control: click to edit.
+              <button type="button" className="wfc-edge-pill" onClick={() => data?.onSelect()}>
+                {label}
+              </button>
             ) : (
-              label !== null && <span className="wfc-pill label">{label}</span>
+              needsLabel && (
+                <button
+                  type="button"
+                  className="wfc-edge-pill needs"
+                  title="Branches walk their condition labels — unlabeled edges here won't publish"
+                  onClick={() => data?.onSelect()}
+                >
+                  Add condition
+                </button>
+              )
             )}
             {messages.map((message, i) => (
               <span key={i} className="wfc-edge-violation">
@@ -827,6 +1005,11 @@ function ChatPanel({
   log,
   busy,
   error,
+  provider,
+  onPickProvider,
+  model,
+  modelChoices,
+  onPickModel,
   onSend,
   onRetry,
   onClear,
@@ -835,6 +1018,13 @@ function ChatPanel({
   log: { role: "user" | "assistant"; text: string }[];
   busy: boolean;
   error: { message: string; failed: string } | null;
+  /** ProviderInstance id the chat runs on. */
+  provider: string | null;
+  onPickProvider: (id: string) => void;
+  /** Ad-hoc model override; null = the instance's pinned model. */
+  model: string | null;
+  modelChoices: Array<{ value: string; label: string }>;
+  onPickModel: (model: string | null) => void;
   onSend: (message: string) => void;
   onRetry: () => void;
   onClear: () => void;
@@ -842,6 +1032,7 @@ function ChatPanel({
 }) {
   const [draft, setDraft] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
   const [listening, setListening] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -984,6 +1175,42 @@ function ChatPanel({
           }}
         />
         <div className="wfc-chat-inputactions">
+          {/* Which agent applies the edit, and on which model. */}
+          <span className="wfc-chat-provider">
+            <ProviderPicker value={provider ?? ""} onChange={onPickProvider} />
+            {modelChoices.length > 0 && (
+              <span className="wfc-chat-model-anchor">
+                <button
+                  type="button"
+                  className="wfc-chat-model"
+                  title="Model for this chat — Default follows the provider instance"
+                  onClick={() => setModelOpen((open) => !open)}
+                >
+                  {modelChoices.find((c) => c.value === model)?.label ?? "Default"}
+                  <Icon name="chevron-down" size={11} />
+                </button>
+                {modelOpen && (
+                  <div className="wfc-chat-model-menu" onPointerLeave={() => setModelOpen(false)}>
+                    {[{ value: null as string | null, label: "Default" }, ...modelChoices].map(
+                      (choice) => (
+                        <button
+                          key={choice.value ?? "default"}
+                          type="button"
+                          onClick={() => {
+                            setModelOpen(false);
+                            onPickModel(choice.value);
+                          }}
+                        >
+                          {choice.label}
+                          {choice.value === model && <Icon name="check" size={13} />}
+                        </button>
+                      ),
+                    )}
+                  </div>
+                )}
+              </span>
+            )}
+          </span>
           <input
             ref={fileRef}
             type="file"
@@ -1253,6 +1480,9 @@ function EditorChrome({
  */
 function Inspector({
   node,
+  initialStep = null,
+  branches = [],
+  onRelabelBranch,
   onPatch,
   onAddStep,
   onPatchStep,
@@ -1260,13 +1490,19 @@ function Inspector({
   onDelete,
 }: {
   node: DraftNode;
+  /** Open drilled into this step (a card step-row click); null = stage view. */
+  initialStep?: number | null;
+  /** This stage's outgoing edges — ≥2 makes it a branch node whose phase
+      must end by declaring one of the labels as its outcome. */
+  branches?: { index: number; label: string | null; to: string }[];
+  onRelabelBranch?: (index: number, label: string) => void;
   onPatch: (patch: Partial<Pick<DraftNode, "name" | "promptTemplate" | "emitsChecks" | "gateRequirements">>) => void;
   onAddStep: (type: WorkflowStepType) => void;
   onPatchStep: (index: number, patch: { title?: string; prompt?: string }) => void;
   onDeleteStep: (index: number) => void;
   onDelete: () => void;
 }) {
-  const [openStep, setOpenStep] = useState<number | null>(null);
+  const [openStep, setOpenStep] = useState<number | null>(initialStep);
   const [adding, setAdding] = useState(false);
   // gateRequirements edits commit on blur — a half-typed path is not a list.
   const [gates, setGates] = useState(node.gateRequirements.join(", "));
@@ -1403,6 +1639,30 @@ function Inspector({
           }
         />
       </label>
+      {branches.length >= 2 && (
+        <div className="wfc-outcomes">
+          <span className="wfc-steps-head">
+            <Icon name="split" size={13} className="wfc-pill-icon" /> Outcomes
+          </span>
+          <p className="dim wfc-hint">
+            This stage is a split point: its agent ends the phase by declaring one of these
+            outcomes, and the run follows the matching branch — the others never run.
+          </p>
+          {branches.map((branch) => (
+            <label key={branch.index} className="wfc-outcome-row">
+              <input
+                placeholder="unnamed — won't publish"
+                defaultValue={branch.label ?? ""}
+                onBlur={(e) => onRelabelBranch?.(branch.index, e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                }}
+              />
+              <span className="dim wfc-outcome-to">→ {branch.to}</span>
+            </label>
+          ))}
+        </div>
+      )}
       <button type="button" className="wfc-linklike danger" onClick={onDelete}>
         Delete stage
       </button>

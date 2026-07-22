@@ -18,7 +18,7 @@ import { ApiError, apiBase, apiDelete, apiGet, apiPost, errorMessage } from "./a
 import { KIND_LABELS, type LogBlockView } from "./AgentLog.tsx";
 import { PROVIDER_LABELS, repoName } from "./format.ts";
 import { KindIcon } from "./kindIcons.tsx";
-import { ProviderIcon } from "./providerIcons.tsx";
+import { ProviderPicker } from "./ProviderPicker.tsx";
 import { Markdown } from "./Markdown.tsx";
 
 const INTAKE_KIND_CARDS: Array<{ key: IntakeKind; label: string; blurb: string; hint: string }> = [
@@ -52,7 +52,7 @@ export function IntakeNew({ project, repos }: { project: Project; repos: RepoLis
   const [kind, setKind] = useState<IntakeKind>("feature");
   const [intent, setIntent] = useState("");
   const [repoId, setRepoId] = useState<number | null>(null);
-  const [provider, setProvider] = useState<ProviderName>(project.defaultProvider);
+  const [provider, setProvider] = useState<string>(project.defaultProvider);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const pickedRepo = repoId ?? repos[0]?.id ?? null;
@@ -138,21 +138,7 @@ export function IntakeNew({ project, repos }: { project: Project; repos: RepoLis
           <section className="intake-new-row">
             <div className="intake-field">
               <span className="dim">Provider</span>
-              <div className="intake-providers" role="radiogroup" aria-label="Provider">
-                {PROVIDERS.map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    className={
-                      provider === name ? "intake-provider intake-provider-on" : "intake-provider"
-                    }
-                    onClick={() => setProvider(name)}
-                  >
-                    <ProviderIcon provider={name} />
-                    {PROVIDER_LABELS[name]}
-                  </button>
-                ))}
-              </div>
+              <ProviderPicker value={provider} onChange={setProvider} />
             </div>
             {repos.length > 1 && (
               <label className="intake-field">

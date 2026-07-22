@@ -7,18 +7,9 @@ import type {
   ProviderName,
 } from "../server/types.ts";
 import { apiDelete, apiGet, apiPatch, apiPost, errorMessage } from "./api.ts";
-import { PROVIDER_LABELS, timeAgo } from "./format.ts";
+import { timeAgo } from "./format.ts";
+import { PROVIDER_LOGOS, useProviderInstances } from "./providers.ts";
 import { Icon } from "./icons.tsx";
-import claudeCodeLogo from "./logos/claude-code.svg";
-import copilotLogo from "./logos/copilot.svg";
-import kiroLogo from "./logos/kiro.svg";
-
-/** Vendored brand marks (see logos/README.md for sources). */
-const PROVIDER_LOGOS: Record<ProviderName, string> = {
-  "claude-code": claudeCodeLogo,
-  kiro: kiroLogo,
-  copilot: copilotLogo,
-};
 
 const CADENCE_LABELS: Record<AutomationCadence, string> = {
   manual: "Manual",
@@ -48,7 +39,8 @@ interface DialogSeed {
   timeOfDay: string;
   dayOfWeek: number;
   projectId: number | null;
-  provider: ProviderName | null;
+  /** A ProviderInstance id. */
+  provider: string | null;
 }
 
 const BLANK_SEED: DialogSeed = {
@@ -495,6 +487,7 @@ function LaunchDialog({
 }) {
   const [form, setForm] = useState(seed);
   const [busy, setBusy] = useState(false);
+  const instances = useProviderInstances();
   const patch = (change: Partial<DialogSeed>) => setForm((prev) => ({ ...prev, ...change }));
   const creating = seed.automationId === null;
   const [hour = "09", minute = "00"] = form.timeOfDay.split(":");
@@ -628,19 +621,23 @@ function LaunchDialog({
         <div className="wf-field">
           <span className="wf-field-label">AI Agent</span>
           <div className="auto-agents" role="radiogroup" aria-label="AI agent">
-            {(Object.keys(PROVIDER_LABELS) as ProviderName[]).map((provider) => (
-              <button
-                key={provider}
-                type="button"
-                role="radio"
-                aria-checked={form.provider === provider}
-                className={form.provider === provider ? "auto-agent selected" : "auto-agent"}
-                onClick={() => patch({ provider })}
-              >
-                <img src={PROVIDER_LOGOS[provider]} alt="" width={18} height={18} />
-                {PROVIDER_LABELS[provider]}
-              </button>
-            ))}
+            {(instances ?? [])
+              .filter((i) => i.enabled || i.id === form.provider)
+              .map((instance) => (
+                <button
+                  key={instance.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={form.provider === instance.id}
+                  className={form.provider === instance.id ? "auto-agent selected" : "auto-agent"}
+                  disabled={!instance.available}
+                  title={instance.availabilityReason ?? undefined}
+                  onClick={() => patch({ provider: instance.id })}
+                >
+                  <img src={PROVIDER_LOGOS[instance.driver]} alt="" width={18} height={18} />
+                  {instance.displayName}
+                </button>
+              ))}
           </div>
         </div>
         <div className="auto-dialog-foot">

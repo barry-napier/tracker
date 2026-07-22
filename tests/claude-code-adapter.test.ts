@@ -307,6 +307,72 @@ describe("toRunResult", () => {
   });
 });
 
+describe("StreamJsonMapper stream events (--include-partial-messages)", () => {
+  const streamEvent = (event: Record<string, unknown>) => ({ type: "stream_event", event });
+
+  test("streams thinking and text as open/delta/close; assistant line dedups", () => {
+    const mapper = new StreamJsonMapper();
+    const events = feedAll(mapper, [
+      INIT,
+      streamEvent({ type: "message_start" }),
+      streamEvent({ type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } }),
+      streamEvent({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "Reading " } }),
+      streamEvent({ type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "the ticket." } }),
+      // The signature delta carries no text and must not become a delta event.
+      streamEvent({ type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig" } }),
+      streamEvent({ type: "content_block_stop", index: 0 }),
+      streamEvent({ type: "content_block_start", index: 1, content_block: { type: "text", text: "" } }),
+      streamEvent({ type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "Plan:" } }),
+      streamEvent({ type: "content_block_stop", index: 1 }),
+      // The whole assistant line repeats both blocks (thinking redacted) plus
+      // the tool_use that never streams: only the tool_use may land.
+      {
+        type: "assistant",
+        message: {
+          id: "msg_1",
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "", signature: "sig" },
+            { type: "text", text: "Plan:" },
+            { type: "tool_use", id: "toolu_1", name: "Write", input: {} },
+          ],
+        },
+      },
+    ]);
+
+    expect(events.map((e) => e.type)).toEqual([
+      "block.open", // thinking
+      "block.delta",
+      "block.delta",
+      "block.close",
+      "block.open", // text
+      "block.delta",
+      "block.close",
+      "block.open", // tool_use from the assistant line
+      "block.close",
+    ]);
+    const deltas = events.filter((e) => e.type === "block.delta");
+    expect(deltas.map((d) => (d as { textDelta: string }).textDelta)).toEqual([
+      "Reading ",
+      "the ticket.",
+      "Plan:",
+    ]);
+    expect(opened(events).at(-1)?.block.kind).toBe("tool_call");
+  });
+
+  test("without stream events, whole assistant blocks land as before", () => {
+    const mapper = new StreamJsonMapper();
+    const events = feedAll(mapper, [
+      INIT,
+      {
+        type: "assistant",
+        message: { id: "m", role: "assistant", content: [{ type: "text", text: "hi" }] },
+      },
+    ]);
+    expect(opened(events)).toHaveLength(1);
+  });
+});
+
 describe("buildArgs", () => {
   test("carries print mode, stream-json, and the full-trust posture", () => {
     const args = buildArgs("do the thing", {});
@@ -320,6 +386,8 @@ describe("buildArgs", () => {
     expect(args).toEqual(expect.arrayContaining(["--permission-mode", "bypassPermissions"]));
     // Verified to break OAuth/keychain auth for subscription users.
     expect(args).not.toContain("--bare");
+    // Thinking text only exists in stream events; whole lines redact it.
+    expect(args).toContain("--include-partial-messages");
   });
 
   test("pins the configured model and budget cap when set, omits them when not", () => {

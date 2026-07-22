@@ -71,6 +71,7 @@ function run(overrides: Partial<RunWithPhases> & { id: number }): RunWithPhases 
     phases: [],
     artifacts: [],
     gateResults: [],
+    expectedPhases: [],
     createdAt: "2026-07-18T00:00:00.000Z",
     endedAt: null,
     ...overrides,

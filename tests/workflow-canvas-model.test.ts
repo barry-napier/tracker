@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { DraftEdge, DraftGraph, DraftNode, DraftViolation } from "../src/server/types.ts";
 import {
+  addBranch,
   addEdge,
   addPhase,
   addStep,
@@ -8,6 +9,9 @@ import {
   deleteEdge,
   deleteNode,
   deleteStep,
+  insertPhase,
+  NODE_H,
+  nodeHeight,
   relabelEdge,
   updateNode,
   updateStep,
@@ -64,6 +68,51 @@ describe("addPhase", () => {
   });
 });
 
+describe("insertPhase", () => {
+  test("slots into the sequence: takes over outgoing edges, labels ride along", () => {
+    // a branches to b ("code") and c ("docs"); inserting after a moves the
+    // whole branch point onto the new node.
+    const { graph: next, key } = insertPhase(graph(), "a");
+    expect(next.edges).toContainEqual(edge("a", key));
+    expect(next.edges).toContainEqual(edge(key, "b", "code"));
+    expect(next.edges).toContainEqual(edge(key, "c", "docs"));
+    expect(next.edges.filter((e) => e.from === "a")).toHaveLength(1);
+  });
+
+  test("after a terminal node it is a plain append", () => {
+    const { graph: next, key } = insertPhase(graph(), "b");
+    expect(next.edges).toContainEqual(edge("b", key));
+    expect(next.edges.filter((e) => e.from === key)).toHaveLength(0);
+  });
+
+  test("unknown key is a refusal (same reference)", () => {
+    const g = graph();
+    expect(insertPhase(g, "nope").graph).toBe(g);
+  });
+});
+
+describe("addBranch", () => {
+  test("alongside existing children it adds one unlabeled stub", () => {
+    const { graph: next, keys } = addBranch(graph(), "a");
+    expect(keys).toHaveLength(1);
+    expect(next.edges).toContainEqual(edge("a", keys[0]!));
+    // The existing labeled branches are untouched.
+    expect(next.edges).toContainEqual(edge("a", "b", "code"));
+    expect(next.edges).toContainEqual(edge("a", "c", "docs"));
+  });
+
+  test("on a terminal node it stubs both choices — a branch needs two", () => {
+    const { graph: next, keys } = addBranch(graph(), "b");
+    expect(keys).toHaveLength(2);
+    for (const key of keys) expect(next.edges).toContainEqual(edge("b", key));
+  });
+
+  test("unknown key is a refusal (same reference)", () => {
+    const g = graph();
+    expect(addBranch(g, "nope").graph).toBe(g);
+  });
+});
+
 describe("deleteNode", () => {
   test("removes the node and every edge touching it", () => {
     const next = deleteNode(graph(), "a");
@@ -106,6 +155,14 @@ describe("edge editing", () => {
     expect(relabeled.edges[1]).toEqual(edge("a", "b", "code-change"));
     const cleared = relabelEdge(graph(), 1, "  ");
     expect(cleared.edges[1]).toEqual(edge("a", "b"));
+  });
+
+  test("relabelEdge with an unchanged label is a no-op (same reference)", () => {
+    const g = graph();
+    expect(relabelEdge(g, 1, "code")).toBe(g);
+    expect(relabelEdge(g, 1, "  code  ")).toBe(g); // trims before comparing
+    expect(relabelEdge(g, 0, "")).toBe(g); // unlabeled stays unlabeled
+    expect(relabelEdge(g, 1, "docs")).not.toBe(g);
   });
 });
 
@@ -184,6 +241,29 @@ describe("autoLayout", () => {
     expect(pos.merge!.y).toBeGreaterThan(pos.a!.y);
     expect(pos.merge!.y).toBeGreaterThan(pos.b!.y);
     expect(pos.lost).toBeDefined();
+  });
+
+  test("a row with steps pushes the next row further down", () => {
+    const short = autoLayout(graph());
+    const tall = autoLayout({
+      ...graph(),
+      nodes: graph().nodes.map((n) =>
+        n.key === "a"
+          ? {
+              ...n,
+              steps: [
+                { type: "search-code" as const, title: "find it", prompt: "" },
+                { type: "action" as const, title: "do it", prompt: "" },
+              ],
+            }
+          : n,
+      ),
+    });
+    // a's card grew, so the b/c row starts lower than in the stepless layout;
+    // rows above the grown card stay put.
+    expect(tall.b!.y).toBeGreaterThan(short.b!.y);
+    expect(tall.a!.y).toBe(short.a!.y);
+    expect(nodeHeight(node("a"))).toBe(NODE_H);
   });
 
   test("survives a mid-edit cycle without hanging", () => {

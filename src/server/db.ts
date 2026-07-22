@@ -659,11 +659,87 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
   {
     version: 25,
     sql: `
+      -- GitHub identity (ADR-0006): one signed-in account, device-flow token
+      -- encrypted with the injected SecretCipher (safeStorage under Electron;
+      -- plaintext_fallback = 1 records when no OS crypto was available). The
+      -- token stays server-side — the renderer only ever sees the profile.
+      CREATE TABLE auth_account (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        token_ciphertext BLOB NOT NULL,
+        token_plaintext_fallback INTEGER NOT NULL DEFAULT 0,
+        login TEXT NOT NULL,
+        name TEXT,
+        email TEXT,
+        avatar_url TEXT,
+        scopes TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `,
+  },
+  {
+    version: 26,
+    sql: `
+      -- Provider instances: ticket 38's fixed per-driver config rows become
+      -- a user-managed list. driver names the adapter implementation (code);
+      -- id is the entry every provider reference points at. The seeded
+      -- defaults reuse the driver name as their id, so every existing
+      -- projects.default_provider / tickets.provider / automations.provider
+      -- value resolves without rewriting a row.
+      CREATE TABLE provider_instances (
+        id TEXT PRIMARY KEY,
+        driver TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        binary_path TEXT,
+        model TEXT,
+        max_budget_usd REAL,
+        -- Extra child environment as a JSON object; '{}' = inherit only.
+        env TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      INSERT INTO provider_instances (id, driver, display_name, binary_path, model, max_budget_usd, env)
+        SELECT provider, provider,
+          CASE provider
+            WHEN 'claude-code' THEN 'Claude Code'
+            WHEN 'kiro' THEN 'Kiro CLI'
+            WHEN 'copilot' THEN 'Copilot CLI'
+            ELSE provider
+          END,
+          binary_path, model, max_budget_usd, env
+        FROM provider_config;
+
+      -- The list starts EMPTY on a fresh install — providers are added
+      -- deliberately from the catalog. Only ids something already points at
+      -- get a migrated instance, so no existing reference dangles.
+      INSERT OR IGNORE INTO provider_instances (id, driver, display_name)
+        SELECT p, p,
+          CASE p
+            WHEN 'claude-code' THEN 'Claude Code'
+            WHEN 'kiro' THEN 'Kiro CLI'
+            WHEN 'copilot' THEN 'Copilot CLI'
+            ELSE p
+          END
+        FROM (
+          SELECT default_provider AS p FROM projects
+          UNION SELECT provider FROM tickets WHERE provider IS NOT NULL
+          UNION SELECT provider FROM automations WHERE provider IS NOT NULL
+        );
+
+      DROP TABLE provider_config;
+    `,
+  },
+  {
+    version: 27,
+    sql: `
       -- AI ticket intake: a grilling conversation that authors a ticket
       -- draft before anything enters Backlog. Like workflow_drafts, the
       -- transcript and draft are JSON blobs — nothing queries inside them;
       -- approval materializes the draft into real ticket + AC rows and the
-      -- session keeps only the pointer. repo_id binds the research cwd.
+      -- session keeps only the pointer. repo_id binds the research cwd;
+      -- provider is a provider_instances id.
       CREATE TABLE intake_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         project_id INTEGER NOT NULL REFERENCES projects(id),
@@ -680,28 +756,20 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
     `,
   },
   {
-    version: 26,
+    version: 28,
     sql: `
-      -- Intake kind: what the ticket is about (initiative | feature | bug).
-      -- Picked up front; selects the ticket template the agent authors into.
+      -- Intake kind: what the session is about (bug | feature | initiative).
+      -- Picked up front; selects the flow the agent runs.
       ALTER TABLE intake_sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'feature';
     `,
   },
   {
-    version: 27,
+    version: 29,
     sql: `
-      -- Ticket kind (bug | feature | initiative): set from the intake
-      -- session at approval; drives the type icon on cards (Jira-style).
+      -- Ticket kind (bug | feature): set from the intake session at
+      -- approval; drives the type icon on cards (Jira-style). Initiatives
+      -- are a session mode (Wayfinder-shaped) and never a board ticket.
       ALTER TABLE tickets ADD COLUMN kind TEXT NOT NULL DEFAULT 'feature';
-    `,
-  },
-  {
-    version: 28,
-    sql: `
-      -- Initiatives became a session mode (Wayfinder-shaped), never a board
-      -- ticket: an initiative session emits feature/bug tickets. Normalize
-      -- any ticket rows that predate the rule.
-      UPDATE tickets SET kind = 'feature' WHERE kind NOT IN ('bug', 'feature');
     `,
   },
 ];

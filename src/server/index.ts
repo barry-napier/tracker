@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { ArtifactStore } from "./artifacts.ts";
+import { GitHubAuth, PlaintextCipher, type SecretCipher } from "./auth.ts";
 import { AutomationScheduler } from "./automations.ts";
 import { Bouncer } from "./bounce.ts";
 import { EventBus } from "./bus.ts";
@@ -12,7 +13,7 @@ import { GhGitHub, type GitHubPort } from "./github.ts";
 import { Home } from "./home.ts";
 import { PreviewManager } from "./previews.ts";
 import type { ProviderRegistry } from "./provider.ts";
-import type { ProviderConfigReader } from "./providers/registry.ts";
+import type { ProviderInstanceReader } from "./providers/registry.ts";
 import { Reviews } from "./reviews.ts";
 import { RunLogRegistry } from "./runlog.ts";
 import { Store } from "./store.ts";
@@ -44,18 +45,25 @@ export async function startServer(options: {
   /** Worker-pool size; see WorkerPool for the default's rationale. 0 disables claims. */
   workers?: number;
   /**
-   * Provider adapters by name; a claim on an unregistered provider crashes
-   * its run. Pass a function to build the registry against the app's live
-   * provider config (ticket 38) — adapters that read it per phase pick up a
-   * settings edit without a restart. Tests pass a plain registry.
+   * Provider adapters by instance id; a claim on an unregistered provider
+   * crashes its run. Pass a function to build the registry against the app's
+   * live provider instances (migration 26) — adapters that read them per
+   * phase pick up a settings edit without a restart, and instances added at
+   * runtime get adapters on first lookup. Tests pass a plain registry.
    */
-  providers?: ProviderRegistry | ((config: ProviderConfigReader) => ProviderRegistry);
+  providers?: ProviderRegistry | ((instances: ProviderInstanceReader) => ProviderRegistry);
   /** GitHub seam for the battery's gates and the merge path; defaults to `gh`. */
   github?: GitHubPort;
   /** Preview port-preference base (ticket 10); tests offset it per worker. */
   previewPortBase?: number;
   /** Per-phase watchdog overrides (ticket 41); tests shrink them. */
   phaseTimeouts?: PhaseTimeouts;
+  /**
+   * Token encryption for GitHub auth (ADR-0006). Electron main injects a
+   * safeStorage cipher; absent (tests, bare dev server) the plaintext
+   * fallback applies and the stored row records it.
+   */
+  secrets?: SecretCipher;
 }): Promise<TrackerServer> {
   const db = openDatabase(options.dataDir);
   const bus = new EventBus();
@@ -77,7 +85,7 @@ export async function startServer(options: {
   const previews = new PreviewManager(options.dataDir, store, options.previewPortBase);
   const providers =
     typeof options.providers === "function"
-      ? options.providers((provider) => store.getProviderConfig(provider))
+      ? options.providers((id) => store.getProviderInstance(id))
       : (options.providers ?? {});
   const app = createApp(
     store,
@@ -91,6 +99,7 @@ export async function startServer(options: {
     options.dataDir,
     providers,
     github,
+    new GitHubAuth(store, options.secrets ?? new PlaintextCipher()),
   );
   const engine = new WorkflowEngine(store, providers, runLogs, previews, options.phaseTimeouts);
   const pool = new WorkerPool(
