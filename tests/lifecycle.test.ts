@@ -76,6 +76,37 @@ describe("headless skeleton", () => {
     expect(listed.json).toHaveLength(2);
   });
 
+  test("rejects creates referencing a nonexistent project", async () => {
+    const server = await bootServer();
+    const project = (await api(server, "POST", "/api/projects", { name: "Real" })).json;
+    const missing = project.id + 999;
+
+    const ticket = await api(server, "POST", "/api/tickets", {
+      projectId: missing,
+      title: "Orphan",
+      acceptanceCriteria: ["Never lands"],
+    });
+    expect(ticket.status).toBe(404);
+    expect(ticket.json).toMatchObject({ error: "project not found" });
+
+    const repo = await api(server, "POST", "/api/repos", {
+      projectId: missing,
+      path: "/tmp/nowhere",
+    });
+    expect(repo.status).toBe(404);
+
+    const automation = await api(server, "POST", "/api/automations", {
+      projectId: missing,
+      title: "Orphan",
+      prompt: "do the thing",
+    });
+    expect(automation.status).toBe(404);
+
+    // Nothing was inserted.
+    const listed = await api(server, "GET", "/api/tickets");
+    expect(listed.json).toHaveLength(0);
+  });
+
   test("updates a ticket without touching its display key", async () => {
     const server = await bootServer();
     const project = (await api(server, "POST", "/api/projects", { name: "A" })).json;

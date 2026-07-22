@@ -419,6 +419,9 @@ export function createApp(
     if (typeof body.prompt !== "string" || body.prompt.trim() === "") {
       return c.json({ error: "prompt is required" }, 400);
     }
+    if (typeof parsed.patch.projectId === "number" && !store.getProject(parsed.patch.projectId)) {
+      return c.json({ error: "project not found" }, 404);
+    }
     return c.json(
       store.createAutomation({ ...parsed.patch, title: body.title, prompt: body.prompt }),
       201,
@@ -428,6 +431,9 @@ export function createApp(
     const body = await c.req.json<Record<string, unknown>>();
     const parsed = parseAutomationBody(body, (id) => store.getProviderInstance(id) !== undefined);
     if ("error" in parsed) return c.json({ error: parsed.error }, 400);
+    if (typeof parsed.patch.projectId === "number" && !store.getProject(parsed.patch.projectId)) {
+      return c.json({ error: "project not found" }, 404);
+    }
     const patch: Parameters<Store["updateAutomation"]>[1] = { ...parsed.patch };
     if (isNonEmptyString(body.title)) patch.title = body.title;
     if (typeof body.prompt === "string" && body.prompt.trim() !== "") patch.prompt = body.prompt;
@@ -727,6 +733,7 @@ export function createApp(
       personaPath?: string;
     }>();
     if (typeof body.projectId !== "number") return c.json({ error: "projectId is required" }, 400);
+    if (!store.getProject(body.projectId)) return c.json({ error: "project not found" }, 404);
     if (!isNonEmptyString(body.path)) return c.json({ error: "path is required" }, 400);
     // Null/omitted = a local-only Repo (docs/tickets/local-only-projects.md);
     // when given, the remote must at least be a non-empty string.
@@ -793,6 +800,7 @@ export function createApp(
       acceptanceCriteria?: string[];
     }>();
     if (typeof body.projectId !== "number") return c.json({ error: "projectId is required" }, 400);
+    if (!store.getProject(body.projectId)) return c.json({ error: "project not found" }, 404);
     if (!isNonEmptyString(body.title)) {
       return c.json({ error: "title is required" }, 400);
     }
