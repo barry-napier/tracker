@@ -340,7 +340,10 @@ export function createApp(
     if (!isNonEmptyString(body.message)) {
       return c.json({ error: "message is required" }, 400);
     }
-    const providerName = body.provider ?? "claude-code";
+    // The renderer sends a ProviderInstance id; a bare request without one
+    // falls back to any registered instance rather than a hard-coded name —
+    // registry keys are instance ids, not driver names.
+    const providerName = body.provider ?? Object.keys(providers)[0] ?? "claude-code";
     const provider = providers[providerName];
     if (!provider) {
       return c.json({ error: `provider ${providerName} is not available` }, 503);

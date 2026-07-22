@@ -33,6 +33,8 @@ import { WORKFLOW_STEP_TYPES } from "../server/types.ts";
 import { ApiError, apiDelete, apiGet, apiPatch, apiPost, apiPut, errorMessage } from "./api.ts";
 import { AVATAR_COLORS, avatarColor } from "./Home.tsx";
 import { Icon, isIconName, type IconName } from "./icons.tsx";
+import { ProviderPicker } from "./ProviderPicker.tsx";
+import { useProviderInstances } from "./providers.ts";
 import {
   addBranch,
   addEdge,
@@ -146,6 +148,17 @@ export function WorkflowCanvasEditor({
   const [chatOpen, setChatOpen] = useState(false);
   const [chatLog, setChatLog] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
+  // The instance the chat runs on (model rides on the instance, as
+  // everywhere else); null until the provider list arrives, then the first
+  // usable instance. View-local — picking is per-session, not persisted.
+  const [chatProvider, setChatProvider] = useState<string | null>(null);
+  const providerInstances = useProviderInstances();
+  useEffect(() => {
+    if (chatProvider !== null || providerInstances === null) return;
+    const usable = providerInstances.find((i) => i.enabled && i.available)
+      ?? providerInstances.find((i) => i.enabled);
+    if (usable) setChatProvider(usable.id);
+  }, [chatProvider, providerInstances]);
   // A failed ask lands here (banner above the input), not in the transcript;
   // the failed message rides along so Retry can resend it.
   const [chatError, setChatError] = useState<{ message: string; failed: string } | null>(null);
@@ -323,7 +336,10 @@ export function WorkflowCanvasEditor({
         reply: string;
         draft: WorkflowDraft;
         violations?: DraftViolation[];
-      }>(`/api/workflows/${workflow.id}/draft/chat`, { message });
+      }>(`/api/workflows/${workflow.id}/draft/chat`, {
+        message,
+        ...(chatProvider !== null && { provider: chatProvider }),
+      });
       // The server already saved the draft — mirror it, don't re-PUT. A
       // scaffolded edit may come back with publish violations; paint them
       // on the canvas exactly as a Test run would, so the chat can build
@@ -563,6 +579,8 @@ export function WorkflowCanvasEditor({
               log={chatLog}
               busy={chatBusy}
               error={chatError}
+              provider={chatProvider}
+              onPickProvider={setChatProvider}
               onSend={(m) => void sendChat(m)}
               onRetry={() => {
                 if (chatError === null) return;
@@ -974,6 +992,8 @@ function ChatPanel({
   log,
   busy,
   error,
+  provider,
+  onPickProvider,
   onSend,
   onRetry,
   onClear,
@@ -982,6 +1002,9 @@ function ChatPanel({
   log: { role: "user" | "assistant"; text: string }[];
   busy: boolean;
   error: { message: string; failed: string } | null;
+  /** ProviderInstance id the chat runs on; the instance carries the model. */
+  provider: string | null;
+  onPickProvider: (id: string) => void;
   onSend: (message: string) => void;
   onRetry: () => void;
   onClear: () => void;
@@ -1131,6 +1154,10 @@ function ChatPanel({
           }}
         />
         <div className="wfc-chat-inputactions">
+          {/* Which agent applies the edit; its instance pins the model. */}
+          <span className="wfc-chat-provider">
+            <ProviderPicker value={provider ?? ""} onChange={onPickProvider} />
+          </span>
           <input
             ref={fileRef}
             type="file"

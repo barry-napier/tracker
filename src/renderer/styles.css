@@ -4043,6 +4043,19 @@ button.wfc-pill.label { cursor: pointer; }
   justify-content: flex-end;
   gap: 4px;
 }
+/* The provider chip sits left in the composer row; the compact trigger
+   variant keeps the row at icon height. */
+.wfc-chat-provider { margin-right: auto; min-width: 0; }
+.wfc-chat-provider .pp-trigger {
+  font-size: var(--fs-xs);
+  padding: 2px 6px;
+  max-width: 180px;
+}
+.wfc-chat-provider .pp-trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .wfc-mic.listening { color: var(--danger-fg); }
 .wfc-chat-send {
   display: inline-flex;
