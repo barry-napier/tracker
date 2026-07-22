@@ -22,6 +22,28 @@ function isTool(block: LogBlockView): boolean {
 }
 
 /**
+ * The sidebar's roster: executed phases in execution order (retries collapse
+ * to the latest attempt), then the pinned workflow's remaining phases as
+ * dimmed "upcoming" rows — so the whole journey is visible, not just the
+ * part that already happened. A branch path not taken never lights up.
+ */
+function phaseRoster(run: RunWithPhases): Array<
+  { name: string; execution: PhaseExecution | null }
+> {
+  const latest = new Map<string, PhaseExecution>();
+  for (const phase of run.phases) latest.set(phase.phase, phase); // rows are append-only; last wins
+  const roster = [...latest.values()].map((execution) => ({
+    name: execution.phase,
+    execution: execution as PhaseExecution | null,
+  }));
+  // Defensive ?? []: a snapshot cached before the field existed still renders.
+  for (const name of run.expectedPhases ?? []) {
+    if (!latest.has(name)) roster.push({ name, execution: null });
+  }
+  return roster;
+}
+
+/**
  * Full-screen agent-log view (v1's LogsView): always-dark terminal surface,
  * phase sidebar filtering the conversation, run picker across attempts,
  * tools toggle, and auto-scroll that follows the live stream.
@@ -75,6 +97,7 @@ export function AgentLogs({
   }, [visible, autoScroll]);
 
   const live = run?.state === "running";
+  const roster = run ? phaseRoster(run) : [];
 
   return (
     <div className="logs-view">
@@ -125,9 +148,17 @@ export function AgentLogs({
         <p className="logs-empty">No run yet — promote the ticket to start one.</p>
       ) : (
         <div className="logs-body">
-          {run.phases.length > 0 && (
+          {roster.length > 0 && (
             <aside className="logs-phases">
-              <span className="logs-phases-label">Phases</span>
+              <span className="logs-phases-label">
+                Phases
+                {roster.length > 1 && (
+                  <span className="logs-phases-progress">
+                    {roster.filter((r) => r.execution?.state === "completed").length}/
+                    {roster.length}
+                  </span>
+                )}
+              </span>
               <button
                 type="button"
                 className={activePhase === null ? "logs-phase active" : "logs-phase"}
@@ -135,22 +166,29 @@ export function AgentLogs({
               >
                 All
               </button>
-              {run.phases.map((phase) => (
-                <button
-                  type="button"
-                  key={phase.id}
-                  className={activePhase === phase.phase ? "logs-phase active" : "logs-phase"}
-                  onClick={() =>
-                    setActivePhase(activePhase === phase.phase ? null : phase.phase)
-                  }
-                >
-                  <span className={`logs-phase-mark phase-${phase.state}`}>
-                    {PHASE_MARKS[phase.state]}
+              {roster.map(({ name, execution }) =>
+                execution ? (
+                  <button
+                    type="button"
+                    key={name}
+                    className={activePhase === name ? "logs-phase active" : "logs-phase"}
+                    onClick={() => setActivePhase(activePhase === name ? null : name)}
+                  >
+                    <span className={`logs-phase-mark phase-${execution.state}`}>
+                      {PHASE_MARKS[execution.state]}
+                    </span>
+                    <span className="logs-phase-name">{name}</span>
+                    <span className="logs-phase-time">{phaseDuration(execution)}</span>
+                  </button>
+                ) : (
+                  // Upcoming: no log blocks exist yet, so there's nothing to
+                  // filter to — render inert, not clickable.
+                  <span key={name} className="logs-phase logs-phase-upcoming">
+                    <span className="logs-phase-mark phase-upcoming">○</span>
+                    <span className="logs-phase-name">{name}</span>
                   </span>
-                  <span className="logs-phase-name">{phase.phase}</span>
-                  <span className="logs-phase-time">{phaseDuration(phase)}</span>
-                </button>
-              ))}
+                ),
+              )}
             </aside>
           )}
 
@@ -170,10 +208,17 @@ export function AgentLogs({
                     {block.tool && ` ${block.tool}`}
                     {block.phase && <em className="logmsg-phase">{block.phase}</em>}
                   </span>
-                  <pre className={block.isError ? "logmsg-body error" : "logmsg-body"}>
-                    {block.body}
-                    {block.open && <span className="cursor">▋</span>}
-                  </pre>
+                  {/* Claude Code redacts thinking text in -p mode (empty
+                      deltas + a signature) — an empty thinking block is the
+                      provider withholding, not a rendering bug. */}
+                  {block.kind === "thinking" && block.body === "" && !block.open ? (
+                    <pre className="logmsg-body logmsg-redacted">(redacted by provider)</pre>
+                  ) : (
+                    <pre className={block.isError ? "logmsg-body error" : "logmsg-body"}>
+                      {block.body}
+                      {block.open && <span className="cursor">▋</span>}
+                    </pre>
+                  )}
                 </li>
               ))}
             </ol>

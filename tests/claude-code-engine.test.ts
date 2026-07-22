@@ -64,7 +64,10 @@ async function harness(mode: string): Promise<{
 
   // Config comes from the store, exactly as the app wires it — so this also
   // proves the persisted binaryPath and env actually reach the child.
-  store.setProviderConfig("claude-code", {
+  // Empty by default (migration 26): the instance is added the way the
+  // Settings catalog does it — "Claude Code" slugs to id "claude-code".
+  store.addProviderInstance({ driver: "claude-code", displayName: "Claude Code" });
+  store.setProviderInstance("claude-code", {
     binaryPath: FAKE_CLAUDE,
     env: { FAKE_CLAUDE_MODE: mode },
   });
@@ -75,7 +78,7 @@ async function harness(mode: string): Promise<{
       // The same translation the app wires, not a copy of it — a divergence
       // here would test a config path production never takes.
       "claude-code": new ClaudeCodeProvider(() =>
-        toClaudeCodeConfig(store.getProviderConfig("claude-code")),
+        toClaudeCodeConfig(store.getProviderInstance("claude-code")!),
       ),
     },
     logs,

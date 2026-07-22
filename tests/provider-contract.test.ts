@@ -253,12 +253,13 @@ describe("KiroProvider endings", () => {
 });
 
 test("Claude Code declares the capabilities ticket 38 specifies", () => {
-  // Named values, not just booleans: streamsPartialText false is a claim
-  // about this wire format (whole blocks, never deltas) that a future
-  // refactor toward deltas would have to consciously flip.
+  // Named values, not just booleans: streamsPartialText true is a claim
+  // about this wire format (--include-partial-messages delivers text as
+  // deltas) that a future refactor away from streaming would have to
+  // consciously flip.
   expect(CLAUDE_CODE_CAPABILITIES).toEqual({
     costReporting: true,
-    streamsPartialText: false,
+    streamsPartialText: true,
     emitsThinking: true,
   });
   expect(stubbed("success").capabilities).toBe(CLAUDE_CODE_CAPABILITIES);

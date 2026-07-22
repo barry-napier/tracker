@@ -11,18 +11,17 @@ import {
   useSearchParams,
 } from "react-router";
 import { getThemePref, setThemePref, type ThemePref } from "./theme.ts";
-import {
-  PROVIDERS,
-  type Project,
-  type ProjectListItem,
-  type ProviderName,
-  type Repo,
-  type RepoListItem,
-  type TicketWithAcs,
+import type {
+  Project,
+  ProjectListItem,
+  Repo,
+  RepoListItem,
+  TicketWithAcs,
 } from "../server/types.ts";
 import type { SweepResult } from "../server/sweep.ts";
 import { apiGet, apiPatch, apiPost } from "./api.ts";
 import { PROVIDER_LABELS, repoName } from "./format.ts";
+import { ProviderPicker } from "./ProviderPicker.tsx";
 import { avatarColor, Home } from "./Home.tsx";
 import { Automations } from "./Automations.tsx";
 import { TeamWork } from "./TeamWork.tsx";
@@ -33,6 +32,7 @@ import type { WorkflowListing } from "../server/types.ts";
 import { useBoard } from "./useBoard.ts";
 import { ReviewWizard } from "./ReviewWizard.tsx";
 import { AgentLogs } from "./AgentLogs.tsx";
+import { ArtifactViewer } from "./ArtifactViewer.tsx";
 import { TicketDetail } from "./TicketDetail.tsx";
 import { STATES } from "./ticketStates.ts";
 import { StateIcon } from "./stateIcons.tsx";
@@ -46,6 +46,14 @@ import { loadTabs, saveTabs } from "./tabsState.ts";
 import { TerminalDrawer } from "./TerminalDrawer.tsx";
 import { RightSidebar, type BrowseRequest } from "./RightSidebar.tsx";
 import { Icon, type IconName } from "./icons.tsx";
+import { AuthContext, fetchAuthStatus, type AuthStatus } from "./auth.ts";
+import { SignIn } from "./SignIn.tsx";
+import {
+  SettingsConnections,
+  SettingsGeneral,
+  SettingsProviders,
+  SettingsShell,
+} from "./Settings.tsx";
 
 /**
  * The URL is the view state: every surface has a route (hash-based, since
@@ -229,9 +237,49 @@ function useShell(): ShellContext {
   return useOutletContext<ShellContext>();
 }
 
+/**
+ * The launch gate (ADR-0006): one status fetch at boot decides between the
+ * SignIn screen and the app. Status is instant (a cached DB row), so the
+ * gate resolves before the splash would have finished anyway.
+ */
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const [status, setStatus] = useState<AuthStatus | null>(null);
+  const refresh = useCallback(
+    async () => setStatus(await fetchAuthStatus().catch(() => null)),
+    [],
+  );
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  if (status === null) return null; // server still booting — splash territory
+  if (status.required && !status.authenticated) {
+    return <SignIn onSignedIn={() => void refresh()} />;
+  }
+  return (
+    <AuthContext.Provider value={{ user: status.user ?? null, refresh }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
 export default function App() {
   return (
+    <AuthGate>
+      <AppRoutes />
+    </AuthGate>
+  );
+}
+
+function AppRoutes() {
+  return (
     <Routes>
+      <Route path="settings" element={<SettingsShell />}>
+        <Route index element={<Navigate to="general" replace />} />
+        <Route path="general" element={<SettingsGeneral />} />
+        <Route path="connections" element={<SettingsConnections />} />
+        <Route path="providers" element={<SettingsProviders />} />
+      </Route>
       <Route element={<Shell />}>
         <Route index element={<HomeRoute />} />
         <Route path="team" element={<TeamWork />} />
@@ -244,6 +292,10 @@ export default function App() {
         <Route path="projects/:projectId/tickets/:ticketId" element={<TicketRoute />} />
         <Route path="projects/:projectId/tickets/:ticketId/logs" element={<TicketLogsRoute />} />
         <Route
+          path="projects/:projectId/tickets/:ticketId/artifacts/:artifactId?"
+          element={<TicketArtifactsRoute />}
+        />
+        <Route
           path="projects/:projectId/tickets/:ticketId/review"
           element={<BoardRoute overlay="review" />}
         />
@@ -252,6 +304,7 @@ export default function App() {
     </Routes>
   );
 }
+
 
 /**
  * Boot splash: the app chrome renders as normal underneath, but Home's picker
@@ -396,7 +449,14 @@ function Shell() {
           </button>
         ))}
         <span className="topbar-actions">
-          <ThemeToggle />
+          <button
+            type="button"
+            className="icon-btn"
+            title="Settings"
+            onClick={() => navigate("/settings/general")}
+          >
+            <Icon name="settings-gear" size={16} />
+          </button>
           <button
             type="button"
             className="icon-btn"
@@ -601,6 +661,9 @@ function TicketRoute() {
       onClose={() => navigate(`/projects/${project.id}`)}
       onOpenLogs={() => navigate(`/projects/${project.id}/tickets/${selected.id}/logs`)}
       onOpenReview={() => navigate(`/projects/${project.id}/tickets/${selected.id}/review`)}
+      onOpenArtifact={(artifactId) =>
+        navigate(`/projects/${project.id}/tickets/${selected.id}/artifacts/${artifactId}`)
+      }
     />
   );
 }
@@ -620,6 +683,28 @@ function TicketLogsRoute() {
       runs={board.runsByTicket[selected.id] ?? []}
       loadRuns={loadRuns}
       onBack={() => navigate(`/projects/${project.id}/tickets/${selected.id}`)}
+    />
+  );
+}
+
+/** Persisted run artifacts as a full-screen surface; the URL owns the pick. */
+function TicketArtifactsRoute() {
+  const { project, board, loadRuns } = useShell();
+  const navigate = useNavigate();
+  const { ticketId, artifactId } = useParams();
+  const tickets = useProjectTickets();
+  if (!project) return null;
+  const selected = tickets.find((t) => t.id === Number(ticketId)) ?? null;
+  if (!selected) return <Navigate to={`/projects/${project.id}`} replace />;
+  const base = `/projects/${project.id}/tickets/${selected.id}`;
+  return (
+    <ArtifactViewer
+      ticket={selected}
+      runs={board.runsByTicket[selected.id] ?? []}
+      loadRuns={loadRuns}
+      selectedId={artifactId ? Number(artifactId) : null}
+      onSelect={(id) => navigate(`${base}/artifacts/${id}`, { replace: true })}
+      onBack={() => navigate(base)}
     />
   );
 }
@@ -821,81 +906,6 @@ function Board({
   );
 }
 
-const THEME_LABELS: Record<ThemePref, string> = {
-  system: "Auto",
-  light: "Light",
-  dark: "Dark",
-};
-const THEME_ICONS = {
-  system: "theme-auto",
-  light: "sun",
-  dark: "moon",
-} as const satisfies Record<ThemePref, IconName>;
-
-function ThemeToggle() {
-  const [pref, setPref] = useState<ThemePref>(getThemePref);
-  const [open, setOpen] = useState(false);
-
-  // Any outside click or Escape closes the menu, matching the sort popover.
-  useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(false);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
-    document.addEventListener("click", close);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("click", close);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  return (
-    <span className="theme-picker">
-      <button
-        type="button"
-        className="btn btn-ghost themebtn"
-        title="Color scheme"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={(e) => {
-          // The document-level closer sees this click too; stop it so the
-          // toggle isn't immediately undone.
-          e.stopPropagation();
-          setOpen((o) => !o);
-        }}
-      >
-        <Icon name={THEME_ICONS[pref]} size={14} /> {THEME_LABELS[pref]}
-      </button>
-      {open && (
-        <div className="row-menu sort-menu theme-menu" role="menu">
-          {(Object.keys(THEME_LABELS) as ThemePref[]).map((option) => (
-            <button
-              key={option}
-              type="button"
-              role="menuitemradio"
-              aria-checked={pref === option}
-              className="menu-item"
-              onClick={() => {
-                setThemePref(option);
-                setPref(option);
-                setOpen(false);
-              }}
-            >
-              <span className="menu-tick">
-                {pref === option && <Icon name="check" size={14} />}
-              </span>
-              <Icon name={THEME_ICONS[option]} size={14} />
-              {THEME_LABELS[option]}
-            </button>
-          ))}
-        </div>
-      )}
-    </span>
-  );
-}
-
 /** Re-renders subscribers once a minute so waiting badges stay honest. */
 function useNow(): number {
   const [now, setNow] = useState(() => Date.now());
@@ -946,7 +956,11 @@ function TicketCard({
     <article className="card" onClick={onOpen}>
       <div className="card-top">
         <span className="dim">{ticket.displayKey}</span>
-        {ticket.provider && <span className="card-provider">{PROVIDER_LABELS[ticket.provider]}</span>}
+        {ticket.provider && (
+          <span className="card-provider">
+            {PROVIDER_LABELS[ticket.provider] ?? ticket.provider}
+          </span>
+        )}
       </div>
       <p className="card-title">
         <StateIcon state={ticket.state} />
@@ -1051,7 +1065,7 @@ function PromoteControl({
   // Derived, not initial-state: repos may arrive after this card mounts.
   const [pickedRepoId, setPickedRepoId] = useState<number | null>(null);
   const repoId = pickedRepoId ?? repos[0]?.id ?? null;
-  const [provider, setProvider] = useState<ProviderName>(project.defaultProvider);
+  const [provider, setProvider] = useState<string>(project.defaultProvider);
   const [error, setError] = useState<string | null>(null);
 
   if (repos.length === 0) {
@@ -1099,7 +1113,7 @@ function PromoteControl({
       </label>
       <label>
         Provider
-        <ProviderSelect value={provider} onChange={setProvider} />
+        <ProviderPicker value={provider} onChange={setProvider} />
       </label>
       {error && <p className="error">{error}</p>}
       <div className="formrow">
@@ -1114,23 +1128,6 @@ function PromoteControl({
   );
 }
 
-function ProviderSelect({
-  value,
-  onChange,
-}: {
-  value: ProviderName;
-  onChange: (provider: ProviderName) => void;
-}) {
-  return (
-    <select value={value} onChange={(e) => onChange(e.target.value as ProviderName)}>
-      {PROVIDERS.map((p) => (
-        <option key={p} value={p}>
-          {PROVIDER_LABELS[p]}
-        </option>
-      ))}
-    </select>
-  );
-}
 
 /**
  * The worktree sweep (ticket 42): Done does not auto-destroy — this toolbar

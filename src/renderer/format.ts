@@ -25,7 +25,9 @@ export function timeAgo(iso: string, now: number = Date.now()): string {
   return `${Math.floor(days / 365)}y ago`;
 }
 
-export const PROVIDER_LABELS: Record<ProviderName, string> = {
+/** Driver labels (the fixed adapter set); instance display names come from
+ *  the provider list — see providers.ts's providerLabel. */
+export const PROVIDER_LABELS: Record<string, string> = {
   "claude-code": "Claude Code",
   kiro: "Kiro CLI",
   copilot: "Copilot CLI",

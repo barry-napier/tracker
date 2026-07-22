@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
-import type { Project, ProviderConfig, WorkflowListing } from "../server/types.ts";
-import { apiGet, apiPatch, errorMessage } from "./api.ts";
+import type { Project, ProviderInstance, ProviderName, WorkflowListing } from "../server/types.ts";
+import { apiDelete, apiGet, apiPatch, apiPost, errorMessage } from "./api.ts";
+import { PROVIDER_LABELS } from "./format.ts";
+import { Icon } from "./icons.tsx";
+import {
+  DRIVER_CATALOG,
+  PROVIDER_LOGOS,
+  refreshProviderInstances,
+  useProviderInstances,
+} from "./providers.ts";
 
 /**
  * The shared workflow picker (ticket 45) for any surface that assigns a
@@ -72,29 +80,53 @@ function envFromText(text: string): Record<string, string> {
 }
 
 /**
- * App-level provider config (ticket 38), hosted in the Project settings
- * dialog because it is the only settings surface the app has — hence the
- * "every project on this machine" wording, which is doing real work: this is
- * the one section here whose scope is not the Project. Saves on blur; the
- * adapter re-reads config per phase, so the next claim picks it up.
+ * The provider list (migration 26), hosted in the app Settings surface. The
+ * list starts empty: providers are added deliberately from the driver
+ * catalog, then configured in place. Instances are user-addable entries over
+ * the fixed adapter set; field saves land on blur, and the adapter re-reads
+ * config per phase, so the next claim picks a change up. Deleting a
+ * referenced instance is server-refused — the enabled switch is the "stop
+ * using it, keep history resolvable" path, and both surface here.
  */
-function ProviderConfigSection() {
-  const [configs, setConfigs] = useState<ProviderConfig[] | null>(null);
+export function ProviderConfigSection() {
+  const instances = useProviderInstances();
   const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  useEffect(() => {
-    void apiGet<ProviderConfig[]>("/api/provider-config")
-      .then(setConfigs)
-      .catch((e) => setError(errorMessage(e)));
-  }, []);
+  const refresh = () => refreshProviderInstances().catch((e) => setError(errorMessage(e)));
 
-  const save = async (provider: string, patch: Record<string, unknown>) => {
+  const save = async (id: string, patch: Record<string, unknown>) => {
     try {
-      const saved = await apiPatch<ProviderConfig>(`/api/provider-config/${provider}`, patch);
-      setConfigs((current) =>
-        (current ?? []).map((c) => (c.provider === saved.provider ? saved : c)),
-      );
+      await apiPatch(`/api/provider-instances/${id}`, patch);
       setError(null);
+      await refresh();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  const add = async (driver: ProviderName, displayName: string) => {
+    try {
+      const created = await apiPost<ProviderInstance>("/api/provider-instances", {
+        driver,
+        displayName,
+      });
+      setError(null);
+      setAdding(false);
+      // Land the user straight in the new card's config.
+      setExpandedId(created.id);
+      await refresh();
+    } catch (e) {
+      setError(errorMessage(e));
+    }
+  };
+
+  const remove = async (id: string) => {
+    try {
+      await apiDelete(`/api/provider-instances/${id}`);
+      setError(null);
+      await refresh();
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -104,60 +136,174 @@ function ProviderConfigSection() {
     <section>
       <h4 className="wf-section-title">Providers</h4>
       <p className="dim">
-        Applies to every project on this machine. Blank means the provider's own default — the
-        binary is resolved on <code>PATH</code>. A change takes effect at the next claim.
+        The coding agents this machine can run, shared by every project. Blank config means the
+        provider's own default — the binary resolves on <code>PATH</code>. Changes take effect at
+        the next claim.
       </p>
       {error && <p className="banner error">{error}</p>}
-      {configs?.map((config) => (
-        <details key={config.provider} className="provider-config">
-          <summary>
-            {config.provider}
-            {config.model && <span className="dim"> — {config.model}</span>}
-          </summary>
-          <label>
-            Binary path
-            <input
-              type="text"
-              defaultValue={config.binaryPath ?? ""}
-              placeholder={`resolve "${config.provider === "claude-code" ? "claude" : config.provider}" on PATH`}
-              onBlur={(e) => void save(config.provider, { binaryPath: e.target.value })}
-            />
-          </label>
-          <label>
-            Pinned model
-            <input
-              type="text"
-              defaultValue={config.model ?? ""}
-              placeholder="provider default"
-              onBlur={(e) => void save(config.provider, { model: e.target.value })}
-            />
-          </label>
-          <label>
-            Budget cap per phase (USD)
-            <input
-              type="number"
-              min="0"
-              step="0.5"
-              defaultValue={config.maxBudgetUsd ?? ""}
-              placeholder="uncapped"
-              onBlur={(e) =>
-                void save(config.provider, {
-                  maxBudgetUsd: e.target.value === "" ? null : Number(e.target.value),
-                })
-              }
-            />
-          </label>
-          <label>
-            Extra environment
-            <textarea
-              rows={3}
-              defaultValue={envToText(config.env)}
-              placeholder="KEY=value, one per line"
-              onBlur={(e) => void save(config.provider, { env: envFromText(e.target.value) })}
-            />
-          </label>
-        </details>
-      ))}
+      {instances !== null && instances.length === 0 && !adding && (
+        <div className="provider-empty">
+          <p>No providers yet.</p>
+          <p className="dim">Add one to promote tickets and run agent phases.</p>
+        </div>
+      )}
+      <ul className="provider-list">
+        {instances?.map((instance) => {
+          const expanded = expandedId === instance.id;
+          return (
+            <li key={instance.id} className={expanded ? "provider-row expanded" : "provider-row"}>
+              <div className="provider-row-head">
+                <button
+                  type="button"
+                  className="provider-row-main"
+                  aria-expanded={expanded}
+                  onClick={() => setExpandedId(expanded ? null : instance.id)}
+                >
+                  <img
+                    className={instance.enabled ? "provider-logo" : "provider-logo off"}
+                    src={PROVIDER_LOGOS[instance.driver]}
+                    alt=""
+                    width={22}
+                    height={22}
+                  />
+                  <span className="provider-row-titles">
+                    <span className="provider-row-name">{instance.displayName}</span>
+                    {(() => {
+                      // Don't echo the name as its own subtitle: a default
+                      // entry named after its driver shows model info only.
+                      const driverLabel = PROVIDER_LABELS[instance.driver] ?? instance.driver;
+                      const parts = [
+                        ...(driverLabel === instance.displayName ? [] : [driverLabel]),
+                        ...(instance.model ? [instance.model] : []),
+                      ];
+                      return parts.length > 0 ? (
+                        <span className="provider-row-driver dim">{parts.join(" · ")}</span>
+                      ) : null;
+                    })()}
+                  </span>
+                  {!instance.available && (
+                    <span className="provider-chip warn" title={instance.availabilityReason ?? ""}>
+                      Not installed
+                    </span>
+                  )}
+                  {!instance.enabled && <span className="provider-chip off">Disabled</span>}
+                  <Icon name="chevron-down" size={14} />
+                </button>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={instance.enabled}
+                  aria-label={`${instance.displayName} enabled`}
+                  className="provider-switch"
+                  onClick={() => void save(instance.id, { enabled: !instance.enabled })}
+                >
+                  <span className="provider-switch-knob" />
+                </button>
+              </div>
+              {expanded && (
+                <div className="provider-form">
+                  <label>
+                    Display name
+                    <input
+                      type="text"
+                      defaultValue={instance.displayName}
+                      onBlur={(e) => {
+                        // Blanking a name is not a clear-to-default; refuse locally.
+                        if (e.target.value.trim() !== "") {
+                          void save(instance.id, { displayName: e.target.value });
+                        }
+                      }}
+                    />
+                  </label>
+                  <label>
+                    Binary path
+                    <input
+                      type="text"
+                      defaultValue={instance.binaryPath ?? ""}
+                      placeholder={`resolve "${
+                        DRIVER_CATALOG.find((d) => d.driver === instance.driver)?.binary ??
+                        instance.driver
+                      }" on PATH`}
+                      onBlur={(e) => void save(instance.id, { binaryPath: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Pinned model
+                    <input
+                      type="text"
+                      defaultValue={instance.model ?? ""}
+                      placeholder="provider default"
+                      onBlur={(e) => void save(instance.id, { model: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Budget cap per phase (USD)
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.5"
+                      defaultValue={instance.maxBudgetUsd ?? ""}
+                      placeholder="uncapped"
+                      onBlur={(e) =>
+                        void save(instance.id, {
+                          maxBudgetUsd: e.target.value === "" ? null : Number(e.target.value),
+                        })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Extra environment
+                    <textarea
+                      rows={3}
+                      defaultValue={envToText(instance.env)}
+                      placeholder="KEY=value, one per line"
+                      onBlur={(e) => void save(instance.id, { env: envFromText(e.target.value) })}
+                    />
+                  </label>
+                  <div className="provider-form-foot">
+                    <button
+                      type="button"
+                      className="danger"
+                      onClick={() => void remove(instance.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {adding ? (
+        <div className="provider-catalog">
+          <div className="provider-catalog-head">
+            <span>Choose a provider</span>
+            <button type="button" onClick={() => setAdding(false)}>
+              Cancel
+            </button>
+          </div>
+          {DRIVER_CATALOG.map((entry) => (
+            <button
+              key={entry.driver}
+              type="button"
+              className="provider-catalog-item"
+              onClick={() => void add(entry.driver, entry.label)}
+            >
+              <img src={PROVIDER_LOGOS[entry.driver]} alt="" width={22} height={22} />
+              <span className="provider-row-titles">
+                <span className="provider-row-name">{entry.label}</span>
+                <span className="provider-row-driver dim">{entry.description}</span>
+              </span>
+              <span className="provider-catalog-add">Add</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <button type="button" className="provider-add-btn" onClick={() => setAdding(true)}>
+          + Add provider
+        </button>
+      )}
     </section>
   );
 }

@@ -30,6 +30,10 @@ export async function bootServer(
     providers?: ProviderRegistry;
     github?: GitHubPort;
     phaseTimeouts?: PhaseTimeouts;
+    /** The provider list starts EMPTY in production (migration 26); tests
+     *  get the classic three seeded (ids = driver names) unless they are
+     *  exercising the empty start themselves. */
+    seedProviders?: boolean;
   } = {},
 ): Promise<TrackerServer> {
   const dir = dataDir ?? (await mkdtemp(path.join(tmpdir(), "tracker-test-")));
@@ -46,11 +50,40 @@ export async function bootServer(
     previewPortBase: previewPortBase(),
     phaseTimeouts: options.phaseTimeouts,
   });
+  if (options.seedProviders ?? true) {
+    // Display names chosen to slug to the driver names, so tests promote
+    // with the classic "claude-code"/"kiro"/"copilot" ids unchanged.
+    const seeds: Array<[string, string]> = [
+      ["claude-code", "Claude Code"],
+      ["kiro", "Kiro"],
+      ["copilot", "Copilot"],
+    ];
+    for (const [driver, displayName] of seeds) {
+      await fetch(`${server.url}/api/provider-instances`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ driver, displayName }),
+      });
+    }
+  }
   cleanups.push(async () => {
     await server.close();
     if (!dataDir) await rm(dir, { recursive: true, force: true });
   });
   return server;
+}
+
+/** For tests that boot startServer directly: one classic instance, id = driver. */
+export async function seedProviderInstance(
+  server: TrackerServer,
+  driver = "claude-code",
+  displayName = "Claude Code",
+): Promise<void> {
+  await fetch(`${server.url}/api/provider-instances`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ driver, displayName }),
+  });
 }
 
 export async function runCleanups(): Promise<void> {

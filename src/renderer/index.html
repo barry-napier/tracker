@@ -4,10 +4,11 @@
     <meta charset="utf-8" />
     <!-- connect-src covers the Hono API + SSE (packaged: file:// → 127.0.0.1)
          and Vite's dev-mode reload websocket; frame-src lets the review
-         wizard's sandboxed iframe load recap artifacts from that same API. -->
+         wizard's sandboxed iframe load recap artifacts from that same API;
+         img-src additionally allows GitHub avatars (ADR-0006 identity). -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; img-src 'self' data:; frame-src http://127.0.0.1:*"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*; img-src 'self' data: https://avatars.githubusercontent.com; frame-src http://127.0.0.1:*"
     />
     <title>Tracker</title>
     <!-- Pre-JS flash guard: CSP forbids inline scripts, so before theme.ts

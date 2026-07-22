@@ -6,12 +6,21 @@ export function isProvider(value: unknown): value is ProviderName {
 }
 
 /**
- * App-level adapter config (ticket 38): how to reach a provider on this
- * machine and which model it is pinned to. Shared by every Project; see
- * migration 15 in db.ts for why the scope is app-level and not per-ticket.
+ * A configured provider entry (migration 26): the fixed per-driver config
+ * rows of ticket 38 became a user-managed list. `driver` names the adapter
+ * implementation (code, one of PROVIDERS); `id` is the entry every provider
+ * reference — project default, ticket, automation — points at. The seeded
+ * defaults use the driver name as their id, so pre-migration references
+ * stay valid without rewriting a single row. Still app-level, not
+ * per-project: which binary and model an agent runs is a machine-shaped
+ * decision (see migration 15's note).
  */
-export interface ProviderConfig {
-  provider: ProviderName;
+export interface ProviderInstance {
+  id: string;
+  driver: ProviderName;
+  displayName: string;
+  /** Disabled = kept but unclaimable; the registry refuses to serve it. */
+  enabled: boolean;
   /** Absolute path to the CLI; null = resolve the usual name on PATH. */
   binaryPath: string | null;
   /** Pinned model; null = whatever the provider defaults to. */
@@ -22,11 +31,34 @@ export interface ProviderConfig {
   env: Record<string, string>;
 }
 
+/**
+ * The list row GET /api/provider-instances serves: the stored instance plus
+ * its live PATH-shaped availability (availability.ts), recomputed per
+ * request and never a column.
+ */
+export interface ProviderInstanceStatus extends ProviderInstance {
+  available: boolean;
+  /** Human-facing "why not" (binary missing / not executable); null = available. */
+  availabilityReason: string | null;
+}
+
+/**
+ * The signed-in GitHub identity (ADR-0006): profile fields only — the token
+ * itself never leaves the store/auth layer.
+ */
+export interface AuthUser {
+  login: string;
+  name: string | null;
+  email: string | null;
+  avatarUrl: string | null;
+}
+
 export interface Project {
   id: number;
   name: string;
   ticketPrefix: string;
-  defaultProvider: ProviderName;
+  /** A ProviderInstance id — the seeded defaults share their driver's name. */
+  defaultProvider: string;
   /** The one Workflow every Ticket on this board runs (selected by reference). */
   workflowId: number;
   /** False until the user keeps or picks a workflow — the board asks once. */
@@ -124,8 +156,8 @@ export interface Ticket {
   state: TicketState;
   /** Null until promotion; promotion targets exactly one Repo. */
   repoId: number | null;
-  /** Null until promotion; picked per-ticket, defaulted from the Project. */
-  provider: ProviderName | null;
+  /** Null until promotion; a ProviderInstance id, defaulted from the Project. */
+  provider: string | null;
   /** Optional link to the same work item in an outside tracker (ADR-0002). */
   externalRef: string | null;
   /**
@@ -487,6 +519,12 @@ export interface RunWithPhases extends Run {
   phases: PhaseExecution[];
   artifacts: Artifact[];
   gateResults: GateResult[];
+  /**
+   * The pinned workflow version's agent phases in preview order (branches
+   * included) — what the logs sidebar renders as upcoming/remaining. A run
+   * may legitimately skip listed phases (branch paths not taken).
+   */
+  expectedPhases: string[];
 }
 
 export type AcStatus = "pending" | "verified" | "failed" | "waived";
@@ -568,8 +606,8 @@ export interface Automation {
   dayOfWeek: number | null;
   /** Where fired tickets land; null = created but not yet aimed anywhere. */
   projectId: number | null;
-  /** Per-automation agent; null = the Project's default provider. */
-  provider: ProviderName | null;
+  /** Per-automation agent (a ProviderInstance id); null = the Project's default. */
+  provider: string | null;
   enabled: boolean;
   lastFiredAt: string | null;
   createdAt: string;

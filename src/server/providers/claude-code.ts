@@ -81,6 +81,16 @@ export class StreamJsonMapper {
    * unrelated blocks into one.
    */
   #blocks = 0;
+  /**
+   * Streamed blocks by content index (--include-partial-messages). The CLI
+   * redacts thinking text in whole `assistant` lines (empty `thinking` + a
+   * signature — verified against v2.1.215), so thinking is ONLY readable as
+   * stream_event deltas. Once any stream_event arrives, the latch flips and
+   * text/thinking blocks in later assistant lines are skipped as duplicates
+   * of what already streamed; tool_use still lands from the assistant line.
+   */
+  #streamed = new Map<number, string>();
+  #streaming = false;
 
   /** The session id from `system/init` or any later line carrying one. */
   get sessionId(): string | undefined {
@@ -109,6 +119,8 @@ export class StreamJsonMapper {
     if (typeof parsed.session_id === "string") this.#sessionId = parsed.session_id;
 
     switch (parsed.type) {
+      case "stream_event":
+        return this.#fromStreamEvent(parsed);
       case "assistant":
         return this.#fromMessage(parsed, assistantBlock);
       case "user":
@@ -131,6 +143,63 @@ export class StreamJsonMapper {
     }
   }
 
+  /**
+   * One `stream_event` line (--include-partial-messages): open text/thinking
+   * blocks on content_block_start, feed deltas, close on stop. tool_use is
+   * deliberately not streamed — its input arrives as json deltas of no render
+   * value; the whole assistant line lands it as before.
+   */
+  #fromStreamEvent(line: Record<string, unknown>): AgentEvent[] {
+    const event = line.event;
+    if (!isRecord(event)) return [];
+    this.#streaming = true;
+    switch (event.type) {
+      case "message_start":
+        // Content indices are per-message; a stale entry would cross-wire.
+        this.#streamed.clear();
+        return [];
+      case "content_block_start": {
+        const block = event.content_block;
+        const index = Number(event.index);
+        if (!isRecord(block) || !Number.isFinite(index)) return [];
+        if (block.type !== "thinking" && block.type !== "text") return [];
+        const blockId = `stream-${++this.#blocks}`;
+        this.#streamed.set(index, blockId);
+        return [
+          {
+            type: "block.open",
+            blockId,
+            block:
+              block.type === "thinking"
+                ? { kind: "thinking", text: String(block.thinking ?? "") }
+                : { kind: "text", text: String(block.text ?? "") },
+          },
+        ];
+      }
+      case "content_block_delta": {
+        const blockId = this.#streamed.get(Number(event.index));
+        const delta = event.delta;
+        if (blockId === undefined || !isRecord(delta)) return [];
+        const textDelta =
+          delta.type === "thinking_delta"
+            ? String(delta.thinking ?? "")
+            : delta.type === "text_delta"
+              ? String(delta.text ?? "")
+              : "";
+        return textDelta === "" ? [] : [{ type: "block.delta", blockId, textDelta }];
+      }
+      case "content_block_stop": {
+        const index = Number(event.index);
+        const blockId = this.#streamed.get(index);
+        if (blockId === undefined) return [];
+        this.#streamed.delete(index);
+        return [{ type: "block.close", blockId }];
+      }
+      default:
+        return [];
+    }
+  }
+
   /** Walk a message's content array, mapping what the caller recognizes. */
   #fromMessage(
     line: Record<string, unknown>,
@@ -144,6 +213,10 @@ export class StreamJsonMapper {
     const events: AgentEvent[] = [];
     for (const raw of message.content) {
       if (!isRecord(raw)) continue;
+      // Streamed already (and, for thinking, only readable there): the whole
+      // assistant line repeats what the stream_events carried, minus the
+      // thinking text. tool_use never streams, so it still lands here.
+      if (this.#streaming && (raw.type === "text" || raw.type === "thinking")) continue;
       const block = map(raw);
       if (block === undefined) continue;
       // Claude lands whole blocks rather than streaming deltas onto them, so
@@ -268,6 +341,9 @@ export function buildArgs(prompt: string, config: ClaudeCodeConfig): string[] {
     "stream-json",
     // stream-json in print mode requires --verbose; without it the CLI refuses.
     "--verbose",
+    // Thinking text is redacted in whole assistant lines (empty + signature);
+    // stream events are the only place it exists. Also gives live text deltas.
+    "--include-partial-messages",
     // Full-trust posture: in -p mode there is nobody to answer a permission
     // prompt, so an unapproved tool call would abort the run. Isolation is the
     // orchestrator's job — the phase runs in a throwaway git worktree.
@@ -356,8 +432,9 @@ export function probeClaudeCode(config: ClaudeCodeConfig): Promise<ProbeResult> 
 
 export const CLAUDE_CODE_CAPABILITIES: ProviderCapabilities = {
   costReporting: true,
-  // Whole blocks, never partial text — see StreamJsonMapper#fromMessage.
-  streamsPartialText: false,
+  // --include-partial-messages: text arrives as deltas, not whole blocks —
+  // see StreamJsonMapper#fromMessage.
+  streamsPartialText: true,
   emitsThinking: true,
 };
 

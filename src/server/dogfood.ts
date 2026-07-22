@@ -48,7 +48,10 @@ the whole app, and you never review code — behavior only.
    "export works" means the downloaded file's rows match the filter, not that a
    button clicked). Include failure branches: validation errors, empty states,
    permission denials, and the side effects each action caused.
-4. Walk each scenario against the preview. Functional judge — the instrument:
+4. Walk each scenario against the preview. First, evidence hygiene: delete
+   stale files a crashed earlier attempt left under kb/dogfood-evidence/
+   (mid-run *-FAIL screenshots, partial results) — the evidence dir must
+   describe this run only. Functional judge — the instrument:
    for a browser journey drive it and assert the far-end proof; for http, curl
    it and assert status + body. A "pass" carrying a console error or a 5xx in
    the background is a FINDING, not a pass. Experiential judge — the persona: if

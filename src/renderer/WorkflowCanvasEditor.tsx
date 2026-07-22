@@ -41,8 +41,8 @@ import {
   deleteEdge,
   deleteNode,
   deleteStep,
-  NODE_H,
   NODE_W,
+  nodeHeight,
   relabelEdge,
   STEP_TYPE_LABELS,
   updateNode,
@@ -51,7 +51,10 @@ import {
   violationsByNode,
 } from "./canvasModel.ts";
 
-type Selection = { kind: "node"; key: string } | { kind: "edge"; index: number } | null;
+type Selection =
+  | { kind: "node"; key: string; stepIndex?: number }
+  | { kind: "edge"; index: number }
+  | null;
 
 const STEP_TYPE_ICONS: Record<WorkflowStepType, IconName> = {
   "search-global": "book",
@@ -69,6 +72,8 @@ type StageNodeData = {
   // Click on the bottom port opens the stage-kind menu right below the node
   // (same menu a drag-to-empty-canvas opens at the drop point).
   onCreateChild: (at: { x: number; y: number }, screen: { x: number; y: number }) => void;
+  // A step row on the card selects the node with the inspector opened there.
+  onOpenStep: (index: number) => void;
 };
 type StageNode = FlowNode<StageNodeData, "stage">;
 
@@ -357,6 +362,7 @@ export function WorkflowCanvasEditor({
   const edgeViolations = violationsByEdge(violations);
   const globalViolations = violations.filter((v) => v.nodeKey === undefined && v.edgeIndex === undefined);
   const selectedNode = sel?.kind === "node" ? graph.nodes.find((n) => n.key === sel.key) ?? null : null;
+  const selectedStep = sel?.kind === "node" ? sel.stepIndex ?? null : null;
 
   const flowNodes: StageNode[] = graph.nodes.map((node) => ({
     id: node.key,
@@ -367,6 +373,10 @@ export function WorkflowCanvasEditor({
       node,
       messages: nodeViolations.get(node.key) ?? [],
       onCreateChild: (at, screen) => setPendingChild({ from: node.key, at, screen }),
+      onOpenStep: (index) => {
+        setSel({ kind: "node", key: node.key, stepIndex: index });
+        setPendingChild(null);
+      },
     },
   }));
   const flowEdges: StageEdge[] = graph.edges.map((edge, index) => ({
@@ -493,8 +503,11 @@ export function WorkflowCanvasEditor({
           )}
           {selectedNode && (
             <Inspector
-              key={selectedNode.key}
+              // stepIndex in the key: a card's step-row click re-mounts the
+              // inspector drilled into that step, even mid-edit.
+              key={`${selectedNode.key}:${selectedStep ?? "stage"}`}
               node={selectedNode}
+              initialStep={selectedStep}
               onPatch={(patch) => apply(updateNode(graph, selectedNode.key, patch))}
               onAddStep={(type) => apply(addStep(graph, selectedNode.key, type))}
               onPatchStep={(index, patch) => apply(updateStep(graph, selectedNode.key, index, patch))}
@@ -676,20 +689,21 @@ function CanvasToolbar({ chatOpen, onToggleChat }: { chatOpen: boolean; onToggle
 
 function StageNodeView({ data, selected, positionAbsoluteX, positionAbsoluteY }: NodeProps<StageNode>) {
   const { node, messages } = data;
+  const height = nodeHeight(node);
   // A plain click on the port (no drag) asks what stage grows below; the
   // pending-child position mirrors where a dropped connection would land.
   const onPortClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     data.onCreateChild(
-      { x: positionAbsoluteX + NODE_W / 2, y: positionAbsoluteY + NODE_H + 56 },
+      { x: positionAbsoluteX + NODE_W / 2, y: positionAbsoluteY + height + 56 },
       { x: e.clientX, y: e.clientY },
     );
   };
   return (
     <div>
       <div
-        className={`wfc-node${selected ? " selected" : ""}${node.type === "trigger" ? " trigger" : ""}${messages.length > 0 ? " violation" : ""}`}
-        style={{ width: NODE_W, height: NODE_H }}
+        className={`wfc-node${selected ? " selected" : ""}${node.type === "trigger" ? " trigger" : ""}${node.steps.length > 0 ? " has-steps" : ""}${messages.length > 0 ? " violation" : ""}`}
+        style={{ width: NODE_W, height }}
       >
         {/* The model refuses edges into the trigger, so it offers no target. */}
         {node.type !== "trigger" && <Handle type="target" position={Position.Top} />}
@@ -699,7 +713,6 @@ function StageNodeView({ data, selected, positionAbsoluteX, positionAbsoluteY }:
           {node.type === "trigger" ? "Ticket claimed" : node.name}
         </span>
         <span className="wfc-badges">
-          {node.steps.length > 0 && <span className="wfc-pill label">{node.steps.length} steps</span>}
           {node.emitsChecks && <span className="wfc-pill ok">checks</span>}
           {node.gateRequirements.length > 0 && (
             <span className="wfc-pill info" title={`owes ${node.gateRequirements.join(", ")}`}>
@@ -707,6 +720,29 @@ function StageNodeView({ data, selected, positionAbsoluteX, positionAbsoluteY }:
             </span>
           )}
         </span>
+        {/* Steps read on the card (the Lindy legibility): icon + title rows;
+            a row click opens the inspector already drilled into that step. */}
+        {node.steps.length > 0 && (
+          <span className="wfc-node-steps">
+            {node.steps.map((s, i) => (
+              <button
+                key={i}
+                type="button"
+                className="wfc-node-steprow"
+                title={STEP_TYPE_LABELS[s.type]}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  data.onOpenStep(i);
+                }}
+              >
+                <span className="wfc-step-icon">
+                  <Icon name={STEP_TYPE_ICONS[s.type]} size={13} />
+                </span>
+                <span className="wfc-step-title">{s.title}</span>
+              </button>
+            ))}
+          </span>
+        )}
         <Handle
           type="source"
           position={Position.Bottom}
@@ -1262,6 +1298,7 @@ function EditorChrome({
  */
 function Inspector({
   node,
+  initialStep = null,
   onPatch,
   onAddStep,
   onPatchStep,
@@ -1269,13 +1306,15 @@ function Inspector({
   onDelete,
 }: {
   node: DraftNode;
+  /** Open drilled into this step (a card step-row click); null = stage view. */
+  initialStep?: number | null;
   onPatch: (patch: Partial<Pick<DraftNode, "name" | "promptTemplate" | "emitsChecks" | "gateRequirements">>) => void;
   onAddStep: (type: WorkflowStepType) => void;
   onPatchStep: (index: number, patch: { title?: string; prompt?: string }) => void;
   onDeleteStep: (index: number) => void;
   onDelete: () => void;
 }) {
-  const [openStep, setOpenStep] = useState<number | null>(null);
+  const [openStep, setOpenStep] = useState<number | null>(initialStep);
   const [adding, setAdding] = useState(false);
   // gateRequirements edits commit on blur — a half-typed path is not a list.
   const [gates, setGates] = useState(node.gateRequirements.join(", "));
