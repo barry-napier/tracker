@@ -254,6 +254,7 @@ export function WorkflowLibrary({
                 <div className="menu-stepper">
                   <button
                     type="button"
+                    className="menu-stepper-btn"
                     aria-label="Show fewer workflows"
                     onClick={() => updatePrefs({ visible: clampWfVisible(prefs.visible - 1) })}
                   >
@@ -262,6 +263,7 @@ export function WorkflowLibrary({
                   <span>{prefs.visible}</span>
                   <button
                     type="button"
+                    className="menu-stepper-btn"
                     aria-label="Show more workflows"
                     onClick={() => updatePrefs({ visible: clampWfVisible(prefs.visible + 1) })}
                   >
@@ -335,7 +337,7 @@ export function WorkflowLibrary({
             <div className="formrow">
               <button
                 type="button"
-                className="danger"
+                className="btn btn-primary"
                 onClick={() => {
                   const row = deleting;
                   setDeleting(null);
@@ -344,7 +346,7 @@ export function WorkflowLibrary({
               >
                 Delete
               </button>
-              <button type="button" onClick={() => setDeleting(null)}>
+              <button type="button" className="btn" onClick={() => setDeleting(null)}>
                 Cancel
               </button>
             </div>
@@ -489,22 +491,22 @@ function WorkflowRow({
             onMenuToggle(null);
           }}
         >
-          <button type="button" role="menuitem" onClick={onRenameStart}>
+          <button type="button" role="menuitem" className="menu-item" onClick={onRenameStart}>
             Rename
           </button>
-          <button type="button" role="menuitem" onClick={onDuplicate}>
+          <button type="button" role="menuitem" className="menu-item" onClick={onDuplicate}>
             Duplicate
           </button>
           {!row.isDefault && !row.archived && (
-            <button type="button" role="menuitem" onClick={onMakeDefault}>
+            <button type="button" role="menuitem" className="menu-item" onClick={onMakeDefault}>
               Make default
             </button>
           )}
-          <button type="button" role="menuitem" onClick={onToggleArchived}>
+          <button type="button" role="menuitem" className="menu-item" onClick={onToggleArchived}>
             {row.archived ? "Unarchive" : "Archive"}
           </button>
           {row.deletable && (
-            <button type="button" role="menuitem" className="danger" onClick={onDelete}>
+            <button type="button" role="menuitem" className="menu-item danger" onClick={onDelete}>
               Delete
             </button>
           )}
@@ -647,12 +649,13 @@ function SuccessorDialog({
         <div className="formrow">
           <button
             type="button"
+            className="btn btn-primary"
             disabled={successorId === null}
             onClick={() => successorId !== null && onConfirm(successorId)}
           >
             Archive and hand over
           </button>
-          <button type="button" onClick={onCancel}>
+          <button type="button" className="btn" onClick={onCancel}>
             Cancel
           </button>
         </div>
@@ -700,7 +703,7 @@ export function WorkflowCreate({
     <div className="home wf-library">
       <div className="home-picker wf-picker">
         <div className="home-header">
-          <button type="button" className="wf-back" title="Back to workflows" onClick={onDone}>
+          <button type="button" className="btn btn-ghost wf-back" title="Back to workflows" onClick={onDone}>
             <Icon name="chevron-left" size={16} />
             Back
           </button>
@@ -733,10 +736,10 @@ export function WorkflowCreate({
           </label>
           <AppearancePicker name={name} color={color} icon={icon} onColor={setColor} onIcon={setIcon} />
           <div className="formrow">
-            <button type="submit" disabled={busy || name.trim() === ""}>
+            <button type="submit" className="btn btn-primary" disabled={busy || name.trim() === ""}>
               Create workflow
             </button>
-            <button type="button" onClick={onDone}>
+            <button type="button" className="btn" onClick={onDone}>
               Cancel
             </button>
           </div>

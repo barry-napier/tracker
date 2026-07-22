@@ -284,6 +284,7 @@ export function Home({
                 <div className="menu-stepper">
                   <button
                     type="button"
+                    className="menu-stepper-btn"
                     aria-label="Show fewer projects"
                     onClick={() => updatePrefs({ visible: clampVisible(prefs.visible - 1) })}
                   >
@@ -292,6 +293,7 @@ export function Home({
                   <span>{prefs.visible}</span>
                   <button
                     type="button"
+                    className="menu-stepper-btn"
                     aria-label="Show more projects"
                     onClick={() => updatePrefs({ visible: clampVisible(prefs.visible + 1) })}
                   >

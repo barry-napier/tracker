@@ -2199,7 +2199,7 @@ a.chip-info:hover {
   border-radius: var(--radius-md);
 }
 
-.menu-stepper button {
+.menu-stepper-btn {
   flex: 1;
   display: inline-flex;
   align-items: center;
@@ -2213,7 +2213,7 @@ a.chip-info:hover {
   cursor: pointer;
 }
 
-.menu-stepper button:hover {
+.menu-stepper-btn:hover {
   background: var(--overlay-hover);
   color: var(--text-base);
 }
@@ -2952,43 +2952,9 @@ a.chip-info:hover {
   gap: 0.5rem;
 }
 
-.wf-create-form button {
-  background: var(--surface-raised);
-  border: none;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-button);
-  color: var(--text-base);
-  font: inherit;
-  padding: 0.4rem 0.9rem;
-  cursor: pointer;
-}
-
-.wf-create-form button[type="submit"]:not(:disabled) {
-  background: var(--contrast-bg);
-  color: var(--contrast-fg);
-}
-
-.wf-create-form button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 .wf-back {
-  display: inline-flex;
-  align-items: center;
   gap: 0.25rem;
-  background: none;
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--text-muted);
-  font: inherit;
   padding: 0.2rem 0.5rem 0.2rem 0.25rem;
-  cursor: pointer;
-}
-
-.wf-back:hover {
-  background: var(--overlay-hover);
-  color: var(--text-base);
 }
 
 .wf-field {
