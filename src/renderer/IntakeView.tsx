@@ -223,7 +223,7 @@ function useIntakeLog(sessionId: number, active: boolean): LogBlockView[] {
 function lastAgentTurn(session: IntakeSession): (IntakeTurn & { role: "agent" }) | null {
   for (let i = session.transcript.length - 1; i >= 0; i--) {
     const turn = session.transcript[i];
-    if (turn.role === "agent") return turn;
+    if (turn?.role === "agent") return turn;
   }
   return null;
 }
