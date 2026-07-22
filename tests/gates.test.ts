@@ -13,7 +13,7 @@ import {
   waitForAudit,
   waitForTicketState,
   writePlanChecks,
-  writeRecap,
+  writeDogfood,
   type PhaseCall,
 } from "./workflow-helpers.ts";
 
@@ -22,7 +22,9 @@ afterEach(runCleanups);
 function gateStatuses(run: any): Record<string, string> {
   return Object.fromEntries(
     run.gateResults
-      .filter((result: any) => result.acId === null)
+      // Battery rows only: the engine's in-phase rows (TRK-1) are asserted
+      // in phase-gates.test.ts, not here.
+      .filter((result: any) => result.acId === null && !result.gate.startsWith("phase-gate:"))
       .map((result: any) => [result.gate, result.status]),
   );
 }
@@ -74,9 +76,17 @@ describe("the gate battery at Verifying", () => {
     const passedAudit = await waitForAudit(server, ticket.id, "gates.passed");
     expect(passedAudit.detail).toMatchObject({ runId: runs[0].id });
 
-    // Every result streamed over SSE as it landed.
-    const streamed = await client.waitFor("gate.result", 8);
-    expect(streamed.map((m) => m.data.gate)).toEqual([
+    // Every result streamed over SSE as it landed — the engine's in-phase
+    // rows (TRK-1: 5 phases × lint + suite) during the run, the battery's
+    // 8 at Verifying.
+    const streamed = await client.waitFor("gate.result", 18);
+    const [phaseGates, battery] = [
+      streamed.filter((m) => m.data.gate.startsWith("phase-gate:")),
+      streamed.filter((m) => !m.data.gate.startsWith("phase-gate:")),
+    ];
+    expect(phaseGates).toHaveLength(10);
+    expect(phaseGates.every((m) => m.data.status === "pass")).toBe(true);
+    expect(battery.map((m) => m.data.gate)).toEqual([
       "artifact",
       "artifact-lint",
       "dogfood-green",
@@ -95,8 +105,10 @@ describe("the gate battery at Verifying", () => {
       // The agent's check doesn't hold up: non-zero exit fails the AC.
       planChecks: (ctx) => writePlanChecks(ctx.cwd, ctx.prompt, () => "#!/bin/sh\nexit 3\n"),
       onPhase: (ctx) => {
-        if (ctx.phase !== "document") return;
-        writeRecap(ctx.cwd, '<script src="https://cdn.example.com/x.js"></script><h1>Recap</h1>');
+        // Honest-red dogfood: schema-valid (so the phase boundary's lint
+        // passes — TRK-1 catches format, never greenness), failed at the
+        // battery's dogfood-green.
+        if (ctx.phase === "dogfood") writeDogfood(ctx.cwd, { status: "fail" });
       },
     });
     // No GitHubPort backing (nothing pushed), no test command (suite skips),
@@ -114,19 +126,15 @@ describe("the gate battery at Verifying", () => {
     const firstRun = runs.at(-1);
     expect(gateStatuses(firstRun)).toEqual({
       artifact: "pass",
-      "artifact-lint": "fail",
-      // The default dogfood fixture greens its scenario — the recap is what fails here.
-      "dogfood-green": "pass",
+      "artifact-lint": "pass",
+      // The red scenario rode through the phase boundary untouched — only
+      // the battery gets to judge greenness.
+      "dogfood-green": "fail",
       "branch-recorded": "fail",
       suite: "skip",
       "pr-fresh": "fail",
       "demo-fresh": "fail",
     });
-    const lint = firstRun.gateResults.find((r: any) => r.gate === "artifact-lint");
-    expect(lint.detail.problems).toEqual([
-      "recap references external resources — it must be fully self-contained",
-      'recap has no "What to review" section',
-    ]);
     const suite = firstRun.gateResults.find((r: any) => r.gate === "suite");
     expect(suite.detail).toEqual({ reason: "no test command configured" });
 
@@ -142,7 +150,7 @@ describe("the gate battery at Verifying", () => {
     // One diagnostic batch: every failure named in run 1's single event.
     expect(failedAudit.detail).toMatchObject({ runId: firstRun.id });
     expect(failedAudit.detail.failed).toEqual([
-      "artifact-lint",
+      "dogfood-green",
       "branch-recorded",
       "pr-fresh",
       "demo-fresh",

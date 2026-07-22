@@ -123,21 +123,10 @@ export class GateBattery {
    * is prompt-enforced, not re-parsed. Everything softer is the reviewer's call.
    */
   #artifactLint(ctx: BatteryContext): GateOutcome {
-    const problems: string[] = [];
-    const recap = path.join(ctx.worktreePath, "kb", "recap.html");
-    problems.push(
-      ...(existsSync(recap)
-        ? lintRecap(readFileSync(recap, "utf8"))
-        : ["kb/recap.html missing — nothing to lint"]),
-    );
-    if (this.#owesDogfood(ctx)) {
-      const results = path.join(ctx.worktreePath, DOGFOOD_RESULTS_PATH);
-      problems.push(
-        ...(existsSync(results)
-          ? lintDogfoodResults(readFileSync(results, "utf8"))
-          : ["kb/dogfood-results.json missing — nothing to lint"]),
-      );
-    }
+    const problems = [
+      ...lintArtifact(ctx.worktreePath, "kb/recap.html"),
+      ...(this.#owesDogfood(ctx) ? lintArtifact(ctx.worktreePath, DOGFOOD_RESULTS_PATH) : []),
+    ];
     return {
       gate: "artifact-lint",
       status: problems.length === 0 ? "pass" : "fail",
@@ -211,16 +200,7 @@ export class GateBattery {
   }
 
   async #suite(ctx: BatteryContext): Promise<GateOutcome> {
-    const command = ctx.repo.testCommand;
-    if (command === null) {
-      return { gate: "suite", status: "skip", detail: { reason: "no test command configured" } };
-    }
-    const { exitCode, output } = await runCommand("/bin/sh", ["-c", command], ctx.worktreePath);
-    return {
-      gate: "suite",
-      status: exitCode === 0 ? "pass" : "fail",
-      detail: { command, exitCode, output },
-    };
+    return { gate: "suite", ...(await evaluateSuite(ctx.repo.testCommand, ctx.worktreePath)) };
   }
 
   /** PR head SHA == branch tip: the PR shows exactly what the run produced.
@@ -395,6 +375,40 @@ export function lintRecap(html: string): string[] {
     problems.push('recap has no "What to review" section');
   }
   return problems;
+}
+
+/**
+ * One artifact's lint verdict: existence, plus format rules for the formats
+ * we know (the recap's hard rules, the dogfood matrix schema). Everything
+ * else is existence-only. Shared by the battery's run-scoped artifact-lint
+ * and the engine's node-scoped phase gates (TRK-1) so a rule can never
+ * drift between the two.
+ */
+export function lintArtifact(worktreePath: string, artifact: string): string[] {
+  const resolved = path.join(worktreePath, artifact);
+  if (!existsSync(resolved)) return [`${artifact} missing — nothing to lint`];
+  if (artifact === "kb/recap.html") return lintRecap(readFileSync(resolved, "utf8"));
+  if (artifact === DOGFOOD_RESULTS_PATH) return lintDogfoodResults(readFileSync(resolved, "utf8"));
+  return [];
+}
+
+/**
+ * The suite evaluation (repo test command in the worktree), shared by the
+ * battery's suite gate and the engine's phase gates (TRK-1). No command
+ * configured is a fact-driven skip, never a fail.
+ */
+export async function evaluateSuite(
+  testCommand: string | null,
+  cwd: string,
+): Promise<{ status: GateStatus; detail: Record<string, unknown> }> {
+  if (testCommand === null) {
+    return { status: "skip", detail: { reason: "no test command configured" } };
+  }
+  const { exitCode, output } = await runCommand("/bin/sh", ["-c", testCommand], cwd);
+  return {
+    status: exitCode === 0 ? "pass" : "fail",
+    detail: { command: testCommand, exitCode, output },
+  };
 }
 
 async function runCommand(

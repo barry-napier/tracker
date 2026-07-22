@@ -155,6 +155,8 @@ describe("CopilotProvider endings", () => {
       costReporting: false,
       streamsPartialText: true,
       emitsThinking: true,
+      // `--resume` with `-p` is undocumented — the engine re-briefs instead.
+      supportsResume: false,
     });
     expect(stubbedCopilot("success").capabilities).toBe(COPILOT_CAPABILITIES);
   });

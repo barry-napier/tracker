@@ -11,6 +11,7 @@ import {
   scriptedProvider,
   waitForAudit,
   waitForTicketState,
+  writeDogfood,
   writePlanChecks,
   type PhaseCall,
 } from "./workflow-helpers.ts";
@@ -70,9 +71,11 @@ describe("the bounce machinery", () => {
         if (ctx.phase === "implement" && ctx.attempt === 2) {
           commitFile(ctx.cwd, "widget.txt", "the widget\n");
         }
-        if (ctx.phase === "document" && ctx.attempt === 1) {
-          // Sabotage one gate: a recap without review notes fails artifact-lint.
-          writeFileSync(path.join(ctx.cwd, "kb", "recap.html"), "<h1>Recap</h1>");
+        if (ctx.phase === "dogfood" && ctx.attempt === 1) {
+          // Sabotage one gate: an honest-red scenario fails dogfood-green.
+          // Schema-valid, so the phase boundary's lint (TRK-1) waves it
+          // through — greenness is the battery's judgment alone.
+          writeDogfood(ctx.cwd, { status: "fail" });
         }
         await pushesToGitHub(github)(ctx);
       },
@@ -105,7 +108,7 @@ describe("the bounce machinery", () => {
     expect(bounced.detail).toMatchObject({
       runId: firstRun.id,
       bounceCount: 1,
-      failed: ["artifact-lint", `ac-check:AC-${originalAcId}`],
+      failed: ["dogfood-green", `ac-check:AC-${originalAcId}`],
       treeState: { branch: ticket.branch ?? expect.any(String), aheadBy: 1, dirtyCount: 1 },
     });
     expect(bounced.detail.followUpAcIds).toHaveLength(1);
@@ -123,7 +126,7 @@ describe("the bounce machinery", () => {
     });
     const followUp = detail.acceptanceCriteria[1];
     expect(followUp).toMatchObject({ origin: "gate-fail", status: "verified" });
-    expect(followUp.text).toContain("artifact-lint");
+    expect(followUp.text).toContain("Dogfood scenario S1");
     expect(bounced.detail.followUpAcIds).toEqual([followUp.id]);
 
     // The Bounce Report: written into the persisting worktree, recorded as a
@@ -133,10 +136,10 @@ describe("the bounce machinery", () => {
     const reportArtifact = firstRun.artifacts.find((a: any) => a.kind === "bounce-report");
     expect(reportArtifact).toMatchObject({ name: "bounce-report.md" });
     const report = readFileSync(path.join(dataDir, reportArtifact.path), "utf8");
-    expect(report).toContain("artifact-lint");
+    expect(report).toContain("dogfood-green");
     expect(report).toContain(`AC-${originalAcId}: The widget file exists`);
     expect(report).toContain(`checks/ac-${originalAcId}.sh`);
-    expect(report).toContain('recap has no "What to review" section');
+    expect(report).toContain("Dogfood scenario S1 reaches pass, fixed, or waived (was fail)");
     expect(report).toContain(detail.branch);
     expect(report).toContain(`run ${firstRun.id}`);
     expect(report).toContain("Ahead of origin/main by: 1");

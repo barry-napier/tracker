@@ -76,6 +76,7 @@ export class FakeProvider implements Provider {
     costReporting: true,
     streamsPartialText: true,
     emitsThinking: true,
+    supportsResume: true,
   };
 
   constructor(private readonly script: FakeScript) {}
@@ -90,7 +91,9 @@ export class FakeProvider implements Provider {
 
   runPhase(prompt: string, cwd: string, opts?: RunPhaseOpts): PhaseHandle {
     this.lastOpts = opts;
-    const generator = this.script({ prompt, cwd });
+    // The script sees the resume id the way a real agent would experience a
+    // resumed conversation — tests assert same-session re-entry through it.
+    const generator = this.script({ prompt, cwd, resumeSessionId: opts?.resumeSessionId });
     const queue: AgentEvent[] = [];
     let notify: (() => void) | undefined;
     let finished = false;

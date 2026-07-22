@@ -190,6 +190,7 @@ describe("KiroProvider endings", () => {
       costReporting: false,
       streamsPartialText: true,
       emitsThinking: true,
+      supportsResume: true,
     });
     expect(stubbedKiro("success").capabilities).toBe(KIRO_CAPABILITIES);
   });
@@ -261,6 +262,7 @@ test("Claude Code declares the capabilities ticket 38 specifies", () => {
     costReporting: true,
     streamsPartialText: true,
     emitsThinking: true,
+    supportsResume: true,
   });
   expect(stubbed("success").capabilities).toBe(CLAUDE_CODE_CAPABILITIES);
 });

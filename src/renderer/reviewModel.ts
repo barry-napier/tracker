@@ -1,3 +1,4 @@
+import { PHASE_GATE_PREFIX } from "../server/types.ts";
 import type {
   AcceptanceCriterion,
   Artifact,
@@ -150,6 +151,9 @@ export function badgeRow(run: RunWithPhases | null): GateBadge[] {
   const acCounts: Record<GateStatus, number> = { pass: 0, fail: 0, skip: 0 };
   let acSeen = false;
   for (const result of run.gateResults) {
+    // In-phase gate rows (TRK-1) are the engine's retry history, not the
+    // battery's verdict — the badge row stays Verifying-scoped.
+    if (result.gate.startsWith(PHASE_GATE_PREFIX)) continue;
     if (result.gate === "ac-check") {
       acSeen = true;
       acCounts[result.status] += 1;

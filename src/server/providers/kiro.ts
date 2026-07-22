@@ -306,6 +306,9 @@ export const KIRO_CAPABILITIES: ProviderCapabilities = {
   costReporting: false,
   streamsPartialText: true,
   emitsThinking: true,
+  // ACP session/load (capability loadSession) — a failed load falls back to
+  // a fresh session inside runPhase rather than crashing the phase.
+  supportsResume: true,
 };
 
 /** How long a graceful ACP cancel gets before SIGTERM finishes the job. */
@@ -504,7 +507,25 @@ export class KiroProvider implements Provider {
           // No client-side fs or terminal: the agent works its own worktree.
           clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } },
         });
-        const session = await request("session/new", { cwd, mcpServers: [] });
+        // Resume (TRK-1): reload the prior invocation's session so the
+        // re-prompt lands in the same conversation. A load the agent refuses
+        // (expired, unknown id) degrades to a fresh session — the retry
+        // prompt carries its findings either way.
+        let session: unknown;
+        if (opts?.resumeSessionId !== undefined) {
+          try {
+            await request("session/load", {
+              sessionId: opts.resumeSessionId,
+              cwd,
+              mcpServers: [],
+            });
+            session = { sessionId: opts.resumeSessionId };
+          } catch {
+            session = await request("session/new", { cwd, mcpServers: [] });
+          }
+        } else {
+          session = await request("session/new", { cwd, mcpServers: [] });
+        }
         sessionId = isRecord(session) && typeof session.sessionId === "string"
           ? session.sessionId
           : undefined;
