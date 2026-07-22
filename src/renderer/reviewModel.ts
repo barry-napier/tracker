@@ -66,6 +66,83 @@ export function parseDogfoodDecisions(text: string): DogfoodDecision[] {
   });
 }
 
+/** The review agent's digest artifact (TRK-3). */
+export const REVIEW_DIGEST_NAME = "review-digest.json";
+
+export interface DigestWalkthroughEntry {
+  file: string;
+  note: string;
+}
+export interface DigestRisk {
+  note: string;
+  severity: "low" | "medium" | "high" | null;
+}
+export interface DigestAcEntry {
+  acId: number;
+  note: string;
+  files: string[];
+}
+export interface ReviewDigestContent {
+  walkthrough: DigestWalkthroughEntry[];
+  risks: DigestRisk[];
+  acMap: DigestAcEntry[];
+}
+
+/**
+ * The digest, defensively parsed like the dogfood decisions: the server
+ * linted the file before persisting, but a malformed entry still yields
+ * empty sections rather than a broken wizard — raw evidence remains the
+ * reviewer's fallback.
+ */
+export function parseReviewDigest(text: string): ReviewDigestContent {
+  const empty: ReviewDigestContent = { walkthrough: [], risks: [], acMap: [] };
+  let doc: unknown;
+  try {
+    doc = JSON.parse(text);
+  } catch {
+    return empty;
+  }
+  if (typeof doc !== "object" || doc === null) return empty;
+  const digest = doc as Record<string, unknown>;
+  const walkthrough = Array.isArray(digest.walkthrough)
+    ? digest.walkthrough.flatMap((entry) => {
+        const item = entry as Record<string, unknown>;
+        return typeof item?.file === "string" && typeof item?.note === "string"
+          ? [{ file: item.file, note: item.note }]
+          : [];
+      })
+    : [];
+  const risks = Array.isArray(digest.risks)
+    ? digest.risks.flatMap((entry) => {
+        const item = entry as Record<string, unknown>;
+        if (typeof item?.note !== "string") return [];
+        const raw = item.severity;
+        const severity: DigestRisk["severity"] =
+          raw === "low" || raw === "medium" || raw === "high" ? raw : null;
+        return [{ note: item.note, severity }];
+      })
+    : [];
+  const acMap = Array.isArray(digest.acMap)
+    ? digest.acMap.flatMap((entry) => {
+        const item = entry as Record<string, unknown>;
+        if (typeof item?.acId !== "number" || typeof item?.note !== "string") return [];
+        const files = Array.isArray(item.files)
+          ? item.files.filter((file): file is string => typeof file === "string")
+          : [];
+        return [{ acId: item.acId, note: item.note, files }];
+      })
+    : [];
+  return { walkthrough, risks, acMap };
+}
+
+/** The digest's entry for one criterion — the walkthrough item's pre-fill. */
+export function digestForAc(
+  digest: ReviewDigestContent | null,
+  acId: number,
+): DigestAcEntry | null {
+  return digest?.acMap.find((entry) => entry.acId === acId) ?? null;
+}
+
 /** The wizard's step vocabulary is the server's — verdicts validate against it. */
 export type WizardStepKey = ReviewStepKey;
 

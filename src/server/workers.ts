@@ -5,6 +5,7 @@ import type { EventBus } from "./bus.ts";
 import type { DemoOutcome, DemoRecorder } from "./demos.ts";
 import { DeadGraphError, PhaseCancelledError, type WorkflowEngine } from "./engine.ts";
 import type { GateBattery } from "./gates.ts";
+import type { ReviewAgent } from "./review-agent.ts";
 import type { Store } from "./store.ts";
 import type { Repo, Run, TicketWithAcs, TreeState } from "./types.ts";
 import { readTreeState, type WorktreeManager } from "./worktrees.ts";
@@ -30,6 +31,7 @@ export class WorkerPool {
     private readonly demos: DemoRecorder,
     private readonly battery: GateBattery,
     private readonly bouncer: Bouncer,
+    private readonly reviewAgent: ReviewAgent,
     private readonly capacity: number,
   ) {}
 
@@ -113,7 +115,25 @@ export class WorkerPool {
       } catch (error) {
         console.error(`run ${run.id}: gate battery crashed mid-flight`, error);
       }
-      if (this.#stopped || verdict === undefined || verdict.passed) return;
+      if (this.#stopped || verdict === undefined) return;
+      if (verdict.passed) {
+        // The review agent (TRK-3): pre-digest the green run for the human
+        // while the ticket still sits in Verifying — unclaimable, wizard
+        // unopened. However the attempt ends, it is recorded and the ticket
+        // reaches Human Review: a dead digest degrades to the raw-diff
+        // wizard, flagged, never a stranded ticket (AC-42).
+        const digest = await this.reviewAgent.digest({
+          run,
+          ticket,
+          repo,
+          worktreePath,
+          signal: this.#abort.signal,
+        });
+        if (this.#stopped) return;
+        this.store.recordReviewDigest(run.id, digest);
+        this.store.enterHumanReview(run.id);
+        return;
+      }
       // A bounce blow-up strands the ticket in Verifying the same way — say
       // which half died so the parked state is diagnosable.
       try {

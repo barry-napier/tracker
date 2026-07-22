@@ -935,9 +935,11 @@ export class Store {
   }
 
   /**
-   * The battery's verdict on a Verifying ticket: all green → Human Review;
-   * any failure leaves it in Verifying with the failures on record — the
-   * bounce that acts on them lands in slice 30.
+   * The battery's verdict on a Verifying ticket, recorded — never a state
+   * move. A pass holds the ticket in Verifying for the review agent
+   * (TRK-3); the worker calls enterHumanReview once the digest attempt has
+   * ended, however it ended. A failure leaves the failures on record for
+   * the bounce machinery.
    */
   concludeVerification(runId: number, outcome: { passed: boolean; failed: string[] }): Ticket {
     const run = this.getRun(runId);
@@ -947,11 +949,6 @@ export class Store {
       throw new StateError(`ticket ${existing.displayKey} is ${existing.state}, not verifying`);
     }
     const { ticket, audit } = withTransaction(this.db, () => {
-      if (outcome.passed) {
-        this.db
-          .prepare("UPDATE tickets SET state = 'human_review', updated_at = ? WHERE id = ?")
-          .run(nowIso(), existing.id);
-      }
       const ticket = this.getTicket(existing.id)!;
       const audit = this.insertAudit({
         projectId: ticket.projectId,
@@ -963,8 +960,52 @@ export class Store {
       return { ticket, audit };
     });
     this.bus.emit("audit.appended", audit);
-    if (outcome.passed) this.bus.emit("ticket.updated", ticket);
     return ticket;
+  }
+
+  /**
+   * The green run's landing (TRK-3): Verifying → Human Review, after the
+   * review agent's digest attempt ended. Its own step so the ticket stays
+   * unclaimable — and the reviewer never opens a half-digested wizard —
+   * while the agent reads the worktree.
+   */
+  enterHumanReview(runId: number): Ticket {
+    const run = this.getRun(runId);
+    if (!run) throw new NotFoundError(`run ${runId} not found`);
+    const existing = this.getTicket(run.ticketId)!;
+    if (existing.state !== "verifying") {
+      throw new StateError(`ticket ${existing.displayKey} is ${existing.state}, not verifying`);
+    }
+    this.db
+      .prepare("UPDATE tickets SET state = 'human_review', updated_at = ? WHERE id = ?")
+      .run(nowIso(), existing.id);
+    const ticket = this.getTicket(existing.id)!;
+    this.bus.emit("ticket.updated", ticket);
+    return ticket;
+  }
+
+  /**
+   * How the review agent's attempt ended (TRK-3), on the audit trail either
+   * way: "produced" is the digest's provenance record, "failed" is AC-42's
+   * flag — the wizard opened raw-diff because the agent died, not because
+   * nothing was supposed to be there.
+   */
+  recordReviewDigest(runId: number, outcome: { status: "produced" | "failed"; reason?: string }): void {
+    const run = this.getRun(runId);
+    if (!run) throw new NotFoundError(`run ${runId} not found`);
+    const ticket = this.getTicket(run.ticketId)!;
+    const audit = this.insertAudit({
+      projectId: ticket.projectId,
+      ticketId: ticket.id,
+      actor: "agent",
+      type: "review.digest",
+      detail: {
+        runId,
+        status: outcome.status,
+        ...(outcome.reason === undefined ? {} : { reason: outcome.reason }),
+      },
+    });
+    this.bus.emit("audit.appended", audit);
   }
 
   /**

@@ -15,6 +15,7 @@ import { Home } from "./home.ts";
 import { PreviewManager } from "./previews.ts";
 import type { ProviderRegistry } from "./provider.ts";
 import type { ProviderInstanceReader } from "./providers/registry.ts";
+import { ReviewAgent } from "./review-agent.ts";
 import { Reviews } from "./reviews.ts";
 import { RunLogRegistry } from "./runlog.ts";
 import { Store } from "./store.ts";
@@ -111,6 +112,7 @@ export async function startServer(options: {
     new DemoRecorder(options.dataDir, store, previews, artifacts),
     new GateBattery(store, github),
     bouncer,
+    new ReviewAgent(providers, runLogs, artifacts),
     options.workers ?? 3,
   );
   pool.start(bus);

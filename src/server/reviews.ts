@@ -1,4 +1,5 @@
 import type { GitHubPort, Mergeability } from "./github.ts";
+import { REVIEW_DIGEST_KIND } from "./review-agent.ts";
 import { NotFoundError, type Store } from "./store.ts";
 import type { RunWithPhases, TicketWithAcs } from "./types.ts";
 import type { WorktreeManager } from "./worktrees.ts";
@@ -19,6 +20,15 @@ export interface ReviewPayload {
   /** The worktree HEAD the latest Run's evidence was persisted at. */
   artifactSha: string | null;
   freshness: Freshness;
+  /**
+   * The review agent's pre-digest (TRK-3), with its own staleness verdict:
+   * findings produced at one HEAD are invalidated by commits after it
+   * (AC-43), independent of the run's other evidence. Null when the agent
+   * never produced one — see digestFailure for why.
+   */
+  digest: { artifactId: number; producedAtSha: string; freshness: Freshness } | null;
+  /** AC-42's flag: the agent's failure reason when the wizard opens raw-diff. */
+  digestFailure: string | null;
 }
 
 /** Unknown is a real answer (like Mergeability): it means no banner, ever. */
@@ -70,6 +80,46 @@ export class Reviews {
     // All of a run's blobs persist at one worktree HEAD; the newest row wins
     // if a late persist (e.g. the bounce report) ever recorded a mover.
     const artifactSha = run?.artifacts.at(-1)?.worktreeHeadSha ?? null;
-    return { ticket, run, pr, branchTip, artifactSha, freshness: freshness(artifactSha, branchTip) };
+
+    // The digest rides its own freshness (AC-43): its artifact row's HEAD
+    // stamp against the live tip, so a commit landing after the agent read
+    // the diff invalidates the findings even when other evidence keeps up.
+    const digestArtifact = run?.artifacts.filter((a) => a.kind === REVIEW_DIGEST_KIND).at(-1);
+    const digest = digestArtifact
+      ? {
+          artifactId: digestArtifact.id,
+          producedAtSha: digestArtifact.worktreeHeadSha,
+          freshness: freshness(digestArtifact.worktreeHeadSha, branchTip),
+        }
+      : null;
+    // AC-42: absence is flagged with the agent's own failure, read from the
+    // audit trail — the wizard says why it opened raw-diff.
+    let digestFailure: string | null = null;
+    if (digest === null && run !== null) {
+      type DigestDetail = { runId?: number; status?: string; reason?: string };
+      const failure = this.store
+        .listAuditEvents(ticket.id)
+        .filter((event) => {
+          const detail = event.detail as DigestDetail;
+          return (
+            event.type === "review.digest" && detail.runId === run.id && detail.status === "failed"
+          );
+        })
+        .at(-1);
+      const reason = (failure?.detail as DigestDetail | undefined)?.reason;
+      digestFailure =
+        failure === undefined ? null : typeof reason === "string" ? reason : "review agent failed";
+    }
+
+    return {
+      ticket,
+      run,
+      pr,
+      branchTip,
+      artifactSha,
+      freshness: freshness(artifactSha, branchTip),
+      digest,
+      digestFailure,
+    };
   }
 }
