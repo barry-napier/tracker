@@ -8,6 +8,8 @@ import {
   deleteEdge,
   deleteNode,
   deleteStep,
+  NODE_H,
+  nodeHeight,
   relabelEdge,
   updateNode,
   updateStep,
@@ -184,6 +186,29 @@ describe("autoLayout", () => {
     expect(pos.merge!.y).toBeGreaterThan(pos.a!.y);
     expect(pos.merge!.y).toBeGreaterThan(pos.b!.y);
     expect(pos.lost).toBeDefined();
+  });
+
+  test("a row with steps pushes the next row further down", () => {
+    const short = autoLayout(graph());
+    const tall = autoLayout({
+      ...graph(),
+      nodes: graph().nodes.map((n) =>
+        n.key === "a"
+          ? {
+              ...n,
+              steps: [
+                { type: "search-code" as const, title: "find it", prompt: "" },
+                { type: "action" as const, title: "do it", prompt: "" },
+              ],
+            }
+          : n,
+      ),
+    });
+    // a's card grew, so the b/c row starts lower than in the stepless layout;
+    // rows above the grown card stay put.
+    expect(tall.b!.y).toBeGreaterThan(short.b!.y);
+    expect(tall.a!.y).toBe(short.a!.y);
+    expect(nodeHeight(node("a"))).toBe(NODE_H);
   });
 
   test("survives a mid-edit cycle without hanging", () => {

@@ -3770,6 +3770,34 @@ button.wfc-pill.label { cursor: pointer; }
 .wfc-pill-icon { margin-right: 4px; }
 /* No badges → no second line; the name recenters on its own. */
 .wfc-badges:empty { display: none; }
+/* Steps on the card: the header keeps its NODE_H band at the top, rows fill
+   the grown card below it (heights mirror nodeHeight() in canvasModel). */
+.wfc-node.has-steps { justify-content: flex-start; padding-top: 9px; }
+.wfc-node-steps {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  margin-top: 2px;
+}
+.wfc-node-steprow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px; /* STEP_ROW_H */
+  padding: 0 7px;
+  margin: 0 -7px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+}
+.wfc-node-steprow:hover { background: var(--overlay-hover); color: var(--text-base); }
+.wfc-node-steprow .wfc-step-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wfc-violations {
   margin: 6px 0 0;
   padding: 6px 8px;
