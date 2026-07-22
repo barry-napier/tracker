@@ -15,7 +15,7 @@
     "test": "vitest run",
     "build": "npm run compile && electron-builder --mac",
     "build:dir": "npm run compile && electron-builder --mac dir",
-    "release": "npm run compile && electron-builder --mac --publish always"
+    "release": "npm run compile && electron-builder --mac --publish always && scripts/verify-release.sh v$npm_package_version"
   },
   "build": {
     "appId": "com.barrynapier.tracker",
@@ -34,11 +34,17 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["arm64", "x64"]
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         },
         {
           "target": "zip",
-          "arch": ["arm64", "x64"]
+          "arch": [
+            "arm64",
+            "x64"
+          ]
         }
       ],
       "artifactName": "${productName}-${version}-${arch}.${ext}",

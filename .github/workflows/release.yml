@@ -1,24 +1,34 @@
+# Release on tag push: clean-runner build of both mac arches, signed,
+# notarized, published to GitHub Releases, then hash-verified by
+# scripts/verify-release.sh.
+#
+# HISTORY: the previous version of this workflow built UNSIGNED artifacts
+# (CSC_IDENTITY_AUTO_DISCOVERY=false) and silently overwrote the release
+# assets published by local `npm run release` runs — every "damaged and
+# can't be opened" report on v0.2.6/v0.2.7 traces to it. This version signs
+# and notarizes properly, and fails loudly if the secrets below are missing
+# instead of shipping unsigned bytes.
+#
+# Required repo secrets:
+#   CSC_LINK                    base64 .p12 export of "Developer ID Application: barry Napier (B45SDP2V36)"
+#   CSC_KEY_PASSWORD            password for the .p12
+#   APPLE_ID                    Apple ID email for notarytool
+#   APPLE_APP_SPECIFIC_PASSWORD app-specific password for notarytool
+#   APPLE_TEAM_ID               B45SDP2V36
 name: Release
 
 on:
   push:
-    tags:
-      - "v*.*.*"
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Release version (for example 0.2.1 or v0.2.1)"
-        required: true
-        type: string
+    tags: ["v*.*.*"]
 
 permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build macOS arm64
+  release:
+    name: Build, sign, notarize, publish, verify
     runs-on: macos-14
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,24 +39,20 @@ jobs:
           node-version: 22
           cache: npm
 
-      - id: meta
-        name: Resolve release version
-        shell: bash
+      - name: Require signing secrets
         env:
-          DISPATCH_VERSION: ${{ github.event.inputs.version }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            raw="$DISPATCH_VERSION"
-          else
-            raw="$GITHUB_REF_NAME"
-          fi
-          version="${raw#v}"
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Invalid release version: $raw" >&2
+          [ -n "$CSC_LINK" ] && [ -n "$APPLE_ID" ] || {
+            echo "Signing/notarization secrets are not configured — refusing to publish an unsigned build." >&2
             exit 1
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          }
+
+      - name: Check tag matches package version
+        run: |
+          pkg="v$(node -p "require('./package.json').version")"
+          [ "$pkg" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME != package.json $pkg" >&2; exit 1; }
 
       - name: Install dependencies
         run: npm ci
@@ -57,24 +63,12 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Align package version to release version
-        run: npm version "${{ steps.meta.outputs.version }}" --no-git-tag-version --allow-same-version
-
-      - name: Build .dmg
+      - name: Build, publish, verify
         env:
-          # Unsigned build: skip codesign identity discovery entirely.
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npm run build -- --publish never
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.meta.outputs.tag }}
-          name: Tracker ${{ steps.meta.outputs.tag }}
-          generate_release_notes: true
-          make_latest: true
-          files: |
-            dist/*.dmg
-            dist/*.blockmap
-            dist/*.yml
-          fail_on_unmatched_files: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run release
