@@ -731,6 +731,47 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
       DROP TABLE provider_config;
     `,
   },
+  {
+    version: 27,
+    sql: `
+      -- AI ticket intake: a grilling conversation that authors a ticket
+      -- draft before anything enters Backlog. Like workflow_drafts, the
+      -- transcript and draft are JSON blobs — nothing queries inside them;
+      -- approval materializes the draft into real ticket + AC rows and the
+      -- session keeps only the pointer. repo_id binds the research cwd;
+      -- provider is a provider_instances id.
+      CREATE TABLE intake_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL REFERENCES projects(id),
+        repo_id INTEGER NOT NULL REFERENCES repos(id),
+        provider TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active',
+        intent TEXT NOT NULL,
+        transcript TEXT NOT NULL DEFAULT '[]',
+        draft TEXT,
+        ticket_id INTEGER REFERENCES tickets(id),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `,
+  },
+  {
+    version: 28,
+    sql: `
+      -- Intake kind: what the session is about (bug | feature | initiative).
+      -- Picked up front; selects the flow the agent runs.
+      ALTER TABLE intake_sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'feature';
+    `,
+  },
+  {
+    version: 29,
+    sql: `
+      -- Ticket kind (bug | feature): set from the intake session at
+      -- approval; drives the type icon on cards (Jira-style). Initiatives
+      -- are a session mode (Wayfinder-shaped) and never a board ticket.
+      ALTER TABLE tickets ADD COLUMN kind TEXT NOT NULL DEFAULT 'feature';
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

@@ -46,6 +46,8 @@ import { loadTabs, saveTabs } from "./tabsState.ts";
 import { TerminalDrawer } from "./TerminalDrawer.tsx";
 import { RightSidebar, type BrowseRequest } from "./RightSidebar.tsx";
 import { Icon, type IconName } from "./icons.tsx";
+import { IntakeNew, IntakeView } from "./IntakeView.tsx";
+import { KindIcon } from "./kindIcons.tsx";
 import { AuthContext, fetchAuthStatus, type AuthStatus } from "./auth.ts";
 import { SignIn } from "./SignIn.tsx";
 import {
@@ -289,6 +291,8 @@ function AppRoutes() {
         <Route path="workflows/:workflowId" element={<WorkflowEditorRoute />} />
         <Route path="projects/:projectId" element={<BoardRoute />} />
         <Route path="projects/:projectId/settings" element={<BoardRoute overlay="settings" />} />
+        <Route path="projects/:projectId/intake/new" element={<IntakeNewRoute />} />
+        <Route path="projects/:projectId/intake/:sessionId" element={<IntakeRoute />} />
         <Route path="projects/:projectId/tickets/:ticketId" element={<TicketRoute />} />
         <Route path="projects/:projectId/tickets/:ticketId/logs" element={<TicketLogsRoute />} />
         <Route
@@ -637,6 +641,19 @@ function BoardRoute({ overlay }: { overlay?: "settings" | "review" }) {
   );
 }
 
+function IntakeNewRoute() {
+  const { project, repos } = useShell();
+  if (!project) return null;
+  return <IntakeNew key={project.id} project={project} repos={repos} />;
+}
+
+function IntakeRoute() {
+  const { project } = useShell();
+  const { sessionId } = useParams();
+  if (!project) return null;
+  return <IntakeView key={sessionId} sessionId={Number(sessionId)} projectId={project.id} />;
+}
+
 function TicketRoute() {
   const { project, repos, board, loadAudit, loadRuns } = useShell();
   const navigate = useNavigate();
@@ -845,7 +862,7 @@ function Board({
         actions={
           <>
             <DoneSweep projectId={project.id} />
-            <NewTicketForm projectId={project.id} />
+            <IntakeLaunch project={project} repos={repos} />
           </>
         }
       />
@@ -946,7 +963,10 @@ function TicketCard({
   return (
     <article className="card" onClick={onOpen}>
       <div className="card-top">
-        <span className="dim">{ticket.displayKey}</span>
+        <span className="card-key dim">
+          <KindIcon kind={ticket.kind} size={14} />
+          {ticket.displayKey}
+        </span>
         {ticket.provider && (
           <span className="card-provider">
             {PROVIDER_LABELS[ticket.provider] ?? ticket.provider}
@@ -1203,83 +1223,24 @@ function DoneSweep({ projectId }: { projectId: number }) {
   );
 }
 
-function NewTicketForm({ projectId }: { projectId: number }) {
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [acs, setAcs] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  const reset = () => {
-    setOpen(false);
-    setTitle("");
-    setDescription("");
-    setAcs("");
-    setError(null);
-  };
-
-  const submit = async () => {
-    if (title.trim() === "") return;
-    try {
-      // No optimistic insert: the card appears when ticket.updated arrives
-      // over SSE, so what renders is what the store persisted.
-      await apiPost("/api/tickets", {
-        projectId,
-        title: title.trim(),
-        description,
-        acceptanceCriteria: acs
-          .split("\n")
-          .map((line) => line.trim())
-          .filter((line) => line !== ""),
-      });
-      reset();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
+/**
+ * Ticket creation IS the AI intake (the manual form is gone): the toolbar
+ * button opens the full-page intake composer, where the kind, intent, and
+ * provider are picked and the grilling starts.
+ */
+function IntakeLaunch({ project, repos }: { project: Project; repos: RepoListItem[] }) {
+  const navigate = useNavigate();
+  if (repos.length === 0) return null;
   return (
     <div className="toolbar-action">
-      <button type="button" className="toolbar-new" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        className="toolbar-new"
+        onClick={() => navigate(`/projects/${project.id}/intake/new`)}
+        title="An intake agent researches the repo, grills you on the real decisions, and drafts the ticket"
+      >
         + New ticket
       </button>
-      {open && (
-        <form
-          className="newform newform-pop"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submit();
-          }}
-        >
-      <input
-        autoFocus
-        placeholder="Title"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-      />
-      <textarea
-        placeholder="Description"
-        rows={3}
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-      />
-      <textarea
-        placeholder={"Acceptance criteria — one per line"}
-        rows={3}
-        value={acs}
-        onChange={(e) => setAcs(e.target.value)}
-      />
-          {error && <p className="error">{error}</p>}
-          <div className="formrow">
-            <button type="submit" disabled={title.trim() === ""}>
-              File ticket
-            </button>
-            <button type="button" onClick={reset}>
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
     </div>
   );
 }

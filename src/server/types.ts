@@ -154,6 +154,10 @@ export interface Ticket {
   title: string;
   description: string;
   state: TicketState;
+  /** What the ticket is about (bug | feature); set at intake approval,
+   *  defaulted to feature for API-created tickets. Drives the Jira-style
+   *  type icon on cards. */
+  kind: TicketKind;
   /** Null until promotion; promotion targets exactly one Repo. */
   repoId: number | null;
   /** Null until promotion; a ProviderInstance id, defaulted from the Project. */
@@ -646,4 +650,99 @@ export interface AuditEvent {
   type: string;
   detail: Record<string, unknown>;
   createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// AI ticket intake (the pre-Backlog grilling conversation).
+
+export const INTAKE_STATUSES = ["active", "drafted", "approved", "discarded"] as const;
+export type IntakeStatus = (typeof INTAKE_STATUSES)[number];
+
+/** What an intake session is about — picked up front; selects the flow.
+ *  "initiative" is Wayfinder-shaped and never lands on the board itself:
+ *  its output is a batch of feature/bug tickets. */
+export const INTAKE_KINDS = ["bug", "feature", "initiative"] as const;
+export type IntakeKind = (typeof INTAKE_KINDS)[number];
+export function isIntakeKind(value: unknown): value is IntakeKind {
+  return typeof value === "string" && (INTAKE_KINDS as readonly string[]).includes(value);
+}
+
+/** What a board ticket can be — initiatives are a session mode, never a ticket. */
+export const TICKET_KINDS = ["bug", "feature"] as const;
+export type TicketKind = (typeof TICKET_KINDS)[number];
+export function isTicketKind(value: unknown): value is TicketKind {
+  return typeof value === "string" && (TICKET_KINDS as readonly string[]).includes(value);
+}
+
+/** One decision the repo could not answer — the only kind worth asking. */
+export interface IntakeQuestion {
+  text: string;
+  /** Suggested answers to pick by number; free text always allowed. */
+  options?: string[];
+  /** Why the repo's docs/code don't settle this — the grilling receipt. */
+  why: string;
+}
+
+/** A drafted AC: routed to a machine check (with a sketch that could be
+ *  calibrated against the pre-change tree) or explicitly to human judgment. */
+export interface IntakeAcDraft {
+  text: string;
+  route: "check" | "human";
+  /** For route "check": a shell sketch the plan phase can grow into checks/ac-<id>.sh. */
+  checkSketch?: string;
+  /** For route "human": why no machine check can decide this. */
+  humanReason?: string;
+}
+
+export interface IntakeDraft {
+  title: string;
+  /** Must name the authority documents the ACs lean on. */
+  description: string;
+  acs: IntakeAcDraft[];
+}
+
+/** One buildable ticket inside an initiative breakdown — always a board
+ *  kind (bug | feature), never another initiative. */
+export interface IntakeTicketDraft extends IntakeDraft {
+  kind: TicketKind;
+}
+
+/**
+ * The Wayfinder-shaped output of an initiative session: the named
+ * destination, the tickets sharp enough to build now, and the fog — what's
+ * coming but can't be stated precisely yet (never ticketed), plus what was
+ * consciously ruled out of scope.
+ */
+export interface IntakeBreakdown {
+  destination: string;
+  tickets: IntakeTicketDraft[];
+  notYetSpecified: string[];
+  outOfScope: string[];
+}
+
+/** The conversation as stored: user answers and agent turns interleaved. */
+export type IntakeTurn =
+  | { role: "user"; text: string }
+  | { role: "agent"; question: IntakeQuestion }
+  | { role: "agent"; draft: IntakeDraft; note?: string }
+  | { role: "agent"; breakdown: IntakeBreakdown; note?: string };
+
+export interface IntakeSession {
+  id: number;
+  projectId: number;
+  repoId: number;
+  /** A ProviderInstance id — the registry key the turn resolves against. */
+  provider: string;
+  status: IntakeStatus;
+  kind: IntakeKind;
+  intent: string;
+  transcript: IntakeTurn[];
+  /** Bug/feature sessions: the single ticket draft. Null for initiatives. */
+  draft: IntakeDraft | null;
+  /** Initiative sessions: the Wayfinder breakdown. Null otherwise. */
+  breakdown: IntakeBreakdown | null;
+  /** Set on approval — the ticket the draft became (bug/feature only). */
+  ticketId: number | null;
+  createdAt: string;
+  updatedAt: string;
 }

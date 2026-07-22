@@ -115,6 +115,11 @@
   --info-bg: var(--blue-100);
   --info-fg: var(--blue-800);
   --info-border: var(--blue-300);
+  /* Ticket-type icons (Jira-style): red bug, purple feature, yellow initiative, green story. */
+  --kind-bug: var(--red-800);
+  --kind-feature: #8250df;
+  --kind-initiative: var(--yellow-800);
+  --kind-story: var(--green-800);
   --shadow-raised:
     0 1px 2px rgba(0, 0, 0, 0.04),
     0 0 0 0.5px rgba(0, 0, 0, 0.1);
@@ -166,6 +171,10 @@
   --info-bg: var(--blue-1200);
   --info-fg: var(--blue-500);
   --info-border: var(--blue-900);
+  --kind-bug: var(--red-500);
+  --kind-feature: #a371f7;
+  --kind-initiative: var(--yellow-500);
+  --kind-story: var(--green-500);
   --shadow-raised:
     0 2px 4px rgba(0, 0, 0, 0.3),
     0 1px 2px rgba(0, 0, 0, 0.3),
@@ -6271,6 +6280,833 @@ button.wfc-pill.label { cursor: pointer; }
   opacity: 0.6;
 }
 
+/* --- AI ticket intake (IntakeView + launch popover) -------------------- */
+
+.intake {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.intake-header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 1.25rem;
+  box-shadow: 0 0.5px 0 var(--border-muted);
+}
+
+.intake-header-side {
+  display: flex;
+  align-items: center;
+}
+
+.intake-header-center {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.intake-header h2 {
+  margin: 0;
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+
+.intake-header-actions {
+  justify-content: flex-end;
+}
+
+.intake-discard {
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+}
+
+.intake-discard:hover {
+  background: var(--overlay-hover);
+  color: var(--danger-fg);
+}
+
+.intake-kind-badge {
+  font-size: var(--fs-xs);
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+
+.intake-status {
+  font-size: var(--fs-xs);
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+
+.intake-status-drafted {
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+
+.intake-status-approved {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+
+.intake-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.intake-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1.25rem 1.25rem 2rem;
+}
+
+.intake-turn {
+  max-width: 85%;
+  padding: 0.6rem 0.85rem;
+  border-radius: var(--radius-lg);
+  font-size: var(--fs-base);
+  line-height: 1.5;
+}
+
+.intake-turn p {
+  margin: 0 0 0.4rem;
+}
+
+.intake-turn p:last-child {
+  margin-bottom: 0;
+}
+
+.intake-turn-user {
+  align-self: flex-end;
+  background: var(--contrast-bg);
+  color: var(--contrast-fg);
+  border-bottom-right-radius: var(--radius-sm);
+}
+
+.intake-turn-agent {
+  align-self: flex-start;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-raised);
+  border-bottom-left-radius: var(--radius-sm);
+}
+
+.intake-why {
+  font-size: var(--fs-xs);
+}
+
+.intake-options-list {
+  margin: 0.3rem 0;
+  padding-left: 1.25rem;
+}
+
+.intake-options-list li {
+  margin-bottom: 0.2rem;
+}
+
+/* The in-flight turn: pulse line + a short tail of live agent activity. */
+.intake-working {
+  align-self: stretch;
+  border-radius: var(--radius-lg);
+  background: var(--surface-sunken-faint);
+  padding: 0.7rem 0.85rem;
+}
+
+.intake-working-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.intake-working-head:hover {
+  color: var(--text-base);
+}
+
+.intake-working-toggle {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+}
+
+.intake-working .intake-log {
+  margin-top: 0.5rem;
+}
+
+.intake-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--info-fg);
+  animation: intake-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes intake-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.intake-log {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.intake-log .logblock {
+  margin-bottom: 0.3rem;
+}
+
+.intake-log .logbody {
+  max-height: 4.5rem;
+  overflow: hidden;
+  font-size: var(--fs-xs);
+  margin: 0.1rem 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-muted);
+}
+
+.intake-log .logkind {
+  font-size: var(--fs-xs);
+}
+
+/* Draft card */
+.intake-draft {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  border-radius: var(--radius-lg);
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-raised);
+  padding: 1rem;
+}
+
+.intake-draft-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.intake-draft-head h3 {
+  margin: 0;
+  font-size: var(--fs-base);
+}
+
+.intake-draft-head span {
+  font-size: var(--fs-xs);
+}
+
+.intake-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: var(--fs-xs);
+}
+
+.intake-draft input,
+.intake-draft textarea,
+.intake-draft select {
+  background: var(--surface-input);
+  border: none;
+  box-shadow: var(--shadow-button);
+  border-radius: var(--radius-md);
+  color: var(--text-base);
+  font: inherit;
+  font-size: var(--fs-base);
+  padding: 0.4rem 0.5rem;
+  resize: vertical;
+}
+
+.intake-draft input:focus,
+.intake-draft textarea:focus,
+.intake-draft select:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--border-focus) 45%, transparent);
+}
+
+.intake-draft h4 {
+  margin: 0.3rem 0 0;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.intake-ac {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border-radius: var(--radius-md);
+  padding: 0.55rem;
+  background: var(--surface-sunken-faint);
+}
+
+.intake-ac-head {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.intake-ac-head input {
+  flex: 1;
+}
+
+.intake-ac-remove {
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  padding: 0.2rem;
+}
+
+.intake-ac-remove:hover {
+  color: var(--danger-fg);
+}
+
+.intake-sketch {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-xs);
+}
+
+.intake-add-ac {
+  align-self: flex-start;
+}
+
+.intake-approve-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.intake-approve {
+  background: var(--contrast-bg);
+  color: var(--contrast-fg);
+  border: none;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--fs-base);
+  padding: 0.45rem 1rem;
+  cursor: pointer;
+}
+
+.intake-approve:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--contrast-bg) 88%, var(--contrast-fg));
+}
+
+.intake-approve:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Composer pinned under the scroll area */
+.intake-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 44rem;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0.75rem 1.25rem 1rem;
+}
+
+.intake-composer-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.intake-composer input {
+  flex: 1;
+  background: var(--surface-input);
+  border: none;
+  box-shadow: var(--shadow-button);
+  border-radius: var(--radius-md);
+  color: var(--text-base);
+  font: inherit;
+  font-size: var(--fs-base);
+  padding: 0.5rem 0.65rem;
+}
+
+.intake-composer input:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--border-focus) 45%, transparent);
+}
+
+.intake-composer button[type="submit"] {
+  background: var(--contrast-bg);
+  color: var(--contrast-fg);
+  border: none;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--fs-base);
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+}
+
+.intake-composer button[type="submit"]:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.intake-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.intake-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  text-align: left;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-button);
+  padding: 0.45rem 0.65rem;
+  font: inherit;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  cursor: pointer;
+  color: var(--text-base);
+}
+
+.intake-chip:hover {
+  background: var(--surface-raised-hover);
+}
+
+.intake-chip-n {
+  flex: none;
+  width: 1.15rem;
+  height: 1.15rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+/* Launch popover extras */
+.intake-launch {
+  width: 360px;
+}
+
+.intake-kinds {
+  display: flex;
+  gap: 2px;
+  background: var(--surface-sunken);
+  border-radius: var(--radius-md);
+  padding: 2px;
+}
+
+.intake-kind {
+  flex: 1;
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  padding: 0.3rem 0;
+  cursor: pointer;
+}
+
+.intake-kind:hover {
+  color: var(--text-base);
+}
+
+.intake-kind-on {
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-button);
+  color: var(--text-base);
+}
+
+.intake-launch-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.intake-launch-row select {
+  flex: 1;
+  min-width: 0;
+}
+
+.linklike {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--text-accent);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+
+.linklike:hover {
+  color: var(--text-accent-hover);
+}
+
+/* Full-page intake composer */
+.intake-new {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 3rem;
+}
+
+.intake-new-label {
+  margin: 0 0 0.6rem;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.intake-kind-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.6rem;
+}
+
+.intake-kind-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  text-align: left;
+  border: none;
+  border-radius: var(--radius-lg);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-raised);
+  padding: 0.85rem;
+  font: inherit;
+  cursor: pointer;
+  color: var(--text-base);
+}
+
+.intake-kind-card strong {
+  font-size: var(--fs-base);
+}
+
+.intake-kind-card span {
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.intake-kind-card:hover {
+  background: var(--surface-raised-hover);
+}
+
+.intake-kind-card-on {
+  box-shadow:
+    var(--shadow-raised),
+    0 0 0 2px var(--border-focus);
+}
+
+.intake-new-intent {
+  width: 100%;
+  background: var(--surface-input);
+  border: none;
+  box-shadow: var(--shadow-button);
+  border-radius: var(--radius-md);
+  color: var(--text-base);
+  font: inherit;
+  font-size: var(--fs-base);
+  line-height: 1.5;
+  padding: 0.65rem 0.75rem;
+  resize: vertical;
+}
+
+.intake-new-intent:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--border-focus) 45%, transparent);
+}
+
+.intake-new-note {
+  margin: 0.5rem 0 0;
+  font-size: var(--fs-sm);
+}
+
+.intake-new-row {
+  display: flex;
+  gap: 1rem;
+}
+
+.intake-new-row .intake-field {
+  min-width: 14rem;
+}
+
+.intake-new-row select {
+  background: var(--surface-input);
+  border: none;
+  box-shadow: var(--shadow-button);
+  border-radius: var(--radius-md);
+  color: var(--text-base);
+  font: inherit;
+  font-size: var(--fs-base);
+  padding: 0.45rem 0.5rem;
+}
+
+.intake-new-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+/* Ticket-type icons */
+.kindicon {
+  flex: none;
+  vertical-align: -0.18em;
+}
+
+.kindicon-bug { color: var(--kind-bug); }
+.kindicon-feature { color: var(--kind-feature); }
+.kindicon-initiative { color: var(--kind-initiative); }
+.kindicon-story { color: var(--kind-story); }
+
+.card-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.intake-kind-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.intake-kind-card strong {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Provider picker (icon pills) */
+.intake-providers {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.intake-provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-button);
+  padding: 0.4rem 0.7rem;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.intake-provider:hover {
+  background: var(--surface-raised-hover);
+  color: var(--text-base);
+}
+
+.intake-provider-on {
+  color: var(--text-base);
+  box-shadow:
+    var(--shadow-button),
+    0 0 0 2px var(--border-focus);
+}
+
+.providericon {
+  flex: none;
+}
+
+/* Draft review mode: reads as a ticket, not a form */
+.intake-draft-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.intake-draft-desc {
+  font-size: var(--fs-base);
+  line-height: 1.55;
+}
+
+.intake-draft-desc .markdown h2 {
+  font-size: var(--fs-base);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+  margin: 0.9rem 0 0.3rem;
+}
+
+.intake-draft-desc .markdown h2:first-child {
+  margin-top: 0;
+}
+
+.intake-ac-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.intake-ac-item {
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken-faint);
+  padding: 0.55rem 0.7rem;
+}
+
+.intake-ac-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.intake-ac-n {
+  flex: none;
+  font-size: var(--fs-xs);
+  padding-top: 0.1rem;
+}
+
+.intake-ac-text {
+  flex: 1;
+  line-height: 1.45;
+}
+
+.intake-ac-row .chip {
+  flex: none;
+  white-space: nowrap;
+}
+
+.intake-ac-sketch {
+  margin: 0.4rem 0 0 2.1rem;
+}
+
+.intake-ac-sketch summary {
+  cursor: pointer;
+  font-size: var(--fs-xs);
+}
+
+.intake-ac-sketch pre {
+  margin: 0.35rem 0 0;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.intake-ac-reason {
+  margin: 0.3rem 0 0 2.1rem;
+  font-size: var(--fs-xs);
+}
+
+/* Initiative breakdown card */
+.intake-bd-dest {
+  margin: 0;
+  font-size: var(--fs-base);
+  line-height: 1.5;
+}
+
+.intake-bd-filed {
+  margin: 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--radius-md);
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  font-size: var(--fs-sm);
+}
+
+.intake-bd-ticket {
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken-faint);
+  padding: 0.5rem 0.7rem;
+}
+
+.intake-bd-ticket summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.intake-bd-ticket summary::-webkit-details-marker {
+  display: none;
+}
+
+.intake-bd-ticket summary::before {
+  content: "▸";
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+}
+
+.intake-bd-ticket[open] summary::before {
+  content: "▾";
+}
+
+.intake-bd-title {
+  flex: 1;
+  font-weight: 500;
+}
+
+.intake-bd-body {
+  margin-top: 0.6rem;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  font-size: var(--fs-base);
+}
+
+.intake-bd-fog {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: var(--fs-base);
+  line-height: 1.5;
+}
+
+.intake-bd-fog li {
+  margin-bottom: 0.25rem;
+}
+
+.intake-bd-hint {
+  margin: 0.2rem 0 0;
+  font-size: var(--fs-xs);
 /* -- Sign-in gate (ADR-0006) -------------------------------------------- */
 
 .signin-screen {

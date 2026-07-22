@@ -20,6 +20,13 @@ import type {
   FollowUpSeed,
   GateResult,
   GateStatus,
+  IntakeBreakdown,
+  IntakeDraft,
+  IntakeKind,
+  IntakeSession,
+  IntakeStatus,
+  IntakeTurn,
+  TicketKind,
   PhaseExecution,
   PreviewKind,
   PreviewRecord,
@@ -307,6 +314,7 @@ export class Store {
     title: string;
     description?: string;
     externalRef?: string;
+    kind?: TicketKind;
     acceptanceCriteria: string[];
   }): TicketWithAcs {
     const project = this.getProject(input.projectId);
@@ -324,7 +332,7 @@ export class Store {
       const displayKey = `${project.ticketPrefix}-${number}`;
       const result = this.db
         .prepare(
-          "INSERT INTO tickets (project_id, number, display_key, title, description, external_ref, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          "INSERT INTO tickets (project_id, number, display_key, title, description, external_ref, kind, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .run(
           input.projectId,
@@ -333,6 +341,7 @@ export class Store {
           input.title,
           input.description ?? "",
           input.externalRef ?? null,
+          input.kind ?? "feature",
           now,
           now,
         );
@@ -1956,6 +1965,174 @@ export class Store {
     };
   }
 
+  // -------------------------------------------------------------------------
+  // AI ticket intake (pre-Backlog): sessions are JSON-blob state like
+  // workflow_drafts — nothing queries inside transcript/draft; approval
+  // materializes the draft through createTicket and keeps only the pointer.
+
+  createIntakeSession(input: {
+    projectId: number;
+    repoId: number;
+    /** A ProviderInstance id. */
+    provider: string;
+    kind: IntakeKind;
+    intent: string;
+  }): IntakeSession {
+    const project = this.getProject(input.projectId);
+    if (!project) throw new NotFoundError(`project ${input.projectId} not found`);
+    const repo = this.getRepo(input.repoId);
+    if (!repo) throw new NotFoundError(`repo ${input.repoId} not found`);
+    if (repo.projectId !== input.projectId) {
+      throw new ValidationError(`repo ${input.repoId} belongs to another project`);
+    }
+    const now = nowIso();
+    const result = this.db
+      .prepare(
+        "INSERT INTO intake_sessions (project_id, repo_id, provider, kind, intent, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      )
+      .run(input.projectId, input.repoId, input.provider, input.kind, input.intent, now, now);
+    return this.getIntakeSession(Number(result.lastInsertRowid))!;
+  }
+
+  getIntakeSession(id: number): IntakeSession | undefined {
+    const row = this.db.prepare("SELECT * FROM intake_sessions WHERE id = ?").get(id);
+    if (row === undefined) return undefined;
+    return {
+      id: Number(row.id),
+      projectId: Number(row.project_id),
+      repoId: Number(row.repo_id),
+      provider: String(row.provider),
+      status: String(row.status) as IntakeStatus,
+      kind: String(row.kind) as IntakeKind,
+      intent: String(row.intent),
+      transcript: JSON.parse(String(row.transcript)) as IntakeTurn[],
+      // One storage column, two shapes: the session's kind says which.
+      draft:
+        row.draft === null || String(row.kind) === "initiative"
+          ? null
+          : (JSON.parse(String(row.draft)) as IntakeDraft),
+      breakdown:
+        row.draft === null || String(row.kind) !== "initiative"
+          ? null
+          : (JSON.parse(String(row.draft)) as IntakeBreakdown),
+      ticketId: row.ticket_id === null ? null : Number(row.ticket_id),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+    };
+  }
+
+  /** Open sessions only — the "resume drafting" list; finished ones are history. */
+  listIntakeSessions(projectId: number): IntakeSession[] {
+    return this.db
+      .prepare(
+        "SELECT id FROM intake_sessions WHERE project_id = ? AND status IN ('active', 'drafted') ORDER BY id DESC",
+      )
+      .all(projectId)
+      .map((row) => this.getIntakeSession(Number(row.id))!);
+  }
+
+  /** Replace transcript (and draft/breakdown, when the agent produced one)
+   *  after a turn. Both shapes share the draft storage column. */
+  updateIntakeSession(
+    id: number,
+    patch: {
+      transcript: IntakeTurn[];
+      draft?: IntakeDraft | null;
+      breakdown?: IntakeBreakdown | null;
+    },
+  ): IntakeSession {
+    const session = this.getIntakeSession(id);
+    if (!session) throw new NotFoundError(`intake session ${id} not found`);
+    const stored = patch.breakdown ?? patch.draft;
+    const draft = stored === undefined ? (session.draft ?? session.breakdown) : stored;
+    const status = draft !== null ? "drafted" : "active";
+    this.db
+      .prepare(
+        "UPDATE intake_sessions SET transcript = ?, draft = ?, status = ?, updated_at = ? WHERE id = ?",
+      )
+      .run(
+        JSON.stringify(patch.transcript),
+        draft === null ? null : JSON.stringify(draft),
+        status,
+        nowIso(),
+        id,
+      );
+    return this.getIntakeSession(id)!;
+  }
+
+  /**
+   * Materialize the (possibly human-edited) draft into a real ticket.
+   * createTicket owns its transaction and bus emissions; the session update
+   * after it is best-effort bookkeeping — a crash between the two leaves a
+   * drafted session pointing at nothing, which discard cleans up.
+   */
+  approveIntakeSession(
+    id: number,
+    input: { title: string; description: string; acceptanceCriteria: string[] },
+  ): { session: IntakeSession; ticket: TicketWithAcs } {
+    const session = this.getIntakeSession(id);
+    if (!session) throw new NotFoundError(`intake session ${id} not found`);
+    if (session.status !== "drafted" && session.status !== "active") {
+      throw new StateError(`intake session ${id} is ${session.status}`);
+    }
+    if (session.kind === "initiative") {
+      throw new StateError("initiative sessions approve a breakdown, not a single draft");
+    }
+    const ticket = this.createTicket({
+      projectId: session.projectId,
+      kind: session.kind,
+      ...input,
+    });
+    this.db
+      .prepare("UPDATE intake_sessions SET status = 'approved', ticket_id = ?, updated_at = ? WHERE id = ?")
+      .run(ticket.id, nowIso(), id);
+    return { session: this.getIntakeSession(id)!, ticket };
+  }
+
+  /**
+   * Materialize an initiative breakdown's tickets into the Backlog. The
+   * emitted tickets leave the breakdown; remaining fog (Not yet specified)
+   * keeps the session open for another round of grilling — the session only
+   * closes when nothing sharp or foggy remains.
+   */
+  approveIntakeBreakdown(
+    id: number,
+    breakdown: IntakeBreakdown,
+    ticketInputs: Array<{
+      kind: TicketKind;
+      title: string;
+      description: string;
+      acceptanceCriteria: string[];
+    }>,
+  ): { session: IntakeSession; tickets: TicketWithAcs[] } {
+    const session = this.getIntakeSession(id);
+    if (!session) throw new NotFoundError(`intake session ${id} not found`);
+    if (session.kind !== "initiative") {
+      throw new StateError("only initiative sessions carry a breakdown");
+    }
+    if (session.status !== "drafted" && session.status !== "active") {
+      throw new StateError(`intake session ${id} is ${session.status}`);
+    }
+    const tickets = ticketInputs.map((input) =>
+      this.createTicket({ projectId: session.projectId, ...input }),
+    );
+    const remaining: IntakeBreakdown = { ...breakdown, tickets: [] };
+    const done = remaining.notYetSpecified.length === 0;
+    this.db
+      .prepare("UPDATE intake_sessions SET draft = ?, status = ?, updated_at = ? WHERE id = ?")
+      .run(JSON.stringify(remaining), done ? "approved" : "drafted", nowIso(), id);
+    return { session: this.getIntakeSession(id)!, tickets };
+  }
+
+  discardIntakeSession(id: number): IntakeSession {
+    const session = this.getIntakeSession(id);
+    if (!session) throw new NotFoundError(`intake session ${id} not found`);
+    this.db
+      .prepare("UPDATE intake_sessions SET status = 'discarded', updated_at = ? WHERE id = ?")
+      .run(nowIso(), id);
+    return this.getIntakeSession(id)!;
+  }
+
   private stepsForNode(nodeId: number): WorkflowStep[] {
     return this.db
       .prepare("SELECT * FROM workflow_steps WHERE node_id = ? ORDER BY position, id")
@@ -2427,6 +2604,7 @@ function ticketFromRow(row: Row): Ticket {
     title: String(row.title),
     description: String(row.description),
     state: String(row.state) as Ticket["state"],
+    kind: String(row.kind) as Ticket["kind"],
     repoId: row.repo_id === null ? null : Number(row.repo_id),
     provider: row.provider === null ? null : (String(row.provider) as Ticket["provider"]),
     externalRef: row.external_ref === null ? null : String(row.external_ref),
