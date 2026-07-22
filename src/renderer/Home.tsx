@@ -284,6 +284,7 @@ export function Home({
                 <div className="menu-stepper">
                   <button
                     type="button"
+                    className="menu-stepper-btn"
                     aria-label="Show fewer projects"
                     onClick={() => updatePrefs({ visible: clampVisible(prefs.visible - 1) })}
                   >
@@ -292,6 +293,7 @@ export function Home({
                   <span>{prefs.visible}</span>
                   <button
                     type="button"
+                    className="menu-stepper-btn"
                     aria-label="Show more projects"
                     onClick={() => updatePrefs({ visible: clampVisible(prefs.visible + 1) })}
                   >
@@ -398,12 +400,18 @@ export function Home({
                       role="menu"
                       style={{ position: "fixed", top: menuFor.top, right: menuFor.right }}
                     >
-                      <button type="button" role="menuitem" onClick={() => void reveal(project.id)}>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="menu-item"
+                        onClick={() => void reveal(project.id)}
+                      >
                         Reveal in Finder
                       </button>
                       <button
                         type="button"
                         role="menuitem"
+                        className="menu-item"
                         onClick={() => void toggleArchived(project)}
                       >
                         {project.hiddenAt === null ? "Archive" : "Unarchive"}
@@ -411,7 +419,7 @@ export function Home({
                       <button
                         type="button"
                         role="menuitem"
-                        className="danger"
+                        className="menu-item danger"
                         onClick={() => setDeleting(project)}
                       >
                         Delete
@@ -438,7 +446,12 @@ export function Home({
           {projects.length === 0 && (
             <li className="dim home-empty home-empty-cta">
               No projects yet — add a repo you have locally
-              <button type="button" disabled={busy} onClick={() => void pickRepo()}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy}
+                onClick={() => void pickRepo()}
+              >
                 Open a project
               </button>
             </li>
@@ -454,10 +467,14 @@ export function Home({
               kept, and re-adding the checkout brings everything back.
             </p>
             <div className="formrow">
-              <button type="button" className="danger" onClick={() => void deleteProject(deleting)}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void deleteProject(deleting)}
+              >
                 Delete
               </button>
-              <button type="button" onClick={() => setDeleting(null)}>
+              <button type="button" className="btn" onClick={() => setDeleting(null)}>
                 Cancel
               </button>
             </div>

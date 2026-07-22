@@ -81,7 +81,7 @@ export function DeviceFlowPanel({ onAuthorized }: { onAuthorized: (user: AuthUse
     return (
       <button
         type="button"
-        className="signin-primary"
+        className="btn btn-primary signin-primary"
         disabled={flow.kind === "starting"}
         onClick={() => void begin()}
       >
@@ -98,7 +98,7 @@ export function DeviceFlowPanel({ onAuthorized }: { onAuthorized: (user: AuthUse
           {flow.kind === "denied" && "Authorization was denied on GitHub."}
           {flow.kind === "error" && flow.message}
         </p>
-        <button type="button" className="signin-primary" onClick={() => void begin()}>
+        <button type="button" className="btn btn-primary signin-primary" onClick={() => void begin()}>
           Try again
         </button>
       </div>
@@ -124,7 +124,7 @@ export function DeviceFlowPanel({ onAuthorized }: { onAuthorized: (user: AuthUse
       <div className="signin-actions">
         <button
           type="button"
-          className="signin-primary"
+          className="btn btn-primary signin-primary"
           // Explicit _blank + noopener: a new tab in dev browsers, the system
           // browser in the packaged app (setWindowOpenHandler) — never a
           // same-tab navigation away from the polling screen.
@@ -132,10 +132,10 @@ export function DeviceFlowPanel({ onAuthorized }: { onAuthorized: (user: AuthUse
         >
           Open GitHub.com
         </button>
-        <button type="button" onClick={() => copy(session.verificationUri, "link")}>
+        <button type="button" className="btn" onClick={() => copy(session.verificationUri, "link")}>
           {copied === "link" ? "Copied" : "Copy link"}
         </button>
-        <button type="button" onClick={cancel}>
+        <button type="button" className="btn" onClick={cancel}>
           Cancel
         </button>
       </div>

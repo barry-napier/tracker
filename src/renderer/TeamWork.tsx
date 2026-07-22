@@ -219,7 +219,7 @@ export function TeamWork() {
           <div className="teamwork-picker" ref={pickerRef}>
             <button
               type="button"
-              className="teamwork-choose"
+              className="btn btn-sm teamwork-choose"
               aria-haspopup="menu"
               aria-expanded={pickerOpen}
               onClick={() => setPickerOpen((open) => !open)}
@@ -365,14 +365,14 @@ export function TeamWork() {
           </div>
           <div className="teamwork-view-buttons">
             {editingExisting && (
-              <button type="button" className="teamwork-view-delete" onClick={deleteDraft}>
+              <button type="button" className="btn teamwork-view-delete" onClick={deleteDraft}>
                 Delete view
               </button>
             )}
-            <button type="button" onClick={() => setDraft(null)}>
+            <button type="button" className="btn" onClick={() => setDraft(null)}>
               Cancel
             </button>
-            <button type="button" className="teamwork-view-save" onClick={saveDraft}>
+            <button type="button" className="btn btn-primary" onClick={saveDraft}>
               Save
             </button>
           </div>

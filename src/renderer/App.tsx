@@ -502,28 +502,32 @@ function Shell() {
           <nav className="home-nav">
             <button
               type="button"
-              className={workflowsActive || automationsActive || teamActive ? undefined : "active"}
+              className={
+                workflowsActive || automationsActive || teamActive
+                  ? "home-nav-tab"
+                  : "home-nav-tab active"
+              }
               onClick={() => navigate("/")}
             >
               Projects
             </button>
             <button
               type="button"
-              className={workflowsActive ? "active" : undefined}
+              className={workflowsActive ? "home-nav-tab active" : "home-nav-tab"}
               onClick={() => navigate("/workflows")}
             >
               Workflows
             </button>
             <button
               type="button"
-              className={automationsActive ? "active" : undefined}
+              className={automationsActive ? "home-nav-tab active" : "home-nav-tab"}
               onClick={() => navigate("/automations")}
             >
               Automations
             </button>
             <button
               type="button"
-              className={teamActive ? "active" : undefined}
+              className={teamActive ? "home-nav-tab active" : "home-nav-tab"}
               onClick={() => navigate("/team")}
             >
               Team
@@ -772,10 +776,10 @@ function WorkflowConfirmBanner({ project }: { project: Project }) {
         This project uses the <strong>{name ?? "default"}</strong> workflow. Keep it or pick
         another?
       </span>
-      <button type="button" onClick={() => void keep()}>
+      <button type="button" className="btn btn-primary" onClick={() => void keep()}>
         Keep it
       </button>
-      <button type="button" onClick={() => navigate(`/projects/${project.id}/settings`)}>
+      <button type="button" className="btn" onClick={() => navigate(`/projects/${project.id}/settings`)}>
         Pick another…
       </button>
     </div>
@@ -815,7 +819,12 @@ function GitInitBanner({ repo }: { repo: RepoListItem }) {
           </>
         )}
       </span>
-      <button type="button" disabled={state === "busy"} onClick={() => void init()}>
+      <button
+        type="button"
+        className="btn btn-primary"
+        disabled={state === "busy"}
+        onClick={() => void init()}
+      >
         {state === "busy" ? "Initialising…" : "Initialise git"}
       </button>
     </div>
@@ -1036,7 +1045,7 @@ function TicketCard({
         <span className="dim">Created {FMT_CREATED.format(new Date(ticket.createdAt))}</span>
         {onReview && (
           <button
-            className="reviewbtn"
+            className="btn btn-sm btn-warn reviewbtn"
             onClick={(e) => {
               e.stopPropagation();
               onReview();
@@ -1047,7 +1056,7 @@ function TicketCard({
         )}
         {onReview && ticket.lastFailureReason && (
           <button
-            className="reviewbtn"
+            className="btn btn-sm btn-warn reviewbtn"
             title="Send back to Todo for another attempt"
             onClick={(e) => {
               e.stopPropagation();
@@ -1085,7 +1094,7 @@ function PromoteControl({
   if (!open) {
     return (
       <button
-        className="promote"
+        className="btn btn-sm promote"
         onClick={(e) => {
           e.stopPropagation();
           setOpen(true);
@@ -1128,8 +1137,12 @@ function PromoteControl({
       </label>
       {error && <p className="error">{error}</p>}
       <div className="formrow">
-        <button onClick={() => void submit()}>Promote to Todo</button>
-        <button onClick={() => setOpen(false)}>Cancel</button>
+        <button className="btn btn-sm btn-primary" onClick={() => void submit()}>
+          Promote to Todo
+        </button>
+        <button className="btn btn-sm" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
       </div>
     </div>
   );
@@ -1188,7 +1201,7 @@ function DoneSweep({ projectId }: { projectId: number }) {
     <div className="toolbar-action">
       <button
         type="button"
-        className="weeknav"
+        className="btn btn-ghost weeknav"
         onClick={(e) => {
           // The document-level closer sees this click too; stop it so a
           // fresh report isn't immediately dismissed.
@@ -1235,7 +1248,7 @@ function IntakeLaunch({ project, repos }: { project: Project; repos: RepoListIte
     <div className="toolbar-action">
       <button
         type="button"
-        className="toolbar-new"
+        className="btn btn-primary"
         onClick={() => navigate(`/projects/${project.id}/intake/new`)}
         title="An intake agent researches the repo, grills you on the real decisions, and drafts the ticket"
       >

@@ -522,6 +522,7 @@ export function WorkflowCanvasEditor({
                 <button
                   key={kind}
                   type="button"
+                  className="wfc-kind-item"
                   onClick={() => {
                     const { from, mode, at } = pendingChild;
                     setPendingChild(null);
@@ -642,10 +643,10 @@ export function WorkflowCanvasEditor({
               untouched either way.
             </p>
             <div className="formrow">
-              <button type="button" className="danger" onClick={() => void discard()}>
+              <button type="button" className="btn btn-primary" onClick={() => void discard()}>
                 Discard draft
               </button>
-              <button type="button" onClick={() => setConfirmingDiscard(false)}>
+              <button type="button" className="btn" onClick={() => setConfirmingDiscard(false)}>
                 Keep editing
               </button>
             </div>
@@ -661,10 +662,10 @@ export function WorkflowCanvasEditor({
               all. There is no undo.
             </p>
             <div className="formrow">
-              <button type="button" className="danger" onClick={() => void deleteWorkflow()}>
+              <button type="button" className="btn btn-primary" onClick={() => void deleteWorkflow()}>
                 Delete workflow
               </button>
-              <button type="button" onClick={() => setConfirmingDelete(false)}>
+              <button type="button" className="btn" onClick={() => setConfirmingDelete(false)}>
                 Cancel
               </button>
             </div>
@@ -680,10 +681,10 @@ export function WorkflowCanvasEditor({
               until you publish.
             </p>
             <div className="formrow">
-              <button type="button" className="danger" onClick={onClose}>
+              <button type="button" className="btn btn-primary" onClick={onClose}>
                 Leave
               </button>
-              <button type="button" onClick={() => setConfirmingLeave(false)}>
+              <button type="button" className="btn" onClick={() => setConfirmingLeave(false)}>
                 Keep editing
               </button>
             </div>
@@ -778,20 +779,24 @@ function CanvasToolbar({ chatOpen, onToggleChat }: { chatOpen: boolean; onToggle
   const { zoom } = useViewport();
   return (
     <div className="wfc-toolbar">
-      <button type="button" className={chatOpen ? "wfc-ask active" : "wfc-ask"} onClick={onToggleChat}>
+      <button
+        type="button"
+        className={chatOpen ? "wfc-toolbar-btn wfc-ask active" : "wfc-toolbar-btn wfc-ask"}
+        onClick={onToggleChat}
+      >
         <Icon name="sparkle" size={14} /> Ask
       </button>
       <span className="wfc-toolbar-divider" />
-      <button type="button" onClick={() => void zoomOut()}>−</button>
+      <button type="button" className="wfc-toolbar-btn" onClick={() => void zoomOut()}>−</button>
       <button
         type="button"
-        className="wfc-zoom-pct"
+        className="wfc-toolbar-btn wfc-zoom-pct"
         onClick={() => void fitView({ padding: 0.2, maxZoom: 1 })}
         title="Fit view"
       >
         {Math.round(zoom * 100)}%
       </button>
-      <button type="button" onClick={() => void zoomIn()}>+</button>
+      <button type="button" className="wfc-toolbar-btn" onClick={() => void zoomIn()}>+</button>
     </div>
   );
 }
@@ -969,7 +974,7 @@ function EdgeTools({
           if (e.key === "Escape") setDraft(label ?? "");
         }}
       />
-      <button type="button" title="Remove edge" onClick={onDelete}>
+      <button type="button" className="icon-btn" title="Remove edge" onClick={onDelete}>
         <Icon name="close-small" size={14} />
       </button>
     </span>
@@ -1099,6 +1104,7 @@ function ChatPanel({
               <div className="wfc-chat-menu" onPointerLeave={() => setMenuOpen(false)}>
                 <button
                   type="button"
+                  className="menu-item"
                   onClick={() => {
                     setMenuOpen(false);
                     onClear();
@@ -1274,7 +1280,7 @@ function EditorChrome({
 
   return (
     <div className="wfc-chrome">
-      <button type="button" className="wfc-back" onClick={onClose}>
+      <button type="button" className="btn btn-ghost wfc-back" onClick={onClose}>
         <Icon name="chevron-left" size={16} /> Workflows
       </button>
       <span className="wfc-title" onPointerDown={(e) => e.stopPropagation()}>
@@ -1306,7 +1312,7 @@ function EditorChrome({
         ) : (
           <button
             type="button"
-            className="wfc-title-btn"
+            className="btn btn-ghost wfc-title-btn"
             onClick={() => setOpen(open === "menu" ? null : "menu")}
           >
             {workflow.name} <span className="dim">v{version}</span>
@@ -1317,6 +1323,7 @@ function EditorChrome({
           <div className="row-menu wfc-title-menu" role="menu">
             <button
               type="button"
+              className="menu-item"
               onClick={() => {
                 setOpen(null);
                 setDraftName(workflow.name);
@@ -1327,6 +1334,7 @@ function EditorChrome({
             </button>
             <button
               type="button"
+              className="menu-item"
               onClick={() => {
                 setOpen(null);
                 onDuplicate?.();
@@ -1337,6 +1345,7 @@ function EditorChrome({
             <hr className="menu-divider" />
             <button
               type="button"
+              className="menu-item"
               onClick={() => {
                 setOpen(null);
                 onToggleArchived?.();
@@ -1346,7 +1355,7 @@ function EditorChrome({
             </button>
             <button
               type="button"
-              className="danger"
+              className="menu-item danger"
               disabled={!workflow.deletable}
               title={workflow.deletable ? undefined : "In service — archive instead"}
               onClick={() => {
@@ -1414,17 +1423,17 @@ function EditorChrome({
       <span className="wfc-chrome-actions">
         {testOk && <span className="wfc-pill ok">Checks pass</span>}
         {onDiscard && (
-          <button type="button" onClick={onDiscard}>
+          <button type="button" className="btn" onClick={onDiscard}>
             Discard
           </button>
         )}
-        <button type="button" onClick={onTest} disabled={!onTest}>
+        <button type="button" className="btn" onClick={onTest} disabled={!onTest}>
           Test
         </button>
-        <button type="button" onClick={onShare} disabled={!onShare} title="Download as JSON">
+        <button type="button" className="btn" onClick={onShare} disabled={!onShare} title="Download as JSON">
           Share
         </button>
-        <button type="button" className="primary" onClick={onPublish} disabled={!onPublish}>
+        <button type="button" className="btn btn-primary" onClick={onPublish} disabled={!onPublish}>
           Publish
         </button>
       </span>

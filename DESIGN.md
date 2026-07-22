@@ -252,10 +252,19 @@ Four radii, mapped by component scale:
 
 Components compose semantic tokens; they never reach for primitives directly.
 
-- **Button** — `--surface-raised` bg, `--radius-md`, `--shadow-button` ring,
-  `--fs-sm` text. Hover lifts to `--surface-raised-hover`; press uses
-  `--overlay-pressed`.
-- **Primary button** — inverts via `--contrast-bg` / `--contrast-fg`.
+- **Button** (`.btn`) — the canonical implementation lives at the top of
+  `styles.css`: `--surface-raised` bg, `--radius-md`, `--shadow-button` ring,
+  `--fs-sm` text. Hover lifts to `--surface-raised-hover`; press layers
+  `--overlay-pressed`; disabled is `opacity: 0.5`. Every `<button>` carries a
+  family class; context rules may add layout (margin/flex/gap/shape) but never
+  re-declare anatomy.
+  - `.btn-primary` — inverts via `--contrast-bg` / `--contrast-fg`; the one
+    primary treatment app-wide.
+  - `.btn-ghost` — transparent, no ring; hover tints with `--overlay-hover`.
+  - `.icon-btn` — icon-only ghost.
+  - `.btn-sm` — compact padding for inline chip contexts.
+  - `.btn-ok` / `.btn-warn` / `.btn-danger` — status fills from the matching
+    `bg/fg/border` triplet with a 1px token-colored ring.
 - **Chip** (`.chip`) — `--fs-xs`, `--radius-sm`, `--surface-sunken` bg,
   `--text-muted`, `0.1rem 0.4rem` padding, ellipsis truncation. Variants
   `.chip-ok/-warn/-danger/-info` swap to the matching status `bg`+`fg`;
