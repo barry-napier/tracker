@@ -209,6 +209,98 @@ body {
   color: var(--text-muted);
 }
 
+/* -- shared button family (DESIGN.md → Components → Button) --
+   One anatomy, four archetypes: .btn (raised, the default), .btn-primary
+   (contrast), .btn-ghost (transparent), .icon-btn (icon-only). Modifiers:
+   .btn-sm (compact chip contexts), .btn-ok/-warn/-danger (status fills).
+   Contexts may keep layout-only rules (margin/flex/gap) — never anatomy;
+   the family sits early in the file so scoped overrides win the cascade.
+   Hovers use background-color and the press tint layers a background-image
+   so variant fills keep their color under the overlay. */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  background: var(--surface-raised);
+  border: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-button);
+  color: var(--text-base);
+  font: inherit;
+  font-size: var(--fs-sm);
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background-color: var(--surface-raised-hover);
+}
+
+.btn:active:not(:disabled) {
+  background-image: linear-gradient(var(--overlay-pressed), var(--overlay-pressed));
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn-primary {
+  background-color: var(--contrast-bg);
+  color: var(--contrast-fg);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--contrast-bg) 88%, var(--surface-panel));
+}
+
+.btn-ghost {
+  background: none;
+  box-shadow: none;
+  color: var(--text-muted);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background-color: var(--overlay-hover);
+  color: var(--text-base);
+}
+
+.btn-sm {
+  padding: 0.15rem 0.6rem;
+}
+
+.btn-ok:not(:disabled) {
+  background-color: var(--ok-bg);
+  color: var(--ok-fg);
+  box-shadow: 0 0 0 1px var(--ok-border);
+}
+
+.btn-warn:not(:disabled) {
+  background-color: var(--warn-bg);
+  color: var(--warn-fg);
+  box-shadow: 0 0 0 1px var(--warn-border);
+}
+
+.btn-danger:not(:disabled) {
+  background-color: var(--danger-bg);
+  color: var(--danger-fg);
+  box-shadow: 0 0 0 1px var(--danger-border);
+}
+
+.btn-ok:hover:not(:disabled) {
+  background-color: var(--ok-bg);
+}
+
+.btn-warn:hover:not(:disabled) {
+  background-color: var(--warn-bg);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: var(--danger-bg);
+}
+
 .app {
   display: flex;
   flex-direction: column;
@@ -312,22 +404,7 @@ body {
 }
 
 .themebtn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  background: none;
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--fs-sm);
   padding: 0.15rem 0.5rem;
-  cursor: pointer;
-}
-
-.themebtn:hover {
-  background: var(--overlay-hover);
-  color: var(--text-base);
 }
 
 /* -- board toolbar: search / filters left, week nav + month toggle right -- */
@@ -409,22 +486,7 @@ body {
 }
 
 .weeknav {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: none;
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--fs-sm);
   padding: 0.3rem 0.5rem;
-  cursor: pointer;
-}
-
-.weeknav:hover {
-  background: var(--overlay-hover);
-  color: var(--text-base);
 }
 
 .week-range {
@@ -941,22 +1003,8 @@ a.chip-info:hover {
 }
 
 .crumb-back {
-  display: inline-flex;
-  align-items: center;
   gap: 0.2rem;
-  background: none;
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--fs-sm);
   padding: 0.2rem 0.4rem 0.2rem 0.2rem;
-  cursor: pointer;
-}
-
-.crumb-back:hover {
-  background: var(--overlay-hover);
-  color: var(--text-base);
 }
 
 .crumb,
@@ -1231,21 +1279,12 @@ a.chip-info:hover {
   background: var(--warn-fg);
 }
 
+/* Inline chip next to AC text: pill shape and caption density stay. */
 .waivebtn {
   margin-left: 0.5rem;
-  background: none;
-  border: 1px solid var(--border-base);
   border-radius: var(--radius-full);
-  color: var(--text-muted);
   font-size: var(--fs-xs);
   padding: 0 0.5rem;
-  cursor: pointer;
-}
-
-.waivebtn:hover {
-  color: var(--warn-fg);
-  border-color: var(--warn-border);
-  background: var(--warn-bg);
 }
 
 .gatelist {
@@ -1783,97 +1822,6 @@ a.chip-info:hover {
   font-size: 1.05rem;
   font-weight: 600;
   color: var(--text-muted);
-}
-
-/* -- shared button family (DESIGN.md → Components → Button) --
-   One anatomy, four archetypes: .btn (raised, the default), .btn-primary
-   (contrast), .btn-ghost (transparent), .icon-btn (below). Modifiers:
-   .btn-sm (compact chip contexts), .btn-ok/-warn/-danger (status fills).
-   Contexts may keep layout-only rules (margin/flex/gap) — never anatomy.
-   Hovers use background-color and the press tint layers a background-image
-   so variant fills keep their color under the overlay. */
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  background: var(--surface-raised);
-  border: none;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-button);
-  color: var(--text-base);
-  font: inherit;
-  font-size: var(--fs-sm);
-  padding: 0.3rem 0.7rem;
-  cursor: pointer;
-}
-
-.btn:hover:not(:disabled) {
-  background-color: var(--surface-raised-hover);
-}
-
-.btn:active:not(:disabled) {
-  background-image: linear-gradient(var(--overlay-pressed), var(--overlay-pressed));
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.btn-primary {
-  background-color: var(--contrast-bg);
-  color: var(--contrast-fg);
-}
-
-.btn-primary:hover:not(:disabled) {
-  background-color: color-mix(in srgb, var(--contrast-bg) 88%, var(--surface-panel));
-}
-
-.btn-ghost {
-  background: none;
-  box-shadow: none;
-  color: var(--text-muted);
-}
-
-.btn-ghost:hover:not(:disabled) {
-  background-color: var(--overlay-hover);
-  color: var(--text-base);
-}
-
-.btn-sm {
-  padding: 0.15rem 0.6rem;
-}
-
-.btn-ok:not(:disabled) {
-  background-color: var(--ok-bg);
-  color: var(--ok-fg);
-  box-shadow: 0 0 0 1px var(--ok-border);
-}
-
-.btn-warn:not(:disabled) {
-  background-color: var(--warn-bg);
-  color: var(--warn-fg);
-  box-shadow: 0 0 0 1px var(--warn-border);
-}
-
-.btn-danger:not(:disabled) {
-  background-color: var(--danger-bg);
-  color: var(--danger-fg);
-  box-shadow: 0 0 0 1px var(--danger-border);
-}
-
-.btn-ok:hover:not(:disabled) {
-  background-color: var(--ok-bg);
-}
-
-.btn-warn:hover:not(:disabled) {
-  background-color: var(--warn-bg);
-}
-
-.btn-danger:hover:not(:disabled) {
-  background-color: var(--danger-bg);
 }
 
 .icon-btn {
@@ -3756,7 +3704,7 @@ button.wfc-pill.label { cursor: pointer; }
 }
 
 .rs-menu-item:hover:not(:disabled) {
-  background: var(--surface-sunken);
+  background: var(--overlay-hover);
 }
 
 .rs-menu-item:disabled {
@@ -3848,7 +3796,7 @@ button.wfc-pill.label { cursor: pointer; }
 }
 
 .rs-server:hover {
-  background: var(--surface-sunken);
+  background: var(--overlay-hover);
 }
 
 .rs-server-name {
@@ -3950,7 +3898,7 @@ button.wfc-pill.label { cursor: pointer; }
 }
 
 .rs-tree-row:hover {
-  background: var(--surface-sunken);
+  background: var(--overlay-hover);
 }
 
 .rs-tree-dir {
@@ -4390,14 +4338,15 @@ button.wfc-pill.label { cursor: pointer; }
   justify-content: center;
   gap: 0.45rem;
   background: var(--surface-input);
-  border: 1px solid var(--border-base);
+  border: none;
+  box-shadow: 0 0 0 0.5px var(--border-base);
   border-radius: var(--radius-md);
   color: var(--text-base);
   font: inherit;
   font-size: var(--fs-sm);
   padding: 0.55rem 0.4rem;
   cursor: pointer;
-  transition: border-color 100ms ease, background 100ms ease;
+  transition: box-shadow 100ms ease, background 100ms ease;
 }
 
 .auto-agent img {
@@ -4409,8 +4358,7 @@ button.wfc-pill.label { cursor: pointer; }
 }
 
 .auto-agent.selected {
-  border-color: var(--border-focus);
-  box-shadow: 0 0 0 1px var(--border-focus);
+  box-shadow: 0 0 0 2px var(--border-focus);
 }
 
 .auto-dialog-foot {
@@ -4442,22 +4390,10 @@ button.wfc-pill.label { cursor: pointer; }
   position: relative;
 }
 
+/* Repo picker keeps its pill silhouette beside the teamwork tabs. */
 .teamwork-choose {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  background: none;
-  border: 1px solid var(--border-base);
   border-radius: var(--radius-full);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--fs-sm);
   padding: 0.2rem 0.7rem;
-  cursor: pointer;
-}
-
-.teamwork-choose:hover {
-  color: var(--text-base);
 }
 
 .teamwork-menu {
@@ -4646,23 +4582,6 @@ button.wfc-pill.label { cursor: pointer; }
   gap: 0.35rem;
 }
 
-.teamwork-view-buttons button {
-  background: var(--surface-raised);
-  border: none;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-button);
-  color: var(--text-base);
-  font: inherit;
-  font-size: var(--fs-sm);
-  padding: 0.3rem 0.8rem;
-  cursor: pointer;
-}
-
-.teamwork-view-buttons .teamwork-view-save {
-  background: var(--contrast-bg);
-  color: var(--contrast-fg);
-}
-
 .teamwork-view-buttons .teamwork-view-delete {
   color: var(--danger-fg);
   margin-right: auto;
@@ -4724,22 +4643,6 @@ button.wfc-pill.label { cursor: pointer; }
   border-bottom: 1px solid var(--border-base);
 }
 
-.panel-action {
-  background: none;
-  border: 1px solid var(--border-muted);
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--fs-sm);
-  padding: 0.05rem 0.45rem;
-  cursor: pointer;
-}
-
-.panel-action:hover {
-  background: var(--overlay-hover);
-  color: var(--text-base);
-}
-
 .panel-head .panel-action {
   margin-left: auto;
 }
@@ -4790,27 +4693,6 @@ button.wfc-pill.label { cursor: pointer; }
   justify-content: space-between;
   padding: 0.8rem 1rem 0.6rem;
   border-bottom: 1px solid var(--border-muted);
-}
-
-.logsbtn {
-  background: var(--text-base);
-  border: none;
-  border-radius: var(--radius-md);
-  color: var(--surface-panel);
-  font: inherit;
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  padding: 0.25rem 0.7rem;
-  cursor: pointer;
-}
-
-.logsbtn:hover:not(:disabled) {
-  opacity: 0.85;
-}
-
-.logsbtn:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 .artifact-strip {
@@ -4957,31 +4839,8 @@ button.wfc-pill.label { cursor: pointer; }
   display: block;
   width: 100%;
   text-align: left;
-  background: none;
-  border: 1px solid var(--border-muted);
-  border-radius: var(--radius-md);
-  color: var(--text-base);
-  font: inherit;
-  font-size: var(--fs-sm);
   padding: 0.35rem 0.6rem;
   margin-bottom: 0.35rem;
-  cursor: pointer;
-}
-
-.rail-action:hover:not(:disabled) {
-  background: var(--overlay-hover);
-}
-
-.rail-action:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.rail-action-primary {
-  background: var(--ok-bg);
-  border-color: var(--ok-border);
-  color: var(--ok-fg);
-  font-weight: 500;
 }
 
 .rail-error {

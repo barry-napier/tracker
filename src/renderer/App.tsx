@@ -855,7 +855,7 @@ function ThemeToggle() {
     <span className="theme-picker">
       <button
         type="button"
-        className="themebtn"
+        className="btn btn-ghost themebtn"
         title="Color scheme"
         aria-haspopup="menu"
         aria-expanded={open}
