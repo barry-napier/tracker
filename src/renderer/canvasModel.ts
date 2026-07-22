@@ -152,15 +152,28 @@ export function deleteStep(graph: DraftGraph, key: string, index: number): Draft
 
 export const NODE_W = 190;
 export const NODE_H = 56;
+/** One step row on the card; keep in sync with .wfc-node-steprow height. */
+export const STEP_ROW_H = 26;
+const STEPS_PAD = 10;
 const COL_GAP = 40;
 const ROW_GAP = 44;
 const ORIGIN = { x: 340, y: 40 };
 
 /**
+ * A card's rendered height: the NODE_H header, plus a row per step (steps
+ * are visible on the card, Lindy-style — not hidden behind a count pill).
+ */
+export function nodeHeight(node: DraftNode): number {
+  if (node.steps.length === 0) return NODE_H;
+  return NODE_H + node.steps.length * STEP_ROW_H + STEPS_PAD;
+}
+
+/**
  * Layered layout: each node's row is its longest path from the trigger, so
  * fan-in always lands below every parent; nodes sharing a row spread into
- * columns. Mid-edit graphs may hold cycles and orphans — back edges are
- * ignored for depth, orphans get the bottom row.
+ * columns. Row spacing follows the tallest card in each row — cards grow
+ * with their step lists. Mid-edit graphs may hold cycles and orphans — back
+ * edges are ignored for depth, orphans get the bottom row.
  */
 export function autoLayout(graph: DraftGraph): Record<string, { x: number; y: number }> {
   const depth = new Map<string, number>();
@@ -187,13 +200,25 @@ export function autoLayout(graph: DraftGraph): Record<string, { x: number; y: nu
     const d = depth.get(node.key)!;
     rows.set(d, [...(rows.get(d) ?? []), node.key]);
   }
+  // Cumulative row tops: each row clears the tallest card of the row above.
+  const rowTop = new Map<number, number>();
+  const depths = [...rows.keys()].sort((a, b) => a - b);
+  let y = ORIGIN.y;
+  for (const d of depths) {
+    rowTop.set(d, y);
+    const tallest = Math.max(
+      ...rows.get(d)!.map((key) => nodeHeight(findNode(graph, key)!)),
+    );
+    y += tallest + ROW_GAP;
+  }
+
   const positions: Record<string, { x: number; y: number }> = {};
   for (const [d, keys] of rows) {
     const rowWidth = keys.length * NODE_W + (keys.length - 1) * COL_GAP;
     keys.forEach((key, i) => {
       positions[key] = {
         x: ORIGIN.x + NODE_W / 2 - rowWidth / 2 + i * (NODE_W + COL_GAP),
-        y: ORIGIN.y + d * (NODE_H + ROW_GAP),
+        y: rowTop.get(d)!,
       };
     });
   }

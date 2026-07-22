@@ -6,7 +6,6 @@
  * union below — the same shape the per-run SSE log stream serves.
  */
 
-import type { ProviderName } from "./types.ts";
 
 /** One entry in the agent's conversation, as the log view renders it. */
 export type AgentBlock =
@@ -102,5 +101,5 @@ export interface Provider {
   probe(): Promise<ProbeResult>;
 }
 
-/** Adapters registered per provider name; a missing entry crashes the claim. */
-export type ProviderRegistry = Partial<Record<ProviderName, Provider>>;
+/** Adapters keyed by ProviderInstance id; a missing entry crashes the claim. */
+export type ProviderRegistry = Partial<Record<string, Provider>>;

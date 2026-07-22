@@ -1,7 +1,11 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, test } from "vitest";
+import { EventBus } from "../src/server/bus.ts";
+import { migrate } from "../src/server/db.ts";
+import { Store } from "../src/server/store.ts";
 import { startServer, type TrackerServer } from "../src/server/index.ts";
 import { FakeProvider, phaseFromPrompt } from "../src/server/providers/fake.ts";
 import { FakeGitHub } from "./github-fake.ts";
@@ -11,6 +15,7 @@ import {
   cleanups,
   previewPortBase,
   runCleanups,
+  seedProviderInstance,
   seedWorkspace,
 } from "./server-helpers.ts";
 import {
@@ -130,6 +135,40 @@ describe("phase death and the retry", () => {
 });
 
 describe("the crash cap", () => {
+  test("orphaned crashes are exempt: app restarts never park a healthy ticket", async () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec("PRAGMA foreign_keys = ON");
+    migrate(db);
+    const store = new Store(db, new EventBus());
+    const project = store.createProject({ name: "p", ticketPrefix: "P" });
+    const repo = store.createRepo({ projectId: project.id, path: "/tmp/x", githubRemote: null });
+    const ticket = store.createTicket({
+      projectId: project.id,
+      title: "t",
+      acceptanceCriteria: ["a"],
+    });
+    store.promoteTicket(ticket.id, { repoId: repo.id, provider: "claude-code" });
+
+    // Three orphaned crashes in a row — a dev restarting the app, not the
+    // work failing — and the ticket keeps going back to Todo, never parked.
+    for (let i = 0; i < 3; i++) {
+      const claimed = store.claimNextTicket()!;
+      const after = store.finishRun(claimed.run.id, "crashed", "orphaned: the app quit mid-phase");
+      expect(after.state).toBe("crashed");
+      expect(store.getTicket(ticket.id)!.state).toBe("todo");
+    }
+    expect(store.getTicket(ticket.id)!.arrivedByCap).toBe(false);
+
+    // Real crashes still count: three of them park the ticket at the cap.
+    for (let i = 0; i < 3; i++) {
+      const claimed = store.claimNextTicket()!;
+      store.finishRun(claimed.run.id, "crashed", "provider fell over");
+    }
+    const parked = store.getTicket(ticket.id)!;
+    expect(parked.state).toBe("human_review");
+    expect(parked.arrivedByCap).toBe(true);
+  });
+
   test("3 crashed runs park the ticket in Human Review with the cap flag", async () => {
     // A provider whose research always reports failure (the non-zero-exit
     // death for a real CLI): every run dies twice and crashes; the third
@@ -272,6 +311,7 @@ describe("the startup orphan sweep", () => {
     // Belt-and-braces: if the test dies before the deliberate close below,
     // don't leak the first server (the double-close rejection is expected).
     cleanups.push(async () => first.close().catch(() => {}));
+    await seedProviderInstance(first);
     const { project, repo } = await seedWorkspace(first);
     const ticket = (
       await api(first, "POST", "/api/tickets", {
@@ -295,7 +335,8 @@ describe("the startup orphan sweep", () => {
 
     // Second life: the sweep marks the orphan crashed, the policy returns the
     // ticket to Todo, and a behaved provider carries it home.
-    const behaved = scriptedProvider([], { onPhase: pushesToGitHub(github) });
+    const secondCalls: PhaseCall[] = [];
+    const behaved = scriptedProvider(secondCalls, { onPhase: pushesToGitHub(github) });
     const second = await bootServer(dataDir, {
       workers: 3,
       providers: { "claude-code": behaved },
@@ -319,5 +360,26 @@ describe("the startup orphan sweep", () => {
       (event: any) => event.type === "phase.crashed" && event.detail.deathMode === "orphan",
     );
     expect(orphanDeath.detail.phase).toBe("implement");
+
+    // Phase-level resume: the recovery run credited the orphan's completed
+    // prefix (research, plan — contracts still in the reused worktree) and
+    // started executing at implement. The provider never re-ran the prefix…
+    expect(secondCalls.map((call) => call.phase)).toEqual(["implement", "dogfood", "document"]);
+    // …the credited phases are on the recovery run as completed rows…
+    const recovery = runs[0];
+    expect(recovery.phases.map((p: any) => [p.phase, p.state])).toEqual([
+      ["research", "completed"],
+      ["plan", "completed"],
+      ["implement", "completed"],
+      ["dogfood", "completed"],
+      ["document", "completed"],
+    ]);
+    // …and the trail says "resumed", never "completed", for the credit.
+    const resumed = audit.filter((event: any) => event.type === "phase.resumed");
+    expect(resumed.map((event: any) => event.detail.phase)).toEqual(["research", "plan"]);
+    // The app quitting is not the work failing: the orphan didn't burn the
+    // crash cap.
+    const ticketNow = (await api(second, "GET", `/api/tickets/${ticket.id}`)).json;
+    expect(ticketNow.arrivedByCap).toBe(false);
   }, 40_000);
 });

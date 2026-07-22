@@ -32,7 +32,7 @@ function artifact(id: number, name: string): Artifact {
 }
 
 function run(artifacts: Artifact[], gateResults: GateResult[] = []): RunWithPhases {
-  return { id: 1, ticketId: 1, state: "completed", workflowVersionId: 1, worktreePath: null, crashReason: null, createdAt: "", endedAt: null, phases: [], artifacts, gateResults };
+  return { id: 1, ticketId: 1, state: "completed", workflowVersionId: 1, worktreePath: null, crashReason: null, createdAt: "", endedAt: null, phases: [], artifacts, gateResults, expectedPhases: [] };
 }
 
 function gate(id: number, gateName: string, status: GateResult["status"], acId: number | null = null): GateResult {

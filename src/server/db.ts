@@ -656,6 +656,81 @@ const MIGRATIONS: Array<{ version: number; sql: string; rekeysForeignKeys?: bool
       ).join(",\n      ")};
     `,
   },
+  {
+    version: 25,
+    sql: `
+      -- GitHub identity (ADR-0006): one signed-in account, device-flow token
+      -- encrypted with the injected SecretCipher (safeStorage under Electron;
+      -- plaintext_fallback = 1 records when no OS crypto was available). The
+      -- token stays server-side — the renderer only ever sees the profile.
+      CREATE TABLE auth_account (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        token_ciphertext BLOB NOT NULL,
+        token_plaintext_fallback INTEGER NOT NULL DEFAULT 0,
+        login TEXT NOT NULL,
+        name TEXT,
+        email TEXT,
+        avatar_url TEXT,
+        scopes TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `,
+  },
+  {
+    version: 26,
+    sql: `
+      -- Provider instances: ticket 38's fixed per-driver config rows become
+      -- a user-managed list. driver names the adapter implementation (code);
+      -- id is the entry every provider reference points at. The seeded
+      -- defaults reuse the driver name as their id, so every existing
+      -- projects.default_provider / tickets.provider / automations.provider
+      -- value resolves without rewriting a row.
+      CREATE TABLE provider_instances (
+        id TEXT PRIMARY KEY,
+        driver TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        binary_path TEXT,
+        model TEXT,
+        max_budget_usd REAL,
+        -- Extra child environment as a JSON object; '{}' = inherit only.
+        env TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      INSERT INTO provider_instances (id, driver, display_name, binary_path, model, max_budget_usd, env)
+        SELECT provider, provider,
+          CASE provider
+            WHEN 'claude-code' THEN 'Claude Code'
+            WHEN 'kiro' THEN 'Kiro CLI'
+            WHEN 'copilot' THEN 'Copilot CLI'
+            ELSE provider
+          END,
+          binary_path, model, max_budget_usd, env
+        FROM provider_config;
+
+      -- The list starts EMPTY on a fresh install — providers are added
+      -- deliberately from the catalog. Only ids something already points at
+      -- get a migrated instance, so no existing reference dangles.
+      INSERT OR IGNORE INTO provider_instances (id, driver, display_name)
+        SELECT p, p,
+          CASE p
+            WHEN 'claude-code' THEN 'Claude Code'
+            WHEN 'kiro' THEN 'Kiro CLI'
+            WHEN 'copilot' THEN 'Copilot CLI'
+            ELSE p
+          END
+        FROM (
+          SELECT default_provider AS p FROM projects
+          UNION SELECT provider FROM tickets WHERE provider IS NOT NULL
+          UNION SELECT provider FROM automations WHERE provider IS NOT NULL
+        );
+
+      DROP TABLE provider_config;
+    `,
+  },
 ];
 
 export function openDatabase(dataDir: string): DatabaseSync {

@@ -20,6 +20,7 @@ import {
   cleanups,
   previewPortBase,
   runCleanups,
+  seedProviderInstance,
   seedWorkspace,
 } from "./server-helpers.ts";
 import {
@@ -215,6 +216,7 @@ describe("the sweep through the API, against the real pipeline", () => {
       previewPortBase: previewPortBase(),
     });
     cleanups.push(async () => server.close().catch(() => {}));
+    await seedProviderInstance(server);
     const { project, repo } = await seedWorkspace(server);
     const ticket = (
       await api(server, "POST", "/api/tickets", {

@@ -4,7 +4,6 @@ import { withTransaction } from "./db.ts";
 import { previewPhases } from "./graph.ts";
 import { branchNameFor, type WorktreeResult } from "./worktrees.ts";
 import type { CheckRegistration } from "./checks.ts";
-import { PROVIDERS } from "./types.ts";
 import { nextAutomationRun } from "./automation-schedule.ts";
 import type {
   AcceptanceCriterion,
@@ -12,6 +11,7 @@ import type {
   Actor,
   Artifact,
   AuditEvent,
+  AuthUser,
   Automation,
   AutomationCadence,
   AutomationListItem,
@@ -26,7 +26,7 @@ import type {
   PreviewStatus,
   Project,
   ProjectListItem,
-  ProviderConfig,
+  ProviderInstance,
   ProviderName,
   Repo,
   ReviewBounceReason,
@@ -97,7 +97,8 @@ export class Store {
   createProject(input: {
     name: string;
     ticketPrefix?: string;
-    defaultProvider?: ProviderName;
+    /** A ProviderInstance id; omitted = the first configured instance. */
+    defaultProvider?: string;
     /** Selection at creation (CONTEXT.md: Workflow); omitted = the Default Workflow. */
     workflowId?: number;
   }): Project {
@@ -113,7 +114,10 @@ export class Store {
         .run(
           input.name,
           input.ticketPrefix ?? "TRK",
-          input.defaultProvider ?? "claude-code",
+          // The list may be empty (fresh install, nothing added yet): fall
+          // back to the classic driver name as an inert placeholder — the
+          // promote gate is what enforces a real, enabled instance.
+          input.defaultProvider ?? this.listProviderInstances()[0]?.id ?? "claude-code",
           workflow.id,
           // An explicit selection at creation is already a decision; only a
           // defaulted project owes the board's one-time ask.
@@ -444,7 +448,7 @@ export class Store {
    * The single deliberate "go" action: Backlog → Todo with the target Repo
    * and provider fixed on the Ticket (one Ticket = one branch = one PR).
    */
-  promoteTicket(id: number, input: { repoId: number; provider: ProviderName }): TicketWithAcs {
+  promoteTicket(id: number, input: { repoId: number; provider: string }): TicketWithAcs {
     const existing = this.getTicket(id);
     if (!existing) throw new NotFoundError(`ticket ${id} not found`);
     if (existing.state !== "backlog") {
@@ -600,12 +604,18 @@ export class Store {
         .prepare("UPDATE runs SET state = ?, crash_reason = ?, ended_at = ? WHERE id = ?")
         .run(outcome, outcome === "completed" ? null : (reason ?? null), now, runId);
       const run = this.getRun(runId)!;
+      // Orphaned runs don't burn the cap: "orphaned" means the app quit under
+      // the run — a human restarting the tool, not the work failing. With
+      // phase-level resume the replay is cheap, and three dev restarts in a
+      // row must not park a healthy ticket in Human Review.
       const crashCount =
         outcome === "crashed"
           ? Number(
               this.db
                 .prepare(
-                  "SELECT COUNT(*) AS n FROM runs WHERE ticket_id = ? AND state = 'crashed'",
+                  `SELECT COUNT(*) AS n FROM runs
+                   WHERE ticket_id = ? AND state = 'crashed'
+                     AND crash_reason NOT LIKE 'orphaned:%'`,
                 )
                 .get(run.ticketId)!.n,
             )
@@ -684,7 +694,17 @@ export class Store {
       phases: this.listPhaseExecutions(run.id),
       artifacts: this.listArtifacts(run.id),
       gateResults: this.listGateResults(run.id),
+      expectedPhases: this.expectedPhases(run.workflowVersionId),
     };
+  }
+
+  /** The pinned version's agent phases in preview order; [] if it vanished. */
+  private expectedPhases(workflowVersionId: number): string[] {
+    try {
+      return previewPhases(this.getWorkflowGraph(workflowVersionId)).map((node) => node.name);
+    } catch {
+      return [];
+    }
   }
 
   getArtifact(id: number): Artifact | undefined {
@@ -1645,56 +1665,172 @@ export class Store {
   }
 
   /**
-   * App-level provider config (ticket 38). A provider with no row yet reads
-   * as all-defaults rather than as missing, so every adapter can ask for its
-   * config unconditionally and the settings surface always has a row to show.
+   * Provider instances (migration 26): the user-managed provider list. The
+   * seeded defaults (id = driver name) guarantee the list is never empty, so
+   * every settings surface has rows to show and every legacy provider
+   * reference resolves.
    */
-  getProviderConfig(provider: ProviderName): ProviderConfig {
+  getProviderInstance(id: string): ProviderInstance | undefined {
     const row = this.db
-      .prepare("SELECT * FROM provider_config WHERE provider = ?")
-      .get(provider) as Row | undefined;
-    return row === undefined
-      ? { provider, binaryPath: null, model: null, maxBudgetUsd: null, env: {} }
-      : providerConfigFromRow(row);
+      .prepare("SELECT * FROM provider_instances WHERE id = ?")
+      .get(id) as Row | undefined;
+    return row === undefined ? undefined : providerInstanceFromRow(row);
   }
 
-  listProviderConfigs(): ProviderConfig[] {
-    return PROVIDERS.map((provider) => this.getProviderConfig(provider));
+  listProviderInstances(): ProviderInstance[] {
+    const rows = this.db
+      .prepare("SELECT * FROM provider_instances ORDER BY created_at, id")
+      .all() as Row[];
+    return rows.map(providerInstanceFromRow);
+  }
+
+  /**
+   * The id is a slug cut from the display name (fallback: the driver name),
+   * suffixed -2, -3… on collision. Stable once minted — references point at
+   * it — which is why rename edits touch display_name only, never the id.
+   */
+  addProviderInstance(input: {
+    driver: ProviderName;
+    displayName: string;
+  }): ProviderInstance {
+    const displayName = input.displayName.trim();
+    if (displayName === "") throw new ValidationError("displayName is required");
+    const base =
+      displayName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "") || input.driver;
+    let id = base;
+    for (let n = 2; this.getProviderInstance(id) !== undefined; n++) id = `${base}-${n}`;
+    this.db
+      .prepare(
+        "INSERT INTO provider_instances (id, driver, display_name) VALUES (?, ?, ?)",
+      )
+      .run(id, input.driver, displayName);
+    return this.getProviderInstance(id)!;
   }
 
   /**
    * Patch semantics: an omitted field is left alone, an explicit null clears
    * it back to the default. Without that distinction the settings form could
-   * never blank a pinned model once it had been set.
+   * never blank a pinned model once it had been set. id and driver are
+   * immutable — the entry's references and its adapter hang off them.
    */
-  setProviderConfig(
-    provider: ProviderName,
-    patch: Partial<Omit<ProviderConfig, "provider">>,
-  ): ProviderConfig {
-    const current = this.getProviderConfig(provider);
-    const next: ProviderConfig = { ...current, ...patch, provider };
+  setProviderInstance(
+    id: string,
+    patch: Partial<Omit<ProviderInstance, "id" | "driver">>,
+  ): ProviderInstance {
+    const current = this.getProviderInstance(id);
+    if (!current) throw new NotFoundError(`provider instance ${id} not found`);
+    const next: ProviderInstance = { ...current, ...patch, id, driver: current.driver };
     if (next.maxBudgetUsd !== null && !(next.maxBudgetUsd > 0)) {
       throw new ValidationError("maxBudgetUsd must be greater than zero");
     }
+    if (next.displayName.trim() === "") {
+      throw new ValidationError("displayName is required");
+    }
     this.db
       .prepare(
-        `INSERT INTO provider_config (provider, binary_path, model, max_budget_usd, env, updated_at)
-         VALUES (?, ?, ?, ?, ?, datetime('now'))
-         ON CONFLICT(provider) DO UPDATE SET
-           binary_path = excluded.binary_path,
-           model = excluded.model,
-           max_budget_usd = excluded.max_budget_usd,
-           env = excluded.env,
-           updated_at = excluded.updated_at`,
+        `UPDATE provider_instances SET
+           display_name = ?, enabled = ?, binary_path = ?, model = ?,
+           max_budget_usd = ?, env = ?, updated_at = datetime('now')
+         WHERE id = ?`,
       )
       .run(
-        provider,
+        next.displayName.trim(),
+        next.enabled ? 1 : 0,
         next.binaryPath,
         next.model,
         next.maxBudgetUsd,
         JSON.stringify(next.env),
+        id,
       );
-    return this.getProviderConfig(provider);
+    return this.getProviderInstance(id)!;
+  }
+
+  /**
+   * Deletion is refused while anything points at the entry — a dangling
+   * provider reference would crash the next claim. Disable is the "stop
+   * using it but keep history resolvable" path.
+   */
+  deleteProviderInstance(id: string): void {
+    if (!this.getProviderInstance(id)) {
+      throw new NotFoundError(`provider instance ${id} not found`);
+    }
+    const referenced = this.db
+      .prepare(
+        `SELECT (SELECT COUNT(*) FROM projects WHERE default_provider = ?1)
+              + (SELECT COUNT(*) FROM tickets WHERE provider = ?1)
+              + (SELECT COUNT(*) FROM automations WHERE provider = ?1) AS n`,
+      )
+      .get(id) as Row;
+    if (Number(referenced.n) > 0) {
+      throw new ValidationError(
+        `provider instance ${id} is still referenced by a project, ticket, or automation — disable it instead`,
+      );
+    }
+    this.db.prepare("DELETE FROM provider_instances WHERE id = ?").run(id);
+  }
+
+  // -- auth (ADR-0006) ----------------------------------------------------
+  //
+  // One GitHub account per app instance (id CHECK = 1). No audit events:
+  // sign-in is operator identity, not ticket work. The ciphertext is opaque
+  // to the store; GitHubAuth owns encrypt/decrypt via its SecretCipher.
+
+  getAuthAccount(): { user: AuthUser; tokenCiphertext: Uint8Array; plaintextFallback: boolean; scopes: string } | null {
+    const row = this.db.prepare("SELECT * FROM auth_account WHERE id = 1").get() as
+      | Row
+      | undefined;
+    if (row === undefined) return null;
+    return {
+      user: {
+        login: String(row.login),
+        name: row.name === null ? null : String(row.name),
+        email: row.email === null ? null : String(row.email),
+        avatarUrl: row.avatar_url === null ? null : String(row.avatar_url),
+      },
+      tokenCiphertext: row.token_ciphertext as Uint8Array,
+      plaintextFallback: Number(row.token_plaintext_fallback) === 1,
+      scopes: String(row.scopes),
+    };
+  }
+
+  saveAuthAccount(input: {
+    user: AuthUser;
+    tokenCiphertext: Uint8Array;
+    plaintextFallback: boolean;
+    scopes: string;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO auth_account (id, token_ciphertext, token_plaintext_fallback, login, name, email, avatar_url, scopes, created_at, updated_at)
+         VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           token_ciphertext = excluded.token_ciphertext,
+           token_plaintext_fallback = excluded.token_plaintext_fallback,
+           login = excluded.login,
+           name = excluded.name,
+           email = excluded.email,
+           avatar_url = excluded.avatar_url,
+           scopes = excluded.scopes,
+           updated_at = excluded.updated_at`,
+      )
+      .run(
+        input.tokenCiphertext,
+        input.plaintextFallback ? 1 : 0,
+        input.user.login,
+        input.user.name,
+        input.user.email,
+        input.user.avatarUrl,
+        input.scopes,
+        nowIso(),
+        nowIso(),
+      );
+  }
+
+  deleteAuthAccount(): void {
+    this.db.prepare("DELETE FROM auth_account WHERE id = 1").run();
   }
 
   // -- workflow drafts (ticket 47) ---------------------------------------
@@ -1888,6 +2024,74 @@ export class Store {
     };
   }
 
+  /**
+   * The completed-phase credit a fresh Run inherits from its predecessor
+   * (phase-level resume): the latest earlier Run of the same ticket that
+   * crashed on the same pinned workflow version in the same worktree, mapped
+   * node id → declared outcome. Only that exact shape is creditable — a
+   * different version renumbers nodes, a different worktree means the work
+   * isn't on disk, and a completed predecessor means a bounce cycle, which
+   * must re-run every phase against its follow-up criteria.
+   */
+  priorPhaseCredit(run: Run, worktreePath: string): Map<number, string | null> {
+    const credit = new Map<number, string | null>();
+    const prior = this.db
+      .prepare(
+        `SELECT id FROM runs
+         WHERE ticket_id = ? AND id < ? AND state = 'crashed'
+           AND workflow_version_id = ? AND worktree_path = ?
+         ORDER BY id DESC LIMIT 1`,
+      )
+      .get(run.ticketId, run.id, run.workflowVersionId, worktreePath);
+    if (prior === undefined) return credit;
+    for (const phase of this.listPhaseExecutions(Number(prior.id))) {
+      if (phase.state === "completed") credit.set(phase.nodeId, phase.outcome);
+    }
+    return credit;
+  }
+
+  /**
+   * A phase carried over from the prior crashed Run without re-running it
+   * (phase-level resume). The row lands completed with zero duration; the
+   * audit event says "resumed", never "completed" — replaying a phase and
+   * crediting one must stay distinguishable in the trail.
+   */
+  recordResumedPhase(
+    runId: number,
+    node: { id: number; name: string },
+    outcome: string | null,
+  ): PhaseExecution {
+    const run = this.getRun(runId);
+    if (!run) throw new NotFoundError(`run ${runId} not found`);
+    const { execution, ticket, audit } = withTransaction(this.db, () => {
+      const now = nowIso();
+      const result = this.db
+        .prepare(
+          `INSERT INTO phase_executions (run_id, node_id, phase, state, outcome, started_at, ended_at)
+           VALUES (?, ?, ?, 'completed', ?, ?, ?)`,
+        )
+        .run(runId, node.id, node.name, outcome, now, now);
+      const execution = this.getPhaseExecution(Number(result.lastInsertRowid))!;
+      const ticket = this.getTicket(run.ticketId)!;
+      const audit = this.insertAudit({
+        projectId: ticket.projectId,
+        ticketId: ticket.id,
+        actor: "agent",
+        type: "phase.resumed",
+        detail: { runId, phase: node.name, ...(outcome === null ? {} : { outcome }) },
+      });
+      return { execution, ticket, audit };
+    });
+    this.bus.emit("audit.appended", audit);
+    this.bus.emit("run.phase_changed", {
+      runId,
+      ticketId: ticket.id,
+      phase: execution.phase,
+      status: "completed",
+    });
+    return execution;
+  }
+
   startPhase(runId: number, node: { id: number; name: string }): PhaseExecution {
     const run = this.getRun(runId);
     if (!run) throw new NotFoundError(`run ${runId} not found`);
@@ -2053,7 +2257,7 @@ export class Store {
     timeOfDay?: string | null;
     dayOfWeek?: number | null;
     projectId?: number | null;
-    provider?: ProviderName | null;
+    provider?: string | null;
   }): Automation {
     if (input.projectId !== undefined && input.projectId !== null && !this.getProject(input.projectId)) {
       throw new NotFoundError(`project ${input.projectId} not found`);
@@ -2092,7 +2296,7 @@ export class Store {
       timeOfDay: string | null;
       dayOfWeek: number | null;
       projectId: number | null;
-      provider: ProviderName | null;
+      provider: string | null;
       enabled: boolean;
     }>,
   ): Automation {
@@ -2361,7 +2565,7 @@ function auditFromRow(row: Row): AuditEvent {
   };
 }
 
-function providerConfigFromRow(row: Row): ProviderConfig {
+function providerInstanceFromRow(row: Row): ProviderInstance {
   let env: Record<string, string> = {};
   try {
     const parsed: unknown = JSON.parse(String(row.env));
@@ -2373,7 +2577,10 @@ function providerConfigFromRow(row: Row): ProviderConfig {
     // env reads as none, and the next save rewrites it.
   }
   return {
-    provider: String(row.provider) as ProviderName,
+    id: String(row.id),
+    driver: String(row.driver) as ProviderName,
+    displayName: String(row.display_name),
+    enabled: Number(row.enabled) === 1,
     binaryPath: row.binary_path === null ? null : String(row.binary_path),
     model: row.model === null ? null : String(row.model),
     maxBudgetUsd: row.max_budget_usd === null ? null : Number(row.max_budget_usd),

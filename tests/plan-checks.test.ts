@@ -122,7 +122,7 @@ describe("the plan phase's extended contract", () => {
     const github = new FakeGitHub();
     const provider = scriptedProvider(calls, {
       // The first run dies at implement — hollow twice, past the one retry —
-      // after plan registered its checks; the re-claim runs the workflow again.
+      // after plan registered its checks; the re-claim resumes past them.
       sabotage: (phase, attempt) => (phase === "implement" && attempt <= 2 ? false : undefined),
       planChecks: (ctx) => {
         checksSeenAtPlanStart.push(existsSync(path.join(ctx.cwd, "checks", "manifest.json")));
@@ -137,8 +137,13 @@ describe("the plan phase's extended contract", () => {
     expect(runs).toHaveLength(2);
     expect(runs[0].state).toBe("completed");
 
-    // Attempt 1's checks were still in the worktree when attempt 2 planned.
-    expect(checksSeenAtPlanStart).toEqual([false, true]);
+    // Attempt 1's checks were still in the worktree, so attempt 2 credited
+    // the plan phase (phase-level resume) instead of re-planning: the
+    // provider planned exactly once, and the resumed phase re-registered
+    // the persisted manifest onto the new run.
+    expect(checksSeenAtPlanStart).toEqual([false]);
+    const resumedPlan = runs[0].phases.find((p: any) => p.phase === "plan");
+    expect(resumedPlan.state).toBe("completed");
 
     // One registration per AC, updated in place to the winning run.
     const detail = (await api(server, "GET", `/api/tickets/${ticket.id}`)).json;

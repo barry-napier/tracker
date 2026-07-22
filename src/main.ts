@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, session, shell } from "electron";
 import path from "node:path";
 import os from "node:os";
 import * as pty from "node-pty";
@@ -159,6 +159,16 @@ void app
         // scripted until their own slices. Built against the live provider
         // config so a settings edit lands on the next claim.
         providers: appProviders,
+        // Keychain-backed token encryption (ADR-0006); the plaintext-fallback
+        // cipher only ever applies if OS crypto is unavailable at boot.
+        secrets: safeStorage.isEncryptionAvailable()
+          ? {
+              available: true,
+              encrypt: (plaintext: string) => new Uint8Array(safeStorage.encryptString(plaintext)),
+              decrypt: (ciphertext: Uint8Array) =>
+                safeStorage.decryptString(Buffer.from(ciphertext)),
+            }
+          : undefined,
       });
     try {
       server = await boot(Number(process.env.TRACKER_PORT ?? 4400));

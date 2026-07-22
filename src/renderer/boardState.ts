@@ -24,7 +24,9 @@ export function seedAudit(state: BoardState, ticketId: number, events: AuditEven
 }
 
 export function seedRuns(state: BoardState, ticketId: number, runs: RunWithPhases[]): BoardState {
-  const merged = mergeRuns(runs, state.runsByTicket[ticketId] ?? []);
+  // Fetched rows win over cached ones: a phase_changed refetch must replace
+  // the run.created snapshot, whose phase list is already stale.
+  const merged = mergeRuns(state.runsByTicket[ticketId] ?? [], runs);
   return { ...state, runsByTicket: { ...state.runsByTicket, [ticketId]: merged } };
 }
 
