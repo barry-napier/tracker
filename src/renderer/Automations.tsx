@@ -208,7 +208,7 @@ export function Automations() {
             </p>
             <button
               type="button"
-              className="auto-hero-cta"
+              className="btn btn-primary auto-hero-cta"
               onClick={() => setDialog(BLANK_SEED)}
             >
               Start automating
@@ -301,6 +301,7 @@ export function Automations() {
                       <button
                         type="button"
                         role="menuitem"
+                        className="menu-item"
                         onClick={() => setDialog(seedFromAutomation(row))}
                       >
                         Edit
@@ -308,6 +309,7 @@ export function Automations() {
                       <button
                         type="button"
                         role="menuitem"
+                        className="menu-item"
                         onClick={() =>
                           void act(() =>
                             apiPatch(`/api/automations/${row.id}`, { enabled: !row.enabled }),
@@ -319,7 +321,7 @@ export function Automations() {
                       <button
                         type="button"
                         role="menuitem"
-                        className="danger"
+                        className="menu-item danger"
                         onClick={() => setDeleting(row)}
                       >
                         Delete
@@ -416,7 +418,7 @@ export function Automations() {
             <div className="formrow">
               <button
                 type="button"
-                className="danger"
+                className="btn btn-primary"
                 onClick={() => {
                   const template = deletingTemplate;
                   setDeletingTemplate(null);
@@ -425,7 +427,7 @@ export function Automations() {
               >
                 Delete
               </button>
-              <button type="button" onClick={() => setDeletingTemplate(null)}>
+              <button type="button" className="btn" onClick={() => setDeletingTemplate(null)}>
                 Cancel
               </button>
             </div>
@@ -454,7 +456,7 @@ export function Automations() {
             <div className="formrow">
               <button
                 type="button"
-                className="danger"
+                className="btn btn-primary"
                 onClick={() => {
                   const row = deleting;
                   setDeleting(null);
@@ -463,7 +465,7 @@ export function Automations() {
               >
                 Delete
               </button>
-              <button type="button" onClick={() => setDeleting(null)}>
+              <button type="button" className="btn" onClick={() => setDeleting(null)}>
                 Cancel
               </button>
             </div>
@@ -648,12 +650,12 @@ function LaunchDialog({
             {creating ? "Use Run now on the card to test your prompt right away." : "Changes apply from the next firing."}
           </span>
           <div className="formrow">
-            <button type="button" onClick={onCancel}>
+            <button type="button" className="btn" onClick={onCancel}>
               Cancel
             </button>
             <button
               type="button"
-              className="auto-create"
+              className="btn btn-primary"
               disabled={busy || form.title.trim() === "" || form.prompt.trim() === ""}
               onClick={() => void submit()}
             >
@@ -751,12 +753,12 @@ function TemplateDialog({
               : "Automations already created from it keep their prompts."}
           </span>
           <div className="formrow">
-            <button type="button" onClick={onCancel}>
+            <button type="button" className="btn" onClick={onCancel}>
               Cancel
             </button>
             <button
               type="button"
-              className="auto-create"
+              className="btn btn-primary"
               disabled={busy || form.title.trim() === "" || form.prompt.trim() === ""}
               onClick={() => void submit()}
             >

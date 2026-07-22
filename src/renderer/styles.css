@@ -4450,19 +4450,8 @@ button.wfc-pill.label { cursor: pointer; }
 
 .auto-hero-cta {
   margin-top: 0.75rem;
-  background: var(--contrast-bg);
-  color: var(--contrast-fg);
-  border: none;
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-button);
-  font: inherit;
   font-weight: 600;
   padding: 0.55rem 1.2rem;
-  cursor: pointer;
-}
-
-.auto-hero-cta:hover {
-  opacity: 0.9;
 }
 
 .auto-subline {
